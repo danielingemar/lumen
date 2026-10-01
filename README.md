@@ -34,7 +34,9 @@ If the VM cannot connect: use an IP the VM can reach (bridged network = your LAN
 Rocky Linux / AlmaLinux / RHEL 9, or any host that already has Docker. 2+ vCPU, 6 GB RAM minimum (8 GB+ recommended), 20 GB+ local SSD. `install.sh` and `dev.sh` also set `vm.max_map_count=262144` themselves if you skip the two lines above, so they are safe to run either way.
 
 ```bash
-sudo firewall-cmd --add-port=4318/tcp --permanent && sudo firewall-cmd --reload
+sudo firewall-cmd --add-port=4318/tcp --permanent
+sudo firewall-cmd --add-port=443/tcp --permanent
+sudo firewall-cmd --reload
 sudo sysctl -w vm.max_map_count=262144
 echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-lumen.conf
 sudo ./install.sh --public-url https://lumen.example.com --tenant main --with-agent
