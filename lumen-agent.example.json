@@ -1,0 +1,23 @@
+{
+  "url": "http://localhost:4318",
+  "api_key": "YOUR_LUMEN_API_KEY",
+  "interval_seconds": 15,
+  "host_metrics": true,
+  "self_metrics": true,
+  "metrics_listen": "127.0.0.1:9464",
+  "scrape": [
+    { "url": "http://localhost:9100/metrics", "service": "node-exporter" }
+  ],
+  "logs": [
+    { "paths": ["/var/log/*.log"], "service": "system-logs", "format": "text" },
+    { "paths": ["/var/lib/docker/containers/*/*-json.log"], "service": "docker", "format": "docker" }
+  ],
+  "nextcloud": [
+    {
+      "url": "https://cloud.example.com",
+      "service": "nextcloud-main",
+      "token": "SERVERINFO_TOKEN",
+      "log_path": "/var/www/html/data/nextcloud.log"
+    }
+  ]
+}

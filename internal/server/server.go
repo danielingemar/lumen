@@ -1,0 +1,216 @@
+// Package server exposes the OTLP/HTTP ingest endpoints and the query API.
+package server
+
+import (
+	"compress/gzip"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/danielingemar/lumen/internal/auth"
+	"github.com/danielingemar/lumen/internal/backup"
+	"github.com/danielingemar/lumen/internal/dashboards"
+	"github.com/danielingemar/lumen/internal/edition"
+	"github.com/danielingemar/lumen/internal/install"
+	"github.com/danielingemar/lumen/internal/model"
+	"github.com/danielingemar/lumen/internal/otlp"
+	"github.com/danielingemar/lumen/internal/perm"
+	"github.com/danielingemar/lumen/internal/registry"
+	"github.com/danielingemar/lumen/internal/store"
+	"github.com/danielingemar/lumen/internal/ui"
+)
+
+const maxBody = 16 << 20 // 16 MiB after decompression
+
+type Server struct {
+	dash               *dashboards.Service
+	reg                *registry.Service
+	bk                 *backup.Manager
+	bkInfo             BackupInfo
+	snaps              snapCache
+	a                  *auth.Auth
+	publicURL, distDir string
+	installOn          bool
+	store              store.Store
+	auth               edition.Authenticator
+	log                *slog.Logger
+}
+
+func New(s store.Store, a edition.Authenticator, l *slog.Logger) *Server {
+	return &Server{store: s, auth: a, log: l}
+}
+
+// WithInstall enables /install/agent.{sh,ps1} and /download/{file} for one-command agent enrolment.
+func (s *Server) WithInstall(publicURL, distDir string) *Server {
+	s.publicURL, s.distDir, s.installOn = publicURL, distDir, true
+	return s
+}
+
+type ctxKey struct{}
+
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("GET /{$}", ui.Handler())
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		if err := s.store.Ping(r.Context()); err != nil {
+			http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		w.Write([]byte("ok"))
+	})
+	if s.installOn {
+		mux.HandleFunc("GET /install/agent.sh", install.Script("agent.sh", "text/x-shellscript; charset=utf-8", s.publicURL))
+		mux.HandleFunc("GET /install/agent-docker.sh", install.Script("agent-docker.sh", "text/x-shellscript; charset=utf-8", s.publicURL))
+		mux.HandleFunc("GET /install/agent.ps1", install.Script("agent.ps1", "text/plain; charset=utf-8", s.publicURL))
+		mux.HandleFunc("GET /download/{name}", install.Download(s.distDir))
+	}
+	s.authRoutes(mux)
+	s.dashRoutes(mux)
+	s.userRoutes(mux)
+	s.regRoutes(mux)
+	s.backupRoutes(mux)
+	mux.Handle("POST /v1/traces", s.authed("ingest", s.ingestTraces))
+	mux.Handle("POST /v1/logs", s.authed("ingest", s.ingestLogs))
+	mux.Handle("POST /v1/metrics", s.authed("ingest", s.ingestMetrics))
+	mux.Handle("GET /api/v1/traces", s.need(perm.Traces, false, s.listTraces))
+	mux.Handle("GET /api/v1/traces/{id}", s.need(perm.Traces, false, s.getTrace))
+	mux.Handle("GET /api/v1/logs", s.need(perm.Logs, false, s.listLogs))
+	mux.Handle("GET /api/v1/services", s.needAny([]string{perm.Traces, perm.Logs, perm.Metrics}, s.services))
+	mux.Handle("GET /api/v1/metrics/names", s.need(perm.Metrics, false, s.metricNames))
+	mux.Handle("GET /api/v1/metrics/labels", s.need(perm.Metrics, false, s.metricLabels))
+	mux.Handle("GET /api/v1/series", s.needAny([]string{perm.Traces, perm.Logs, perm.Metrics}, s.series))
+	return mux
+}
+
+func readBody(w http.ResponseWriter, r *http.Request) ([]byte, int, error) {
+	if ct := r.Header.Get("Content-Type"); ct != "" && !strings.HasPrefix(ct, "application/json") {
+		return nil, http.StatusUnsupportedMediaType,
+			errors.New("only OTLP/HTTP JSON is supported; set the exporter encoding to json")
+	}
+	var src io.Reader = http.MaxBytesReader(w, r.Body, maxBody)
+	if r.Header.Get("Content-Encoding") == "gzip" {
+		gz, err := gzip.NewReader(src)
+		if err != nil {
+			return nil, http.StatusBadRequest, errors.New("invalid gzip body")
+		}
+		defer gz.Close()
+		src = io.LimitReader(gz, maxBody)
+	}
+	b, err := io.ReadAll(src)
+	if err != nil {
+		return nil, http.StatusRequestEntityTooLarge, errors.New("request body too large")
+	}
+	return b, 0, nil
+}
+
+func (s *Server) ingest(w http.ResponseWriter, r *http.Request, do func(ctx context.Context, body []byte) error) {
+	body, code, err := readBody(w, r)
+	if err != nil {
+		writeErr(w, code, err.Error())
+		return
+	}
+	if err := do(r.Context(), body); err != nil {
+		var de *decodeError
+		if errors.As(err, &de) {
+			writeErr(w, http.StatusBadRequest, "invalid OTLP JSON: "+de.Error())
+			return
+		}
+		s.log.Error("ingest failed", "err", err)
+		writeErr(w, http.StatusServiceUnavailable, "storage error, retry later")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte("{}")) // empty ExportServiceResponse
+}
+
+type decodeError struct{ error }
+
+func (s *Server) ingestTraces(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	s.ingest(w, r, func(ctx context.Context, b []byte) error {
+		rows, err := otlp.DecodeTraces(b, id.Tenant)
+		if err != nil {
+			return &decodeError{err}
+		}
+		return s.store.InsertSpans(ctx, rows)
+	})
+}
+
+func (s *Server) ingestLogs(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	s.ingest(w, r, func(ctx context.Context, b []byte) error {
+		rows, err := otlp.DecodeLogs(b, id.Tenant)
+		if err != nil {
+			return &decodeError{err}
+		}
+		return s.store.InsertLogs(ctx, rows)
+	})
+}
+
+func (s *Server) ingestMetrics(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	s.ingest(w, r, func(ctx context.Context, b []byte) error {
+		rows, err := otlp.DecodeMetrics(b, id.Tenant)
+		if err != nil {
+			return &decodeError{err}
+		}
+		return s.store.InsertMetrics(ctx, rows)
+	})
+}
+
+// ---- query API ----
+
+func parseTime(v string) time.Time {
+	if v == "" {
+		return time.Time{}
+	}
+	if t, err := time.Parse(time.RFC3339, v); err == nil {
+		return t
+	}
+	return time.Time{}
+}
+
+func (s *Server) listTraces(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	q := r.URL.Query()
+	minMs, _ := strconv.ParseUint(q.Get("min_duration_ms"), 10, 64)
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	rows, err := s.store.QueryTraces(r.Context(), id.Tenant, model.TraceQuery{
+		Service: q.Get("service"), MinDurationMs: minMs, ErrorsOnly: q.Get("errors") == "true",
+		From: parseTime(q.Get("from")), To: parseTime(q.Get("to")), Limit: limit,
+	})
+	s.respond(w, rows, err)
+}
+
+func (s *Server) getTrace(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	rows, err := s.store.GetTrace(r.Context(), id.Tenant, r.PathValue("id"))
+	s.respond(w, rows, err)
+}
+
+func (s *Server) listLogs(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	rows, err := s.store.QueryLogs(r.Context(), id.Tenant, model.LogQuery{
+		Service: q.Get("service"), Severity: q.Get("severity"), Contains: q.Get("q"),
+		TraceID: q.Get("trace_id"), From: parseTime(q.Get("from")), To: parseTime(q.Get("to")), Limit: limit,
+	})
+	s.respond(w, rows, err)
+}
+
+func (s *Server) respond(w http.ResponseWriter, rows []json.RawMessage, err error) {
+	if err != nil {
+		s.log.Error("query failed", "err", err)
+		writeErr(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"data": rows})
+}
+
+func writeErr(w http.ResponseWriter, code int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}

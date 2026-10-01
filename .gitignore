@@ -1,0 +1,8 @@
+bin/
+dist/
+.env
+*.env
+lumen-agent.json
+*.exe
+*.test
+.DS_Store

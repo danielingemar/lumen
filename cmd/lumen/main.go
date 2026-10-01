@@ -1,0 +1,106 @@
+package main
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/danielingemar/lumen/internal/auth"
+	"github.com/danielingemar/lumen/internal/backup"
+	"github.com/danielingemar/lumen/internal/config"
+	"github.com/danielingemar/lumen/internal/dashboards"
+	"github.com/danielingemar/lumen/internal/edition"
+	"github.com/danielingemar/lumen/internal/install"
+	"github.com/danielingemar/lumen/internal/registry"
+	"github.com/danielingemar/lumen/internal/secretbox"
+	"github.com/danielingemar/lumen/internal/server"
+	"github.com/danielingemar/lumen/internal/store"
+)
+
+func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "users" || os.Args[1] == "keys") {
+		os.Exit(runCLI(os.Args[1:]))
+	}
+	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	cfg := config.Load()
+
+	if err := install.ValidatePublicURL(cfg.PublicURL); err != nil {
+		log.Error("invalid configuration", "err", err)
+		os.Exit(1)
+	}
+	ch := store.NewClickHouse(cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if err := ch.Migrate(ctx); err != nil {
+		log.Error("clickhouse migration failed", "err", err)
+		os.Exit(1)
+	}
+	store, backend, err := openStore(cfg, log)
+	if err != nil {
+		log.Error("cannot open the user/key/dashboard store", "err", err)
+		os.Exit(1)
+	}
+	log.Info("document store ready", "backend", backend.Name())
+	if cfg.AdminUser != "" && cfg.AdminPassword != "" {
+		if _, exists := store.GetUser(cfg.AdminUser); !exists {
+			if err := store.CreateUser(cfg.AdminUser, cfg.AdminTenant, cfg.AdminPassword); err != nil {
+				log.Error("could not create the admin user", "err", err)
+				os.Exit(1)
+			}
+			log.Info("created admin user", "user", cfg.AdminUser, "tenant", cfg.AdminTenant)
+		}
+	}
+	switch {
+	case cfg.DevMode:
+		log.Warn("LUMEN_DEV_MODE=true: NO AUTHENTICATION, single tenant 'default'. Never use this on a network you do not control.")
+	case !store.HasCredentials() && len(cfg.APIKeys) == 0:
+		log.Warn("no users or API keys exist: nobody can log in. Set LUMEN_ADMIN_USER/LUMEN_ADMIN_PASSWORD, or run: lumen users add NAME --tenant TENANT")
+	}
+	authn := auth.New(store, cfg.APIKeys, cfg.DevMode)
+	secret := cfg.SecretKey
+	if secret == "" {
+		secret = string(store.Secret())
+		log.Warn("LUMEN_SECRET_KEY is not set: stored Nextcloud credentials are encrypted with the session secret instead. Set LUMEN_SECRET_KEY (deploy/gen-env.sh does).")
+	}
+	box, err := secretbox.New(secret)
+	if err != nil {
+		log.Error("secret key", "err", err)
+		os.Exit(1)
+	}
+
+	app := server.New(ch, authn, log).WithAuth(authn).WithDashboards(dashboards.New(backend)).WithRegistry(registry.New(backend, box)).WithInstall(cfg.PublicURL, cfg.DistDir)
+	bg, stopBg := context.WithCancel(context.Background())
+	defer stopBg()
+	if cfg.BackupDir != "" {
+		bk := &backup.Manager{Dir: cfg.BackupDir, Src: ch, Docs: backend, DataDays: cfg.RetentionDays, KeepDays: cfg.BackupRetentionDays, Log: log}
+		app.WithBackups(bk, server.BackupInfo{DataDays: cfg.RetentionDays, KeepDays: cfg.BackupRetentionDays})
+		go bk.Run(bg)
+		log.Info("daily backup of expiring data enabled", "dir", cfg.BackupDir, "live_days", cfg.RetentionDays, "backup_days", cfg.BackupRetentionDays)
+	} else {
+		log.Warn("LUMEN_BACKUP_DIR is empty: data is deleted after the retention period without a backup", "retention_days", cfg.RetentionDays)
+	}
+	srv := &http.Server{
+		Addr:              cfg.Addr,
+		Handler:           app.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	go func() {
+		log.Info("lumen started", "addr", cfg.Addr, "edition", edition.Name)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error("server error", "err", err)
+			os.Exit(1)
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	<-stop
+	stopBg()
+	shutdown, done := context.WithTimeout(context.Background(), 15*time.Second)
+	defer done()
+	srv.Shutdown(shutdown)
+}
