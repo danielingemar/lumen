@@ -88,4 +88,6 @@ jobs:
             [ "$(git ls-files -s "$f" | cut -c1-6)" = 100755 ] || { echo "$f must be executable in git (git update-index --chmod=+x $f)"; exit 1; }
           done
       - name: Compose file is valid
-        run: python3 -c "import yaml; yaml.safe_load(open('deploy/docker-compose.yml'))"
+        run: |
+          pip install --quiet pyyaml
+          python3 -c "import yaml; yaml.safe_load(open('deploy/docker-compose.yml')); print('compose file parses')"
