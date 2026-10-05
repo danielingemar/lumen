@@ -6,6 +6,7 @@ versions follow [Semantic Versioning](https://semver.org/) once a first release 
 ## [Unreleased]
 
 ### Added
+- **A page per Nextcloud instance** (click it on Instances): status and reason, Nextcloud/PHP/database versions, usage (users, files, shares, storage, database, free space, active users), performance and availability charts and the instance's own log. It also tells when only availability is monitored (no serverinfo token) or when the token is wrong.
 - **Users and groups** with Admin, User (read-only) and custom groups (none / read / write per area), enforced by the server.
 - **Hosts** and **Instances** pages: see every machine and Nextcloud instance, set log paths, watched services and fix a mistyped
   Nextcloud URL in the browser. Agents fetch their configuration from the server every minute.

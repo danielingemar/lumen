@@ -12,7 +12,7 @@ import (
 )
 
 // Metric names the status view needs.
-var Names = []string{"lumen_agent_info", "lumen_agent_log_paths_rejected", "nextcloud_up", "system_service_up", "container_up"}
+var Names = []string{"lumen_agent_info", "lumen_agent_log_paths_rejected", "nextcloud_up", "nextcloud_info", "nextcloud_users", "system_service_up", "container_up"}
 
 const (
 	Fresh      = 120 * time.Second // a sample newer than this counts as "reporting now"
@@ -51,11 +51,13 @@ type Host struct {
 
 type Instance struct {
 	registry.InstanceOut
-	Status   string `json:"status"` // up | down | pending
-	Reason   string `json:"reason,omitempty"`
-	LastSeen int64  `json:"last_seen"`
-	Managed  bool   `json:"managed"` // false: reports to us but was set up with agent flags, not in the UI
-	Label    string `json:"label,omitempty"`
+	Status   string            `json:"status"` // up | down | pending
+	Reason   string            `json:"reason,omitempty"`
+	LastSeen int64             `json:"last_seen"`
+	Managed  bool              `json:"managed"` // false: reports to us but was set up with agent flags, not in the UI
+	Label    string            `json:"label,omitempty"`
+	Info     map[string]string `json:"info,omitempty"` // Nextcloud, PHP and database versions, as reported by the agent
+	Details  bool              `json:"details"`        // users, files, storage... are reported (a serverinfo token or login works)
 }
 
 type Summary struct {
@@ -173,6 +175,34 @@ func Compute(now time.Time, rows []model.Latest, configured map[string]registry.
 			}
 		}
 	}
+	// versions (nextcloud_info labels) and whether serverinfo works (nextcloud_users is reported) per instance
+	infoRow, detailRow := map[string]model.Latest{}, map[string]model.Latest{}
+	for _, r := range rows {
+		k := r.Attrs["instance"]
+		switch r.Name {
+		case "nextcloud_info":
+			if k != "" && r.T >= infoRow[k].T {
+				infoRow[k] = r
+			}
+		case "nextcloud_users":
+			if k != "" && r.T >= detailRow[k].T {
+				detailRow[k] = r
+			}
+		}
+	}
+	decorate := func(in *Instance, key string) {
+		if r, ok := infoRow[key]; ok {
+			in.Info = map[string]string{}
+			for _, f := range []string{"version", "php_version", "db_type", "db_version"} {
+				if v := r.Attrs[f]; v != "" && len(v) <= 60 {
+					in.Info[f] = v
+				}
+			}
+		}
+		if r, ok := detailRow[key]; ok && age(r.T) <= Fresh {
+			in.Details = true
+		}
+	}
 	seen := map[string]bool{}
 	add := func(in Instance) {
 		s.Instances = append(s.Instances, in)
@@ -186,6 +216,7 @@ func Compute(now time.Time, rows []model.Latest, configured map[string]registry.
 	for _, i := range instances {
 		o := i.Out()
 		in := Instance{InstanceOut: o, Managed: true, Status: "down", Reason: "not reporting: is the agent on " + i.Host + " running?"}
+		decorate(&in, o.Key)
 		if r, ok := byKey[o.Key]; ok {
 			seen[o.Key] = true
 			in.LastSeen = r.T
@@ -212,6 +243,7 @@ func Compute(now time.Time, rows []model.Latest, configured map[string]registry.
 			continue
 		}
 		in := Instance{InstanceOut: registry.InstanceOut{Name: r.Service, URL: "", Host: r.Attrs["host"], Key: k}, Managed: false, LastSeen: r.T, Status: "down"}
+		decorate(&in, k)
 		switch {
 		case age(r.T) > Fresh:
 			in.Reason = "stopped reporting"

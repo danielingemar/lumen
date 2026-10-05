@@ -68,6 +68,8 @@ pre.code{background:var(--bg);border:1px solid var(--line);border-radius:8px;pad
 #arcbar{background:#fff7ed;color:#9a3412;padding:8px 24px;border-bottom:1px solid #fed7aa;font-size:13px;display:flex;gap:10px;align-items:center}[data-theme=dark] #arcbar{background:#3a2412;color:#fdba74;border-color:#5b3416}
 .matrix{display:grid;grid-template-columns:1fr repeat(3,64px);gap:0 8px;align-items:center}.matrix .h{color:var(--mut);font-size:12px;text-align:center;padding-bottom:4px}.matrix .a{padding:7px 0;border-bottom:1px solid var(--line)}.matrix .a small{display:block;color:var(--mut)}.matrix .c{text-align:center;border-bottom:1px solid var(--line);padding:7px 0}
 .chip{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;border:1px solid var(--line);margin:2px 4px 2px 0;cursor:pointer;background:var(--panel)}.chip:hover{border-color:var(--acc);background:var(--acc2)}.chip.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+
+.errbox{background:#fef2f2;color:#991b1b;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;margin-bottom:12px}[data-theme=dark] .errbox{background:#3b1414;color:#fecaca;border-color:#7f1d1d}
 .warnbox{background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;margin-bottom:12px}[data-theme=dark] .warnbox{background:#33270d;color:#fcd34d;border-color:#5c4513}
 textarea{width:100%;min-height:84px;font-family:ui-monospace,monospace;font-size:12px}
 .two{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;align-items:start}
@@ -489,11 +491,11 @@ function shell(){
 
 // ---- router ----
 const ROUTES=[[/^#\/$/,homePage],[/^#\/dashboards$/,dashboardsPage,'dashboards'],[/^#\/d\/([\w-]+)$/,dashboardPage,'dashboards'],[/^#\/traces$/,tracesPage,'traces'],[/^#\/t\/([\w-]+)$/,tracePage,'traces'],[/^#\/logs$/,logsPage,'logs'],[/^#\/metrics$/,metricsPage,'metrics'],
- [/^#\/hosts$/,hostsPage,'hosts'],[/^#\/h\/([^\/?]+)$/,hostPage,'hosts'],[/^#\/instances$/,instancesPage,'hosts'],[/^#\/users$/,usersPage,'users'],[/^#\/backups$/,backupsPage,'backups'],[/^#\/settings$/,settingsPage,'settings'],[/^#\/machines$/,machinesPage],[/^#\/account$/,accountPage]];
+ [/^#\/hosts$/,hostsPage,'hosts'],[/^#\/h\/([^\/?]+)$/,hostPage,'hosts'],[/^#\/instances$/,instancesPage,'hosts'],[/^#\/n\/([^\/?]+)$/,instancePage,'hosts'],[/^#\/users$/,usersPage,'users'],[/^#\/backups$/,backupsPage,'backups'],[/^#\/settings$/,settingsPage,'settings'],[/^#\/machines$/,machinesPage],[/^#\/account$/,accountPage]];
 async function route(){
   if(!S.me)return;clearTimers();S.onRangeChange=null;
   const h=location.hash||'#/';
-  $$('#side nav a').forEach(a=>a.classList.toggle('on',a.dataset.h===h||(a.dataset.h!=='#/'&&h.startsWith(a.dataset.h))||(a.dataset.h==='#/dashboards'&&h.startsWith('#/d/'))||(a.dataset.h==='#/traces'&&h.startsWith('#/t/'))||(a.dataset.h==='#/hosts'&&h.startsWith('#/h/'))));
+  $$('#side nav a').forEach(a=>a.classList.toggle('on',a.dataset.h===h||(a.dataset.h!=='#/'&&h.startsWith(a.dataset.h))||(a.dataset.h==='#/dashboards'&&h.startsWith('#/d/'))||(a.dataset.h==='#/traces'&&h.startsWith('#/t/'))||(a.dataset.h==='#/hosts'&&h.startsWith('#/h/'))||(a.dataset.h==='#/instances'&&h.startsWith('#/n/'))));
   for(const[re,fn,area]of ROUTES){const m=re.exec(h);if(m){$('#view').replaceChildren();if(area&&!can(area)){setTitle('No access');$('#view').replaceChildren(el('div',{class:'card empty'},'Your account does not have access to this page. Ask an administrator to change your group.'));return}try{await fn(...m.slice(1))}catch(e){if(e.message!=='Please sign in.')$('#view').replaceChildren(el('div',{class:'msg'},e.message))}return}}
   $('#view').replaceChildren(el('div',{class:'empty'},'Page not found.'));
 }
@@ -794,13 +796,66 @@ async function instancesPage(){
   const del=async i=>{if(!confirm('Remove '+i.name+'? Its history stays, but it is no longer monitored.'))return;try{await api('/api/v1/instances/'+i.id,{},{method:'DELETE'});instancesPage()}catch(e){alert(e.message)}};
   view.replaceChildren(
     el('div',{class:'bar'},el('span',{class:'mut'},'Nextcloud installations that are monitored. Fix a typo here and the agent picks it up within a minute: nothing to change on the machines.'),el('span',{class:'sp'}),w?el('button',{class:'btn',onclick:()=>instanceForm({},hosts,instancesPage)},'+ Add instance'):null),
-    list.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['Status','Name','URL','Checked by','Last report','Problem',''].map(x=>el('th',{},x))),list.map(i=>el('tr',{},
+    list.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['Status','Name','URL','Checked by','Last report','Problem',''].map(x=>el('th',{},x))),list.map(i=>el('tr',{class:'row',title:'Open the details of '+i.name,onclick:()=>{location.hash='#/n/'+encodeURIComponent(i.key)}},
       el('td',{},badge(i)),el('td',{},i.name,i.managed?null:el('span',{class:'pill',title:'Set up with agent flags on the machine, not in this list'},'from agent flags')),
       el('td',{class:'mono'},i.url||el('span',{class:'mut'},i.key)),el('td',{},i.host?hostLabel(i.host):''),el('td',{class:'mut'},i.last_seen?ago2(i.last_seen):'never'),el('td',{class:i.status==='down'?'err':'mut'},i.reason||''),
-      el('td',{style:'white-space:nowrap'},w?(i.managed?[el('button',{class:'btn ghost sm',onclick:()=>instanceForm(i,hosts,instancesPage)},'Edit'),' ',el('button',{class:'btn danger sm',onclick:()=>del(i)},'Remove')]:
-        el('button',{class:'btn ghost sm',title:'Take over management here',onclick:()=>instanceForm({name:i.name,host:i.host},hosts,instancesPage)},'Manage here')):null))))):
+      el('td',{style:'white-space:nowrap'},w?(i.managed?[el('button',{class:'btn ghost sm',onclick:ev=>{ev.stopPropagation();instanceForm(i,hosts,instancesPage)}},'Edit'),' ',el('button',{class:'btn danger sm',onclick:ev=>{ev.stopPropagation();del(i)}},'Remove')]:
+        el('button',{class:'btn ghost sm',title:'Take over management here',onclick:ev=>{ev.stopPropagation();instanceForm({name:i.name,host:i.host},hosts,instancesPage)}},'Manage here')):null))))):
     el('div',{class:'card empty'},'No instances yet.',w?[' ',el('a',{href:'#',onclick:e=>{e.preventDefault();instanceForm({},hosts,instancesPage)}},'Add the first one')]:null),
     list.some(i=>!i.managed)?el('p',{class:'help'},'Rows marked “from agent flags” were set up with --nextcloud on the machine. “Manage here” creates the same instance in this list; then remove the old flags from the agent config on that machine so it is not checked twice.'):null);
+}
+
+// ---- one Nextcloud instance: status, versions, usage, performance and its log ----
+async function instancePage(raw){
+  const key=decodeURIComponent(raw),view=$('#view'),w=can('hosts',true);
+  const r=await api('/api/v1/instances'),i=(r.data||[]).find(x=>x.key===key),hosts=r.hosts||[];S.hn=r.host_names||{};
+  if(!i){setTitle('Instance');view.replaceChildren(el('div',{class:'bar'},el('a',{href:'#/instances'},'← Instances')),el('div',{class:'card empty'},'No Nextcloud instance reports as '+key+'. It may have been removed, or its agent has not reported for a long time.'));return}
+  setTitle(i.name);
+  const info=i.info||{},badge=el('span',{class:'badge '+i.status},i.status==='up'?'UP':i.status==='down'?'DOWN':'STARTING');
+  const del=async()=>{if(!confirm('Remove '+i.name+'? Its history stays, but it is no longer monitored.'))return;try{await api('/api/v1/instances/'+i.id,{},{method:'DELETE'});location.hash='#/instances'}catch(e){alert(e.message)}};
+  const chips=[['Nextcloud',info.version],['PHP',info.php_version],['Database',[info.db_type,info.db_version].filter(Boolean).join(' ')]].filter(x=>x[1]).map(([k,v])=>el('span',{class:'chip',style:'cursor:default'},k+' '+v));
+  const facts=el('div',{class:'bar',style:'gap:14px;flex-wrap:wrap'},badge,
+    i.url?el('a',{href:i.url,target:'_blank',rel:'noopener noreferrer',class:'mono'},i.url):el('span',{class:'mono mut'},i.key),
+    i.host?el('span',{class:'mut'},'checked by ',can('hosts')?el('a',{href:'#/h/'+encodeURIComponent(i.host)},hostLabel(i.host)):hostLabel(i.host)):null,
+    el('span',{class:'mut'},'last report '+(i.last_seen?ago2(i.last_seen):'never')),chips,
+    el('span',{class:'sp'}),
+    w&&i.managed?[el('button',{class:'btn ghost sm',onclick:()=>instanceForm(i,hosts,()=>{instancePage(raw)})},'Edit'),el('button',{class:'btn danger sm',onclick:del},'Remove')]:null,
+    w&&!i.managed?el('button',{class:'btn ghost sm',title:'Create the same instance in this list so it can be edited here',onclick:()=>instanceForm({name:i.name,host:i.host},hosts,()=>{location.hash='#/instances'})},'Manage here'):null);
+  const notes=[];
+  if(i.status==='down')notes.push(el('div',{class:'errbox'},el('b',{},'This instance is down. '),i.reason||''));
+  if(i.status==='pending')notes.push(el('div',{class:'warnbox'},i.reason||'Waiting for the first check.'));
+  if(i.status==='up'&&!i.details)notes.push(el('div',{class:'warnbox'},el('b',{},'Only availability is monitored. '),i.has_token||i.has_password?'The agent reaches Nextcloud, but the serverinfo request fails, so users, files, storage and the rest are missing. Check the token or login (Edit), and that the serverinfo app is enabled: occ app:enable serverinfo.':(i.managed?'Add a serverinfo token (Edit) to also see users, files, storage, shares, apps, database and PHP cache. ':'')+(i.managed?'':'This instance was set up with agent flags on the machine; add --nextcloud-token there, or use Manage here.')));
+  const F=(extra)=>[{k:'instance',v:key}].concat(extra||[]);
+  const m=(title,type,wd,h,metric,agg,o,unit)=>newPanel(title,type,wd,h,M(metric,agg,Object.assign({filters:F(o&&o.f)},o&&o.g?{groupBy:o.g}:{})),unit);
+  const stats=[
+    m('Response time','stat',2,1,'nextcloud_status_response_seconds','last',null,'seconds'),m('Users','stat',2,1,'nextcloud_users','last',null,'none'),
+    m('Files','stat',2,1,'nextcloud_files','last',null,'none'),m('Active users (24 h)','stat',2,1,'nextcloud_active_users','last',{f:[{k:'period',v:'24h'}]},'none'),
+    m('Shares','stat',2,1,'nextcloud_shares','last',{f:[{k:'type',v:'total'}]},'none'),m('Public links','stat',2,1,'nextcloud_shares','last',{f:[{k:'type',v:'link'}]},'none'),
+    m('Database size','stat',2,1,'nextcloud_database_size_bytes','last',null,'bytes'),m('Free data space','stat',2,1,'nextcloud_data_free_bytes','last',null,'bytes'),
+    m('Apps installed','stat',2,1,'nextcloud_apps_installed','last',null,'none'),m('App updates','stat',2,1,'nextcloud_apps_updates_available','last',null,'none'),
+    m('OPcache hit rate','stat',2,1,'nextcloud_php_opcache_hit_rate','last',null,'percent'),m('Maintenance mode','stat',2,1,'nextcloud_maintenance_mode','last',null,'none')];
+  const charts=[
+    m('Availability (1 = up)','line',6,2,'nextcloud_up','min',null,'none'),m('Response time','line',6,2,'nextcloud_status_response_seconds','avg',null,'seconds'),
+    m('Active users','line',6,2,'nextcloud_active_users','avg',{g:'period'},'none'),m('Shares by type','line',6,2,'nextcloud_shares','avg',{g:'type'},'none'),
+    m('Users','line',6,2,'nextcloud_users','avg',null,'none'),m('Files','line',6,2,'nextcloud_files','avg',null,'none'),
+    m('Database size','line',6,2,'nextcloud_database_size_bytes','avg',null,'bytes'),m('Free data space','line',6,2,'nextcloud_data_free_bytes','avg',null,'bytes'),
+    m('PHP OPcache hit rate','line',6,2,'nextcloud_php_opcache_hit_rate','avg',null,'percent'),m('PHP OPcache memory used','line',6,2,'nextcloud_php_opcache_used_bytes','avg',null,'bytes')];
+  const bodies=[],mk=ps=>el('div',{class:'grid'},ps.map(p=>{const b=el('div',{class:'body'});bodies.push([p,b]);return el('div',{class:'panel',style:'--w:'+p.w},el('header',{},el('span',{class:'t'},p.title)),b)}));
+  const perf=can('metrics')?el('div',{},el('h2',{},'Usage and performance'),el('p',{class:'help',style:'margin:-4px 0 10px'},'Charts follow the time range at the top. Users, files, storage and the PHP cache come from the serverinfo app and need a token or login on the instance.'),mk(stats),mk(charts)):el('div',{class:'card empty'},'Your account may not read metrics.');
+  // the instance's own log (the agent ships the file given as "Log file" on the instance, under the instance's name)
+  const logBox=el('div',{});
+  const loadLogs=async()=>{
+    if(!can('logs')){logBox.replaceChildren(el('div',{class:'card empty'},'Your account may not read logs.'));return}
+    const w2=win();
+    try{const rows_=await rows('/api/v1/logs',{from:w2.from,to:w2.to,service:i.name,limit:50});
+      logBox.replaceChildren(rows_.length?el('div',{class:'card',style:'padding:6px 12px'},el('div',{class:'loglines'},rows_.map(l=>el('div',{},el('span',{class:'mut'},String(l.ts).slice(0,23)+' '),el('span',{class:'lvl '+l.severity},l.severity),' ',l.body)))):
+        el('div',{class:'card empty'},'No log lines from '+i.name+' in this range. To see Nextcloud\'s own log here, give the instance a Log file (Edit) such as /var/lib/docker/volumes/…/data/nextcloud.log; it must be under a directory the agent may read.'))}
+    catch(e){logBox.replaceChildren(el('div',{class:'msg'},e.message))}};
+  view.replaceChildren(el('div',{class:'bar'},el('a',{href:'#/instances'},'← Instances')),facts,notes,perf,
+    el('div',{class:'bar',style:'margin-top:18px'},el('h2',{style:'margin:0'},'Log'),el('span',{class:'sp'}),can('logs')?el('a',{class:'btn ghost sm',href:'#/logs'},'Open Logs'):null),logBox);
+  const draw=()=>{const w3=win();bodies.forEach(([p,b])=>loadPanel(p,b,w3));loadLogs()};
+  draw();S.onRangeChange=draw;
+  if(S.refresh)S.timers.push(setInterval(()=>{if(logBox.isConnected)draw()},S.refresh*1000));
 }
 
 // ---- users and groups ----

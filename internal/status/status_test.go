@@ -170,3 +170,47 @@ func TestHostAddresses(t *testing.T) {
 		t.Fatalf("an older agent has no address: %+v", by["old1"])
 	}
 }
+
+func TestInstanceVersionsAndDetails(t *testing.T) {
+	reg := []registry.Instance{
+		inst("full", "https://full.example.com", "h1", now.Add(-time.Hour)),
+		inst("basic", "https://basic.example.com", "h1", now.Add(-time.Hour)),
+		inst("stale", "https://stale.example.com", "h1", now.Add(-time.Hour)),
+	}
+	rows := []model.Latest{
+		row("nextcloud_up", 1, 5, map[string]string{"instance": "full.example.com", "host": "h1"}),
+		row("nextcloud_info", 1, 5, map[string]string{"instance": "full.example.com", "host": "h1", "version": "34.0.1", "php_version": "8.3.9", "db_type": "pgsql", "db_version": "17.2", "junk": "x"}),
+		row("nextcloud_users", 1, 5, map[string]string{"instance": "full.example.com", "host": "h1"}),
+		// only availability is monitored (no token): status.php works, serverinfo does not
+		row("nextcloud_up", 1, 5, map[string]string{"instance": "basic.example.com", "host": "h1"}),
+		row("nextcloud_info", 1, 5, map[string]string{"instance": "basic.example.com", "host": "h1", "version": "33.0.0"}),
+		// the version before an upgrade must not win over the newer report
+		row("nextcloud_info", 1, 700, map[string]string{"instance": "full.example.com", "host": "h1", "version": "33.9.9"}),
+		// serverinfo reported once, long ago: not "details" any more
+		row("nextcloud_up", 1, 5, map[string]string{"instance": "stale.example.com", "host": "h1"}),
+		row("nextcloud_users", 1, 900, map[string]string{"instance": "stale.example.com", "host": "h1"}),
+		// unmanaged instance (agent flags) also gets its versions
+		{Name: "nextcloud_up", Service: "flags", Attrs: map[string]string{"instance": "flags.example.com", "host": "h2"}, Value: 1, T: now.Unix() - 5},
+		{Name: "nextcloud_info", Service: "flags", Attrs: map[string]string{"instance": "flags.example.com", "host": "h2", "version": "32.0.1"}, Value: 1, T: now.Unix() - 5},
+	}
+	s := Compute(now, rows, nil, reg)
+	got := map[string]Instance{}
+	for _, i := range s.Instances {
+		got[i.Name] = i
+	}
+	if g := got["full"]; !g.Details || g.Info["version"] != "34.0.1" || g.Info["php_version"] != "8.3.9" || g.Info["db_type"] != "pgsql" || g.Info["db_version"] != "17.2" {
+		t.Fatalf("full: %+v", g)
+	}
+	if _, ok := got["full"].Info["junk"]; ok {
+		t.Fatal("only the known version labels are passed on")
+	}
+	if g := got["basic"]; g.Details || g.Info["version"] != "33.0.0" {
+		t.Fatalf("an instance without serverinfo has a version but no details: %+v", g)
+	}
+	if got["stale"].Details || got["stale"].Info != nil {
+		t.Fatalf("stale: %+v", got["stale"])
+	}
+	if g := got["flags"]; g.Info["version"] != "32.0.1" || g.Managed {
+		t.Fatalf("unmanaged instance: %+v", g)
+	}
+}
