@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then echo "These files are not gofmt-formatted:"; echo "$out"; exit 1; fi
+      - name: go vet
+        run: go vet ./...
+      - name: Tests (with race detector)
+        run: go test -race -count=1 ./...
+      - name: Build server and agent
+        run: |
+          go build ./cmd/lumen ./cmd/lumen-agent
+          go build -tags enterprise -o /dev/null ./cmd/lumen
+
+  agent-cross-build:
+    name: Agent builds for ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: linux,   goarch: amd64 }
+          - { goos: linux,   goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: darwin,  goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o /dev/null ./cmd/lumen-agent
+
+  sql:
+    name: SQL against a real ClickHouse engine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install chdb
+      - run: LUMEN_DUMP_SQL=/tmp/sql.json go test -count=1 ./internal/store -run Dump
+      - run: python3 scripts/test-sql.py /tmp/sql.json
+
+  scripts:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check
+        run: |
+          for f in $(git ls-files '*.sh'); do
+            case "$f" in
+              internal/install/agent.sh|internal/install/agent-docker.sh) sh -n "$f" ;;
+              *) bash -n "$f" ;;
+            esac
+            echo "ok $f"
+          done
+      - name: Installers keep an existing address and settings
+        run: bash scripts/test-installers.sh
+      - name: Executable bits
+        run: |
+          for f in dev.sh install.sh deploy/gen-env.sh deploy/install-rhel-family.sh deploy/preflight.sh scripts/set-module.sh scripts/test-sql.py scripts/test-installers.sh; do
+            [ "$(git ls-files -s "$f" | cut -c1-6)" = 100755 ] || { echo "$f must be executable in git (git update-index --chmod=+x $f)"; exit 1; }
+          done
+      - name: Compose file is valid
+        run: python3 -c "import yaml; yaml.safe_load(open('deploy/docker-compose.yml'))"

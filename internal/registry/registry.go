@@ -38,12 +38,17 @@ func invalid(f string, a ...any) error { return fmt.Errorf("%w: %s", ErrInvalid,
 type HostConfig struct {
 	Tenant        string    `json:"tenant,omitempty"`
 	Host          string    `json:"host"`
+	DisplayName   string    `json:"display_name"`   // what the UI shows instead of the machine's own name; empty = the real name
 	LogPaths      []string  `json:"log_paths"`      // files or globs to ship, e.g. /var/log/nginx/*.log
 	DockerLogs    bool      `json:"docker_logs"`    // ship the logs of all Docker containers
 	Systemd       bool      `json:"systemd"`        // report systemd services
 	Containers    bool      `json:"containers"`     // report Docker containers
 	WatchServices []string  `json:"watch_services"` // services that must run: reported as down even when stopped
 	Updated       time.Time `json:"updated,omitempty"`
+	// Removed hides the host from lists until it reports again after RemovedAt (a removed machine whose agent still
+	// runs would otherwise just come back; stop the agent first).
+	Removed   bool      `json:"removed,omitempty"`
+	RemovedAt time.Time `json:"removed_at,omitempty"`
 }
 
 func DefaultHost(host string) HostConfig {
@@ -199,10 +204,37 @@ func (s *Service) PutHost(tenant string, in HostConfig) (HostConfig, error) {
 	if in.WatchServices, err = cleanList(in.WatchServices, 100, 100, "service"); err != nil {
 		return HostConfig{}, err
 	}
+	in.DisplayName = strings.TrimSpace(in.DisplayName)
+	if len(in.DisplayName) > 60 || strings.ContainsAny(in.DisplayName, "\r\n\x00\t") {
+		return HostConfig{}, invalid("the display name must be at most 60 characters on one line")
+	}
 	in.Tenant, in.Updated = tenant, time.Now().UTC()
+	in.Removed, in.RemovedAt = false, time.Time{} // saving settings for a host brings it back
 	c, cancel := ctx()
 	defer cancel()
 	return in, s.b.Put(c, collHosts, hostID(tenant, in.Host), in, "")
+}
+
+// RemoveHost takes a host out of the lists. It is refused while Nextcloud instances are still assigned to it, so
+// nothing is left monitored by a machine that is no longer shown.
+func (s *Service) RemoveHost(tenant, host string) error {
+	if !hostRe.MatchString(host) {
+		return invalid("host name must be letters, digits, . _ - (max 128)")
+	}
+	var names []string
+	for _, i := range s.ListInstances(tenant) {
+		if i.Host == host {
+			names = append(names, i.Name)
+		}
+	}
+	if len(names) > 0 {
+		return invalid("instances are still checked by this host (%s): move or remove them first", strings.Join(names, ", "))
+	}
+	t := DefaultHost(host)
+	t.Tenant, t.Removed, t.RemovedAt, t.Updated = tenant, true, time.Now().UTC(), time.Now().UTC()
+	c, cancel := ctx()
+	defer cancel()
+	return s.b.Put(c, collHosts, hostID(tenant, host), t, "")
 }
 
 func (s *Service) DeleteHost(tenant, host string) error {
@@ -250,6 +282,9 @@ func (s *Service) validateInstance(in *InstanceIn) error {
 		return invalid("the URL must look like https://cloud.example.com (no user:password in it)")
 	}
 	in.URL = strings.TrimRight(u.Scheme+"://"+u.Host+u.Path, "/")
+	if p := strings.ToLower(u.Path); strings.HasSuffix(p, "/login") || strings.HasSuffix(p, "/index.php") || strings.Contains(p, "/apps/") || strings.Contains(p, "/login/") {
+		return invalid("use the base address of Nextcloud (https://cloud.example.com), without /login, /index.php or /apps/...")
+	}
 	if !hostRe.MatchString(in.Host) {
 		return invalid("choose which machine's agent runs the checks")
 	}

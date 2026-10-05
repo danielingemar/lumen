@@ -178,7 +178,15 @@ func buildTracesQuery(tenant string, q model.TraceQuery) (string, map[string]str
 		where += " AND service = {service:String}"
 		p["service"] = q.Service
 	}
+	if q.Host != "" {
+		where += " AND resource_attrs['host.name'] = {host:String}"
+		p["host"] = q.Host
+	}
 	having := "t_dur >= {minDur:UInt64}"
+	if q.Operation != "" {
+		having += " AND root_name = {op:String}"
+		p["op"] = q.Operation
+	}
 	if q.ErrorsOnly {
 		having += " AND has_error = 1"
 	}
@@ -229,6 +237,7 @@ func buildLogsQuery(tenant string, q model.LogQuery) (string, map[string]string)
 	where := "tenant = {tenant:String} AND ts >= {from:DateTime64(9)} AND ts <= {to:DateTime64(9)}"
 	for _, f := range []struct{ val, name, cond string }{
 		{q.Service, "service", "service = {service:String}"},
+		{q.Host, "host", "resource_attrs['host.name'] = {host:String}"},
 		{q.Severity, "severity", "severity = {severity:String}"},
 		{q.TraceID, "trace", "trace_id = {trace:String}"},
 		{q.Contains, "contains", "positionCaseInsensitive(body, {contains:String}) > 0"},

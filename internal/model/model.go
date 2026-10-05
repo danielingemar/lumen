@@ -50,6 +50,8 @@ type MetricPoint struct {
 // Query parameter structs shared by the API and the store.
 type TraceQuery struct {
 	Service       string
+	Host          string // resource attribute host.name
+	Operation     string // root span name
 	MinDurationMs uint64
 	ErrorsOnly    bool
 	From, To      time.Time
@@ -58,6 +60,7 @@ type TraceQuery struct {
 
 type LogQuery struct {
 	Service  string
+	Host     string // resource attribute host.name
 	Severity string
 	Contains string
 	TraceID  string
@@ -78,6 +81,7 @@ type SeriesQuery struct {
 	Agg      string // metric: avg|sum|min|max|last|rate
 	Metric   string // traces: requests|errors|error_rate|rps|avg|p50|p95|p99
 	Service  string
+	Host     string // traces and logs: resource attribute host.name
 	GroupBy  string // metric: "", "service" or a label key; traces: "", "service", "name"; logs: "", "severity", "service"
 	Filters  map[string]string
 	Severity string
@@ -93,4 +97,17 @@ type Latest struct {
 	Attrs   map[string]string `json:"attrs"`
 	Value   float64           `json:"v"`
 	T       int64             `json:"t"` // unix seconds of the newest sample
+}
+
+// Facet is one selectable value (a service, host or operation) with how many rows carry it.
+type Facet struct {
+	Name  string `json:"name"`
+	Count int64  `json:"count"`
+}
+
+// Facets lists what has been received, to fill dropdowns.
+type Facets struct {
+	Services   []Facet `json:"services"`
+	Hosts      []Facet `json:"hosts"`
+	Operations []Facet `json:"operations"`
 }

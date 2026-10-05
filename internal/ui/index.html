@@ -14,7 +14,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-off
 .btn:hover{filter:brightness(1.08)}.btn.ghost{background:transparent;color:var(--fg);border-color:var(--line)}.btn.ghost:hover{background:var(--acc2)}.btn.danger{background:transparent;color:var(--err);border-color:var(--err)}.btn.sm{padding:3px 9px;font-size:12px}
 #app{display:flex;min-height:100vh}
 #side{width:216px;background:var(--side);color:var(--sidefg);display:flex;flex-direction:column;padding:16px 10px;position:sticky;top:0;height:100vh;flex:none}
-#side .logo{font-weight:700;font-size:19px;color:#fff;padding:2px 10px 18px;letter-spacing:.3px}#side .logo span{color:var(--acc)}
+#side .logo{font-weight:700;font-size:19px;color:#fff;padding:2px 10px 18px;letter-spacing:.3px}#side .logo .en{color:var(--acc)}#side .logo .bn{color:#fff}#side .logo img{max-height:34px;max-width:170px;vertical-align:middle;margin-right:8px;background:rgba(255,255,255,.95);padding:4px 8px;border-radius:8px}.login .brand img{max-height:56px;max-width:240px;display:block;margin-bottom:8px}.logoprev{background:#fff;border:1px dashed var(--line);border-radius:8px;padding:12px;min-height:64px;display:flex;align-items:center}.logoprev img{max-height:64px;max-width:240px}
 #side nav a{display:flex;gap:10px;align-items:center;color:var(--sidefg);padding:8px 10px;border-radius:8px;margin-bottom:2px;text-decoration:none}
 #side nav a:hover{background:rgba(255,255,255,.07)}#side nav a.on{background:rgba(255,255,255,.12);color:#fff}
 #side nav svg{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
@@ -94,6 +94,8 @@ const S={me:null,range:store.get('lumen.range','1h'),refresh:+store.get('lumen.r
 try{S.custom=JSON.parse(store.get('lumen.custom','null'))}catch{}
 if(!RANGES[S.range]&&!(S.range==='custom'&&S.custom))S.range='1h';
 // what the signed-in user may do: area -> none|read|write (from /api/v1/me)
+S.brand={name:'',has_logo:false,version:''};S.hn={};
+const hostLabel=n=>S.hn[n]||n;
 const can=(a,w)=>{const l=(S.me&&S.me.perms&&S.me.perms[a])||'none';return w?l==='write':l==='read'||l==='write'};
 const win=()=>{let to=Date.now(),from=to-(RANGES[S.range]||36e5);if(S.range==='custom'&&S.custom){from=S.custom.from;to=S.custom.to}return{from:new Date(from).toISOString(),to:new Date(to).toISOString(),fromMs:from,toMs:to}};
 function clearTimers(){S.timers.forEach(clearInterval);S.timers=[]}
@@ -102,7 +104,7 @@ function clearTimers(){S.timers.forEach(clearInterval);S.timers=[]}
 let onUnauth=()=>{};
 async function api(path,params,opt){
   const u=new URL(path,location.origin);
-  if(S.archive&&!(opt&&opt.method)&&/^\/api\/v1\/(traces|logs|series|metrics\/|services)/.test(path))params=Object.assign({},params,{archive:'1'});
+  if(S.archive&&!(opt&&opt.method)&&/^\/api\/v1\/(traces|logs|series|metrics\/|services|facets)/.test(path))params=Object.assign({},params,{archive:'1'});
   for(const[k,v]of Object.entries(params||{}))for(const x of [].concat(v))if(x!==''&&x!=null&&x!==undefined)u.searchParams.append(k,x);
   const o=Object.assign({},opt||{});
   if(o.body!==undefined){o.headers={'Content-Type':'application/json'};o.body=JSON.stringify(o.body)}
@@ -214,7 +216,7 @@ const newPanel=(title,type,w,h,q,unit)=>({id:uid(),title,type,w,h,q,unit:unit||'
 const isSeriesType=t=>['line','area','bar','stat','table'].includes(t);
 
 function seriesParams(q,w,stepHint){
-  const p={from:w.from,to:w.to,service:q.service||'',group_by:q.groupBy||'',step:stepHint||''};
+  const p={from:w.from,to:w.to,service:q.service||'',host:q.host||'',group_by:q.groupBy||'',step:stepHint||''};
   if(q.src==='metric'){p.source='metric';p.name=q.name;p.agg=q.agg||'avg';p.filter=(q.filters||[]).filter(f=>f.k&&f.v!=='').map(f=>f.k+':'+f.v)}
   else if(q.src==='traces'){p.source='traces';p.metric=q.metric||'requests'}
   else{p.source='logs';p.severity=q.severity||'';p.q=q.text||''}
@@ -231,7 +233,7 @@ async function loadPanel(p,body,w){
         el('div',{class:'l'},d.label+(d.total?' (of '+d.total+')':'')+(pend?' · '+pend+' starting':'')),
         d.names.length?el('div',{class:'names'},d.names.slice(0,4).join('\n')+(d.names.length>4?'\n+'+(d.names.length-4)+' more':'')):null)));return}
     if(p.type==='logs'){
-      const r=await rows('/api/v1/logs',{from:w.from,to:w.to,service:q.service||'',severity:q.severity||'',q:q.text||'',limit:100});
+      const r=await rows('/api/v1/logs',{from:w.from,to:w.to,service:q.service||'',host:q.host||'',severity:q.severity||'',q:q.text||'',limit:100});
       body.replaceChildren(r.length?el('div',{class:'loglines'},r.map(l=>el('div',{},el('span',{class:'mut'},String(l.ts).slice(11,19)+' '),el('span',{class:'lvl '+l.severity},l.severity),' ',el('span',{class:'mut'},l.service+' '),l.body))):el('div',{class:'empty'},'No log lines'));return}
     if(p.type==='traces'){
       const r=await rows('/api/v1/traces',{from:w.from,to:w.to,service:q.service||'',errors:q.errorsOnly?'true':'',min_duration_ms:q.minMs||'',limit:25});
@@ -343,7 +345,8 @@ async function dashboardPage(id){
 async function panelEditor(existing,onSave){
   const p=existing?JSON.parse(JSON.stringify(existing)):newPanel('New panel','line',6,2,{src:'metric',name:'',agg:'avg'},'none');
   p.q=p.q||{src:'metric'};
-  const names=await rows('/api/v1/metrics/names',{from:win().from,to:win().to}).catch(()=>[]);
+  const wide=(S.archive||S.range==='custom')?win():{from:new Date(Date.now()-7*864e5).toISOString(),to:new Date().toISOString()};
+  const names=await rows('/api/v1/metrics/names',{from:wide.from,to:wide.to}).catch(()=>[]);
   const services=await rows('/api/v1/services',{from:win().from,to:win().to}).catch(()=>[]);
   let labels=[];
   const loadLabels=async()=>{labels=p.q.src==='metric'&&p.q.name?(await rows('/api/v1/metrics/labels',{name:p.q.name,from:win().from,to:win().to}).catch(()=>[])).map(x=>x.label):[];drawForm()};
@@ -394,13 +397,25 @@ async function panelEditor(existing,onSave){
 const ICON={home:'<path d="M3 11l9-8 9 8M5 10v10h14V10"/>',dash:'<rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>',
  trace:'<path d="M4 6h10M8 12h12M6 18h8"/>',logs:'<path d="M4 6h16M4 12h16M4 18h10"/>',metric:'<path d="M3 17l5-6 4 3 8-9"/><path d="M3 21h18"/>',machine:'<rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01"/>',user:'<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>',
  host:'<rect x="3" y="4" width="18" height="12" rx="1"/><path d="M8 20h8M12 16v4"/>',cloud:'<path d="M7 18a4 4 0 010-8 5 5 0 019.6-1A4.5 4.5 0 0117 18z"/>',
- users:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.3-5 6.5-5s5.7 1.5 6.5 5"/><path d="M16 4.5a3.5 3.5 0 010 7M18 15c2 .5 3.2 2 3.5 5"/>',archive:'<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11h14V8M10 12h4"/>'};
+ users:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.3-5 6.5-5s5.7 1.5 6.5 5"/><path d="M16 4.5a3.5 3.5 0 010 7M18 15c2 .5 3.2 2 3.5 5"/>',archive:'<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11h14V8M10 12h4"/>',
+ cog:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'};
 // each entry: href, label, icon, who may see it (hidden pages are also refused by the server)
 const NAV=[['#/','Home','home',()=>true],['#/dashboards','Dashboards','dash',()=>can('dashboards')],['#/traces','Traces','trace',()=>can('traces')],['#/logs','Logs','logs',()=>can('logs')],['#/metrics','Metrics','metric',()=>can('metrics')],
  ['#/hosts','Hosts','host',()=>can('hosts')],['#/instances','Instances','cloud',()=>can('hosts')],['#/machines','Add a machine','machine',()=>can('keys')||can('hosts',true)],
- ['#/users','Users & groups','users',()=>can('users')],['#/backups','Backups & archive','archive',()=>can('backups')],['#/account','Account','user',()=>true]];
+ ['#/users','Users & groups','users',()=>can('users')],['#/backups','Backups & archive','archive',()=>can('backups')],['#/settings','Settings','cog',()=>can('settings')],['#/account','Account','user',()=>true]];
 const iconEl=k=>{const s=svg('svg',{viewBox:'0 0 24 24'});s.innerHTML=ICON[k];return s};
-function setTitle(t){const h=$('#top h1');if(h)h.textContent=t;document.title=t+' · Lumen'}
+function setTitle(t){const h=$('#top h1');if(h)h.textContent=t;document.title=t+' · '+((S.brand&&S.brand.name)||'Lumen')}
+// site name and logo (public: the login page needs them before anyone is signed in)
+async function loadBrand(){try{const r=await fetch('/api/v1/branding',{cache:'no-store'});if(r.ok)S.brand=await r.json()}catch{}}
+const brandEl=big=>{const b=S.brand||{};return el('span',{class:'brand'},b.has_logo?el('img',{src:'/branding/logo?v='+encodeURIComponent(b.version||''),alt:b.name||'Lumen'}):null,
+  (b.has_logo&&!big)?null:(b.name?el('span',{class:'bn'},b.name):(b.has_logo?null:el('span',{},'Lum',el('span',{class:'en'},'en')))))};
+// real names and the names an administrator gave the hosts (best effort: needs read access to hosts)
+async function hostAliases(){try{const r=await api('/api/v1/hosts',{},{quiet:true});S.hn={};for(const h of r.data||[])if(h.display_name)S.hn[h.name]=h.display_name}catch{}}
+// what has come in, for the dropdowns; follows the range only for archive and custom ranges, otherwise the last week
+const facetRange=()=>{if(S.archive||S.range==='custom'){const w=win();return{from:w.from,to:w.to}}return{}};
+async function getFacets(source,service){try{return await api('/api/v1/facets',Object.assign({source,service:service||''},facetRange()))}catch{return{services:[],hosts:[],operations:[]}}}
+const opt=(v,t)=>el('option',{value:v},t);
+function fillSel(sel,first,list,fmt){const cur=sel.value;sel.replaceChildren(opt('',first),(list||[]).map(x=>opt(x.name,(fmt?fmt(x.name):x.name)+' ('+x.count+')')));if([...sel.options].some(o=>o.value===cur))sel.value=cur}
 const setTheme=t=>{document.documentElement.setAttribute('data-theme',t);store.set('lumen.theme',t)};
 setTheme(store.get('lumen.theme',(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light'));
 
@@ -415,7 +430,7 @@ function showLogin(msg){
       :[el('input',{id:'lk',type:'password',placeholder:'API key (lmn_…)',autocomplete:'off',onkeydown:e=>{if(e.key==='Enter')go()}}),el('p',{class:'mut',style:'font-size:12px;margin:-4px 0 10px'},'An API key gives read access and dashboards for its tenant. Managing keys and passwords needs a username login.')]),
     err,el('button',{class:'btn',style:'width:100%',onclick:go},'Sign in'));
     $('#tabpw').className=mode==='pw'?'on':'';$('#tabkey').className=mode==='key'?'on':'';setTimeout(()=>{const f=$(mode==='pw'?'#lu':'#lk');if(f)f.focus()},0)};
-  $('#root').replaceChildren(el('div',{class:'login'},el('div',{class:'card'},el('h2',{style:'font-size:22px;margin:0 0 4px'},'Lumen'),el('p',{class:'mut',style:'margin:0 0 16px'},'Sign in to continue'),
+  $('#root').replaceChildren(el('div',{class:'login'},el('div',{class:'card'},el('h2',{style:'font-size:22px;margin:0 0 4px'},brandEl(true)),el('p',{class:'mut',style:'margin:0 0 16px'},'Sign in to continue'),
     el('div',{class:'tabs'},el('button',{id:'tabpw',onclick:()=>{mode='pw';draw()}},'Username & password'),el('button',{id:'tabkey',onclick:()=>{mode='key';draw()}},'API key')),form,
     el('p',{class:'mut',style:'font-size:12px;margin:14px 0 0'},'No account yet? An administrator creates one with ',el('code',{},'lumen users add NAME --tenant TENANT')))));
   draw();
@@ -436,7 +451,7 @@ function shell(){
   const applyCustom=()=>{const f=Date.parse($('#cfrom').value),t=Date.parse($('#cto').value);if(isNaN(f)||isNaN(t))return;S.custom={from:f,to:Math.max(t,f+6e4)};store.set('lumen.custom',JSON.stringify(S.custom));route(true)};
   if(!can('backups'))S.archive=false;
   $('#root').replaceChildren(el('div',{id:'app'},
-    el('aside',{id:'side'},el('div',{class:'logo'},'Lum',el('span',{},'en')),el('nav',{},NAV.filter(n=>n[3]()).map(([h,t,i])=>el('a',{href:h,'data-h':h},iconEl(i),t))),
+    el('aside',{id:'side'},el('div',{class:'logo'},brandEl(false)),el('nav',{},NAV.filter(n=>n[3]()).map(([h,t,i])=>el('a',{href:h,'data-h':h},iconEl(i),t))),
       el('div',{class:'foot'},el('div',{},S.me.user?S.me.user:'API key',' · ',el('b',{},S.me.tenant)),el('div',{class:'mut',style:'font-size:11px'},S.me.group_name||''),
         el('div',{class:'row'},el('button',{onclick:()=>setTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark')},'Theme'),el('button',{onclick:async()=>{try{await api('/api/v1/logout',{},{method:'POST',body:{}})}catch{}showLogin()}},'Sign out')))),
     el('div',{id:'main'},el('div',{id:'top'},el('h1',{},'Lumen'),
@@ -452,7 +467,7 @@ function shell(){
 
 // ---- router ----
 const ROUTES=[[/^#\/$/,homePage],[/^#\/dashboards$/,dashboardsPage,'dashboards'],[/^#\/d\/([\w-]+)$/,dashboardPage,'dashboards'],[/^#\/traces$/,tracesPage,'traces'],[/^#\/t\/([\w-]+)$/,tracePage,'traces'],[/^#\/logs$/,logsPage,'logs'],[/^#\/metrics$/,metricsPage,'metrics'],
- [/^#\/hosts$/,hostsPage,'hosts'],[/^#\/h\/([^\/?]+)$/,hostPage,'hosts'],[/^#\/instances$/,instancesPage,'hosts'],[/^#\/users$/,usersPage,'users'],[/^#\/backups$/,backupsPage,'backups'],[/^#\/machines$/,machinesPage],[/^#\/account$/,accountPage]];
+ [/^#\/hosts$/,hostsPage,'hosts'],[/^#\/h\/([^\/?]+)$/,hostPage,'hosts'],[/^#\/instances$/,instancesPage,'hosts'],[/^#\/users$/,usersPage,'users'],[/^#\/backups$/,backupsPage,'backups'],[/^#\/settings$/,settingsPage,'settings'],[/^#\/machines$/,machinesPage],[/^#\/account$/,accountPage]];
 async function route(){
   if(!S.me)return;clearTimers();S.onRangeChange=null;
   const h=location.hash||'#/';
@@ -462,6 +477,7 @@ async function route(){
 }
 window.addEventListener('hashchange',()=>route());
 async function boot(){
+  await loadBrand();
   try{S.me=await api('/api/v1/me',{},{quiet:true})}catch{showLogin();return}
   shell();route();
 }
@@ -502,14 +518,21 @@ const wfRow=(s,d,t0,tot)=>{const l=(tsMs(s.start_time)-t0)/tot*100,w=Math.max(s.
 async function tracesPage(){
   setTitle('Traces');const view=$('#view');
   const out=el('div',{});
-  const f={svc:el('input',{placeholder:'service'}),min:el('input',{type:'number',placeholder:'min ms',style:'width:90px'}),err:el('input',{type:'checkbox'})};
-  const run=async()=>{const w=win();try{const r=await rows('/api/v1/traces',{from:w.from,to:w.to,service:f.svc.value,min_duration_ms:f.min.value,errors:f.err.checked?'true':''});
+  let fx=await getFacets('traces','');await hostAliases();
+  const f={svc:el('select',{}),op:el('select',{}),host:el('select',{}),min:el('input',{type:'number',placeholder:'min ms',style:'width:90px'}),err:el('input',{type:'checkbox'})};
+  const fill=()=>{fillSel(f.svc,'All services ('+fx.services.length+')',fx.services);fillSel(f.op,'All operations ('+fx.operations.length+')',fx.operations);fillSel(f.host,'All hosts ('+fx.hosts.length+')',fx.hosts,hostLabel)};
+  const run=async()=>{const w=win();try{const r=await rows('/api/v1/traces',{from:w.from,to:w.to,service:f.svc.value,host:f.host.value,operation:f.op.value,min_duration_ms:f.min.value,errors:f.err.checked?'true':''});
     out.replaceChildren(r.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['Start','Root span','Service','Duration','Spans','Trace'].map(x=>el('th',{},x))),
-      r.map(t=>el('tr',{class:'row',onclick:()=>location.hash='#/t/'+t.trace_id},el('td',{class:'mut'},String(t.start_time).slice(0,19)),el('td',{class:t.has_error?'err':''},t.has_error?'● ':'',t.root_name),el('td',{},t.root_service),el('td',{},fmtD(t.duration_ns)),el('td',{},t.span_count),el('td',{class:'mono mut'},t.trace_id.slice(0,12)+'…'))))):el('div',{class:'card empty'},'No traces in this range.'))}
+      r.map(t=>el('tr',{class:'row',onclick:()=>location.hash='#/t/'+t.trace_id},el('td',{class:'mut'},String(t.start_time).slice(0,19)),el('td',{class:t.has_error?'err':''},t.has_error?'● ':'',t.root_name),el('td',{},t.root_service),el('td',{},fmtD(t.duration_ns)),el('td',{},t.span_count),el('td',{class:'mono mut'},t.trace_id.slice(0,12)+'…'))))):el('div',{class:'card empty'},fx.services.length?'No traces match in this range.':'No traces have been received yet. Send OTLP traces to this server (see the README).'))}
     catch(e){out.replaceChildren(el('div',{class:'msg'},e.message))}};
-  view.replaceChildren(el('div',{class:'bar'},f.svc,f.min,el('label',{},f.err,' errors only'),el('button',{class:'btn',onclick:run},'Search')),out);
+  // choosing a service narrows the list of operations to that service's root spans
+  f.svc.onchange=async()=>{const x=await getFacets('traces',f.svc.value);fx=Object.assign({},fx,{operations:x.operations});f.op.value='';fill();run()};
+  f.op.onchange=f.host.onchange=f.err.onchange=run;
+  fill();
+  view.replaceChildren(el('div',{class:'bar'},f.svc,f.op,f.host,f.min,el('label',{},f.err,' errors only'),el('button',{class:'btn',onclick:run},'Search')),out);
   S.onRangeChange=run;run();
 }
+
 async function tracePage(id){
   setTitle('Trace '+id.slice(0,12));const sp=await rows('/api/v1/traces/'+encodeURIComponent(id));
   if(!sp.length){$('#view').replaceChildren(el('div',{class:'card empty'},'Trace not found.'));return}
@@ -523,24 +546,30 @@ async function tracePage(id){
 async function logsPage(){
   setTitle('Logs');const view=$('#view');
   const traceFilter=(location.hash.split('trace=')[1]||'').replace(/[^\w-]/g,'');
-  const f={svc:el('input',{placeholder:'service'}),sev:el('select',{},['','ERROR','WARN','INFO','DEBUG'].map(x=>el('option',{value:x},x||'any severity'))),q:el('input',{placeholder:'contains text',size:24})};
+  let fx=await getFacets('logs','');await hostAliases();
+  const f={svc:el('select',{}),host:el('select',{}),sev:el('select',{},['','ERROR','WARN','INFO','DEBUG'].map(x=>el('option',{value:x},x||'any severity'))),q:el('input',{placeholder:'contains text',size:24})};
+  fillSel(f.svc,'All log sources ('+fx.services.length+')',fx.services);fillSel(f.host,'All hosts ('+fx.hosts.length+')',fx.hosts,hostLabel);
   const vol=el('div',{class:'card',style:'margin-bottom:14px'}),out=el('div',{});
   const run=async()=>{const w=win();
-    loadPanel({type:'bar',unit:'none',h:1,title:'Log volume',q:{src:'logs',groupBy:'severity',service:f.svc.value,text:f.q.value}},vol,w);
-    try{const r=await rows('/api/v1/logs',{from:w.from,to:w.to,service:f.svc.value,severity:f.sev.value,q:f.q.value,trace_id:traceFilter,limit:300});
-      out.replaceChildren(r.length?el('div',{class:'card',style:'padding:6px 12px'},el('div',{class:'loglines'},r.map(l=>el('div',{},el('span',{class:'mut'},String(l.ts).slice(0,23)+' '),el('span',{class:'lvl '+l.severity},l.severity),' ',el('span',{class:'mut'},l.service+' '),l.body)))):el('div',{class:'card empty'},'No log lines match.'))}
+    loadPanel({type:'bar',unit:'none',h:1,title:'Log volume',q:{src:'logs',groupBy:'severity',service:f.svc.value,host:f.host.value,text:f.q.value}},vol,w);
+    try{const r=await rows('/api/v1/logs',{from:w.from,to:w.to,service:f.svc.value,host:f.host.value,severity:f.sev.value,q:f.q.value,trace_id:traceFilter,limit:300});
+      out.replaceChildren(r.length?el('div',{class:'card',style:'padding:6px 12px'},el('div',{class:'loglines'},r.map(l=>el('div',{},el('span',{class:'mut'},String(l.ts).slice(0,23)+' '),el('span',{class:'lvl '+l.severity},l.severity),' ',el('span',{class:'mut'},l.service+' '),l.body)))):el('div',{class:'card empty'},fx.services.length?'No log lines match.':'No logs have been received yet. Add log paths on the Hosts page, or send OTLP logs.'))}
     catch(e){out.replaceChildren(el('div',{class:'msg'},e.message))}};
-  view.replaceChildren(el('div',{class:'bar'},f.svc,f.sev,f.q,el('button',{class:'btn',onclick:run},'Search'),traceFilter?el('span',{class:'pill'},'trace '+traceFilter.slice(0,10)+'…'):null),vol,out);
+  f.svc.onchange=f.host.onchange=f.sev.onchange=run;
+  view.replaceChildren(el('div',{class:'bar'},f.svc,f.host,f.sev,f.q,el('button',{class:'btn',onclick:run},'Search'),traceFilter?el('span',{class:'pill'},'trace '+traceFilter.slice(0,10)+'…'):null),vol,out);
   S.onRangeChange=run;run();
 }
 
 async function metricsPage(){
   setTitle('Metrics');const view=$('#view');
-  const names=await rows('/api/v1/metrics/names',{from:win().from,to:win().to}).catch(()=>[]);
+  const wide=(S.archive||S.range==='custom')?win():{from:new Date(Date.now()-7*864e5).toISOString(),to:new Date().toISOString()};
+  const names=await rows('/api/v1/metrics/names',{from:wide.from,to:wide.to}).catch(()=>[]);
   const q={src:'metric',name:'',agg:'avg'},p=newPanel('Metric','line',12,3,q,'none');
   const chart=el('div',{class:'card',style:'min-height:300px'},el('div',{class:'empty'},'Pick a metric to chart it.'));
   const draw=()=>{if(q.name)loadPanel(p,chart,win())};
-  const nameIn=el('input',{list:'mn',placeholder:'metric name',size:34,onchange:async e=>{q.name=e.target.value;q.filters=[];q.groupBy='';grp.value='';const m=names.find(n=>n.name===q.name);q.agg=m&&m.mtype==='sum'?'rate':'avg';aggSel.value=q.agg;if(q.agg==='rate')p.unit='rate';draw();drawLabels()}});
+  const pick=async name=>{q.name=name;q.filters=[];q.groupBy='';grp.value='';const m=names.find(n=>n.name===q.name);q.agg=m&&m.mtype==='sum'?'rate':'avg';aggSel.value=q.agg;if(q.agg==='rate')p.unit='rate';draw();drawLabels()};
+  const nameSel=el('select',{style:'min-width:300px',onchange:e=>pick(e.target.value)}),nameFilter=el('input',{placeholder:'filter '+names.length+' metrics…',size:22,oninput:()=>fillNames()});
+  const fillNames=()=>{const f=nameFilter.value.toLowerCase(),cur=q.name;nameSel.replaceChildren(opt('',names.length?'Choose a metric… ('+names.length+')':'No metrics received yet'),names.filter(n=>!f||n.name.toLowerCase().includes(f)||n.name===cur).map(n=>opt(n.name,n.name+'  ·  '+n.mtype)));nameSel.value=cur||''};
   const aggSel=el('select',{onchange:e=>{q.agg=e.target.value;draw()}},[['avg','Average'],['sum','Sum'],['min','Min'],['max','Max'],['last','Latest'],['rate','Rate/s']].map(([v,t])=>el('option',{value:v},t)));
   const grp=el('input',{placeholder:'split by label (e.g. host)',size:20,onchange:e=>{q.groupBy=e.target.value.trim();draw();drawLabels()}});
   const unit=el('select',{onchange:e=>{p.unit=e.target.value;draw()}},Object.entries(UNITS).map(([v,t])=>el('option',{value:v},t)));
@@ -560,7 +589,7 @@ async function metricsPage(){
   const msg=el('span',{class:'mut'});
   dsel.onchange=async()=>{if(!dsel.value||!q.name)return;try{const d=await api('/api/v1/dashboards/'+dsel.value);const panels=(d.body&&d.body.panels)||[];panels.push(Object.assign(JSON.parse(JSON.stringify(p)),{id:uid(),title:q.name,w:6,h:2}));
     await api('/api/v1/dashboards/'+dsel.value,{},{method:'PUT',body:{name:d.name,description:d.description,body:{panels},version:d.version}});msg.textContent='Added to “'+d.name+'”.'}catch(e){msg.textContent=e.message}dsel.value=''};
-  view.replaceChildren(el('div',{class:'bar'},nameIn,el('datalist',{id:'mn'},names.map(n=>el('option',{value:n.name},n.mtype))),aggSel,grp,unit,el('span',{class:'sp'}),can('dashboards',true)?dsel:null,msg),chart,labelBox);drawLabels();
+  view.replaceChildren(el('div',{class:'bar'},nameFilter,nameSel,aggSel,grp,unit,el('span',{class:'sp'}),can('dashboards',true)?dsel:null,msg),chart,labelBox);fillNames();drawLabels();
   S.onRangeChange=()=>{draw();drawLabels()};
 }
 
@@ -636,26 +665,33 @@ const permSummary=p=>{const w=[],r=[];for(const[k,v]of Object.entries(p||{})){if
 const cnt=c=>c&&c.up+c.down?el('span',{},c.up+' up',c.down?el('span',{class:'err'},' · '+c.down+' down'):null):el('span',{class:'mut'},'–');
 async function hostsPage(){
   setTitle('Hosts');const view=$('#view');
-  const hs=(await api('/api/v1/hosts')).data||[];
+  const hs=(await api('/api/v1/hosts')).data||[],w=can('hosts',true);S.hn={};for(const h of hs)if(h.display_name)S.hn[h.name]=h.display_name;
   view.replaceChildren(
     el('div',{class:'bar'},el('span',{class:'mut'},'A machine appears here as soon as its agent reports. Open one to see its services and containers, or to choose which log files its agent ships.'),el('span',{class:'sp'}),(can('keys')||can('hosts',true))?el('a',{class:'btn',href:'#/machines'},'+ Add a machine'):null),
-    hs.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['','Host','Agent','System','Last seen','Services','Containers','Log paths'].map(x=>el('th',{},x))),hs.map(h=>
+    hs.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['','Host','Agent','System','Last seen','Services','Containers','Log paths',''].map(x=>el('th',{},x))),hs.map(h=>
       el('tr',{class:'row',onclick:()=>{location.hash='#/h/'+encodeURIComponent(h.name)}},el('td',{},dot(h.status)),
-        el('td',{},h.name,h.rejected_log_paths?el('span',{class:'pill err',title:'This machine refused some of the log paths you configured'},'⚠ '+h.rejected_log_paths+' path(s) refused'):null),
+        el('td',{},h.display_name||h.name,h.display_name?el('div',{class:'mut',style:'font-size:11px'},h.name):null,h.rejected_log_paths?el('span',{class:'pill err',title:'This machine refused some of the log paths you configured'},'⚠ '+h.rejected_log_paths+' path(s) refused'):null),
         el('td',{class:'mut'},h.version||'–'),el('td',{class:'mut'},h.os||'–'),el('td',{class:'mut'},ago2(h.last_seen)),el('td',{},cnt(h.services)),el('td',{},cnt(h.containers)),
-        el('td',{class:'mut'},((h.config.log_paths||[]).length+(h.config.docker_logs?' + Docker':''))||'none'))))):
+        el('td',{class:'mut'},((h.config.log_paths||[]).length+(h.config.docker_logs?' + Docker':''))||'none'),
+        el('td',{style:'text-align:right'},w&&h.status!=='up'?el('button',{class:'btn danger sm',title:'Remove this host from the list',onclick:ev=>{ev.stopPropagation();removeHost(h.name,h.display_name||h.name,hostsPage)}},'Remove'):null))))):
     el('div',{class:'card empty'},'No machine has reported yet. ',el('a',{href:'#/machines'},'Add a machine'),' to start collecting data.'));
 }
+
+async function removeHost(name,label,after){
+  if(!confirm('Remove '+label+' from Lumen?\n\nIts history stays searchable, but the machine is no longer listed. If its agent is still running it will appear again by itself.'))return;
+  try{await api('/api/v1/hosts/'+encodeURIComponent(name)+'/remove',{},{method:'POST',body:{}});after()}catch(e){alert(e.message)}}
 
 async function hostPage(raw){
   const name=decodeURIComponent(raw),enc=encodeURIComponent(name);setTitle(name);const view=$('#view');
   const r=await api('/api/v1/hosts/'+enc),h=r.host,c=h.config||{},w=can('hosts',true);
+  setTitle(c.display_name||name);if(c.display_name)S.hn[name]=c.display_name;
+  const nick=el('input',{value:c.display_name||'',placeholder:name,maxlength:60,size:34,disabled:!w});
   const logs=el('textarea',{placeholder:'/var/log/nginx/*.log\n/var/lib/docker/volumes/nextcloud_data/_data/data/nextcloud.log',disabled:!w},(c.log_paths||[]).join('\n'));
   const watch=el('textarea',{placeholder:'nginx\nmariadb\nredis-server',disabled:!w,style:'min-height:60px'},(c.watch_services||[]).join('\n'));
   const cb=(v,l)=>{const i=el('input',{type:'checkbox',checked:v,disabled:!w});return[i,el('label',{style:'color:var(--fg);display:block;margin:6px 0'},i,' '+l)]};
   const [dl,dlL]=cb(c.docker_logs,'Ship the logs of all Docker containers'),[sy,syL]=cb(c.systemd!==false,'Report systemd services'),[co,coL]=cb(c.containers!==false,'Report Docker containers');
   const msg=el('div',{style:'margin-top:8px;min-height:18px'});
-  const save=async()=>{try{await api('/api/v1/hosts/'+enc,{},{method:'PUT',body:{log_paths:lines(logs.value),docker_logs:dl.checked,systemd:sy.checked,containers:co.checked,watch_services:lines(watch.value)}});
+  const save=async()=>{try{await api('/api/v1/hosts/'+enc,{},{method:'PUT',body:{display_name:nick.value.trim(),log_paths:lines(logs.value),docker_logs:dl.checked,systemd:sy.checked,containers:co.checked,watch_services:lines(watch.value)}});
     msg.className='ok';msg.textContent='Saved. The agent on '+name+' picks this up within a minute.'}catch(e){msg.className='err';msg.textContent=e.message}};
   const reset=async()=>{if(!confirm('Reset this machine to the defaults (no extra log files, services and containers reported)?'))return;try{await api('/api/v1/hosts/'+enc,{},{method:'DELETE'});hostPage(raw)}catch(e){msg.className='err';msg.textContent=e.message}};
   const table=(items,empty,kind)=>{
@@ -668,11 +704,11 @@ async function hostPage(raw){
     el('div',{class:'bar'},el('a',{href:'#/hosts'},'← Hosts'),el('span',{class:'badge '+h.status},h.status.toUpperCase()),el('span',{class:'mut'},'agent '+(h.version||'?')+' · '+(h.os||'?')+' · last seen '+ago2(h.last_seen))),
     h.rejected_log_paths?el('div',{class:'warnbox'},'This machine refused '+h.rejected_log_paths+' of the log paths below. For safety an agent only reads files under /var/log, /var/lib/docker, /var/www, /srv, /mnt and /opt when the server asks it to. Change allowed_log_dirs in /etc/lumen-agent/config.json on the machine to allow more.'):null,
     el('div',{class:'two'},
-      el('div',{class:'card'},el('h2',{},'What this machine reports'),
+      el('div',{class:'card'},el('h2',{},'This machine'),el('label',{},'Name shown in Lumen'),nick,el('p',{class:'help'},'Only changes what Lumen shows. The machine keeps its real name ('+name+'), which agents and Nextcloud instances still use.'),el('h2',{style:'margin-top:18px'},'What this machine reports'),
         el('label',{},'Log files to ship (one path or pattern per line)'),logs,el('p',{class:'help'},'Example: /var/log/nginx/*.log. Only files under /var/log, /var/lib/docker, /var/www, /srv, /mnt and /opt are allowed. Changes apply within a minute, nothing to do on the machine.'),
         dlL,syL,coL,el('p',{class:'help'},'Docker containers need the agent installed with --docker (or the Docker socket mounted into the agent container).'),
         el('label',{style:'margin-top:8px;display:block'},'Services that must be running (one per line)'),watch,el('p',{class:'help'},'These show as DOWN when stopped or missing. All other running or failed services are shown anyway.'),
-        w?el('div',{class:'bar',style:'margin:12px 0 0'},el('button',{class:'btn',onclick:save},'Save'),el('button',{class:'btn ghost',onclick:reset},'Reset to defaults')):el('p',{class:'help'},'You have read-only access.'),msg),
+        w?el('div',{class:'bar',style:'margin:12px 0 0'},el('button',{class:'btn',onclick:save},'Save'),el('button',{class:'btn ghost',onclick:reset},'Reset to defaults'),el('span',{class:'sp'}),el('button',{class:'btn danger',disabled:h.status==='up',title:h.status==='up'?'This machine is reporting right now. Stop its agent first, otherwise it comes straight back.':'Remove this host from Lumen',onclick:()=>removeHost(name,c.display_name||name,()=>{location.hash='#/hosts'})},'Remove host')):el('p',{class:'help'},'You have read-only access.'),msg),
       el('div',{},table(r.services||[],'No services reported. The agent needs systemd, and machines installed before this version must run the install command once more (see Add a machine). Windows services are not collected yet.','Services'),
         el('div',{style:'height:14px'}),table(r.containers||[],'No Docker containers reported. Either Docker is not installed here, or the agent may not use the Docker socket: re-run the installer with --docker.','Docker containers'))));
 }
@@ -686,7 +722,7 @@ function instanceForm(i,hosts,done){
     log:el('input',{value:i.log_path||'',placeholder:'/path/to/nextcloud.log (optional)',size:34})};
   const ct=el('input',{type:'checkbox'}),cp=el('input',{type:'checkbox'});
   const row=(l,...c)=>[el('label',{},l),el('div',{style:'display:flex;gap:8px;flex-wrap:wrap;align-items:center'},c)];
-  const form=el('div',{class:'form'},row('Name',f.name),row('URL',f.url),row('Checked by',f.host,el('datalist',{id:'hostlist'},hosts.map(h=>el('option',{value:h})))),
+  const form=el('div',{class:'form'},row('Name',f.name),row('URL',f.url),row('Checked by',f.host,el('datalist',{id:'hostlist'},hosts.map(h=>el('option',{value:h,label:S.hn[h]||''})))),
     row('Token',f.token,edit&&i.has_token?el('label',{style:'color:var(--fg)'},ct,' remove'):null),row('or login',f.user,f.pw,edit&&i.has_password?el('label',{style:'color:var(--fg)'},cp,' remove'):null),row('Log file',f.log));
   const body=el('div',{},form,el('p',{class:'help'},'The agent on the chosen machine checks this Nextcloud every 15 seconds: availability, and with a token also users, files, shares, apps, database and PHP cache. Create the token on the Nextcloud server: ',el('code',{},"occ config:app:set serverinfo token --value 'A_LONG_RANDOM_STRING'")),
     el('p',{class:'help'},'The token is stored encrypted, but it is sent to that agent so it can log in: use an https:// address for Lumen. The log file is read by the agent on that machine and must be under /var/log, /var/www, /srv, /mnt, /opt or /var/lib/docker.'));
@@ -695,14 +731,14 @@ function instanceForm(i,hosts,done){
     await api(edit?'/api/v1/instances/'+i.id:'/api/v1/instances',{},{method:edit?'PUT':'POST',body:b});done()}]])}
 async function instancesPage(){
   setTitle('Nextcloud instances');const view=$('#view'),w=can('hosts',true);
-  const r=await api('/api/v1/instances'),list=r.data||[],hosts=r.hosts||[];
+  const r=await api('/api/v1/instances'),list=r.data||[],hosts=r.hosts||[];S.hn=r.host_names||{};
   const badge=i=>el('span',{class:'badge '+i.status},i.status==='up'?'UP':i.status==='down'?'DOWN':'STARTING');
   const del=async i=>{if(!confirm('Remove '+i.name+'? Its history stays, but it is no longer monitored.'))return;try{await api('/api/v1/instances/'+i.id,{},{method:'DELETE'});instancesPage()}catch(e){alert(e.message)}};
   view.replaceChildren(
     el('div',{class:'bar'},el('span',{class:'mut'},'Nextcloud installations that are monitored. Fix a typo here and the agent picks it up within a minute: nothing to change on the machines.'),el('span',{class:'sp'}),w?el('button',{class:'btn',onclick:()=>instanceForm({},hosts,instancesPage)},'+ Add instance'):null),
     list.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['Status','Name','URL','Checked by','Last report','Problem',''].map(x=>el('th',{},x))),list.map(i=>el('tr',{},
       el('td',{},badge(i)),el('td',{},i.name,i.managed?null:el('span',{class:'pill',title:'Set up with agent flags on the machine, not in this list'},'from agent flags')),
-      el('td',{class:'mono'},i.url||el('span',{class:'mut'},i.key)),el('td',{},i.host||''),el('td',{class:'mut'},i.last_seen?ago2(i.last_seen):'never'),el('td',{class:i.status==='down'?'err':'mut'},i.reason||''),
+      el('td',{class:'mono'},i.url||el('span',{class:'mut'},i.key)),el('td',{},i.host?hostLabel(i.host):''),el('td',{class:'mut'},i.last_seen?ago2(i.last_seen):'never'),el('td',{class:i.status==='down'?'err':'mut'},i.reason||''),
       el('td',{style:'white-space:nowrap'},w?(i.managed?[el('button',{class:'btn ghost sm',onclick:()=>instanceForm(i,hosts,instancesPage)},'Edit'),' ',el('button',{class:'btn danger sm',onclick:()=>del(i)},'Remove')]:
         el('button',{class:'btn ghost sm',title:'Take over management here',onclick:()=>instanceForm({name:i.name,host:i.host},hosts,instancesPage)},'Manage here')):null))))):
     el('div',{class:'card empty'},'No instances yet.',w?[' ',el('a',{href:'#',onclick:e=>{e.preventDefault();instanceForm({},hosts,instancesPage)}},'Add the first one')]:null),
@@ -765,5 +801,36 @@ async function backupsPage(){
     cmdBox('Copy the backups to another machine','docker compose -f deploy/docker-compose.yml cp lumen:/backup ./lumen-backup','Backups live on the same server as the live data, so they do not protect against losing the server. Copy this folder somewhere else regularly (cron + rsync/rclone). The files are plain gzip: zcat lumen-backup/telemetry/2026-09-30/main/otel_logs.jsonl.gz | less'));
 }
 
+// ---- settings: site name and logo ----
+async function settingsPage(){
+  setTitle('Settings');const view=$('#view'),w=can('settings',true);
+  await loadBrand();
+  const MAXKB=512,types={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml'};
+  let pending=null,removing=false;
+  const msg=el('div',{style:'min-height:20px;margin-top:10px'});
+  const nameIn=el('input',{value:S.brand.name||'',placeholder:'Lumen',maxlength:40,size:30,disabled:!w});
+  const prev=el('div',{class:'logoprev'});
+  const rmBtn=el('button',{class:'btn ghost',onclick:()=>{removing=!!S.brand.has_logo;pending=null;file.value='';drawPrev()}},'Remove logo');
+  const drawPrev=()=>{const src=pending||(!removing&&S.brand.has_logo?'/branding/logo?v='+encodeURIComponent(S.brand.version||''):'');
+    prev.replaceChildren(src?el('img',{src,alt:'Logo preview'}):el('span',{class:'mut'},'No logo. The name is shown as text.'));
+    rmBtn.style.display=(pending||(S.brand.has_logo&&!removing))?'':'none'};
+  const file=el('input',{type:'file',accept:'image/png,image/jpeg,image/gif,image/webp,image/svg+xml,.svg',disabled:!w,onchange:e=>{
+    const f=e.target.files&&e.target.files[0];msg.textContent='';if(!f)return;
+    if(f.size>MAXKB*1024){msg.className='err';msg.textContent='The file is '+Math.round(f.size/1024)+' KB. Maximum is '+MAXKB+' KB.';e.target.value='';return}
+    const mime=f.type||types[(f.name.split('.').pop()||'').toLowerCase()]||'';
+    const rd=new FileReader();rd.onload=()=>{const b64=String(rd.result).split(',')[1]||'';pending='data:'+mime+';base64,'+b64;removing=false;drawPrev()};rd.onerror=()=>{msg.className='err';msg.textContent='Could not read the file.'};rd.readAsDataURL(f)}});
+  const save=async()=>{msg.textContent='';try{
+    const r=await api('/api/v1/settings/branding',{},{method:'PUT',body:{name:nameIn.value.trim(),logo:pending||'',remove_logo:removing&&!pending}});
+    S.brand=r;pending=null;removing=false;file.value='';drawPrev();
+    const lg=$('#side .logo');if(lg)lg.replaceChildren(brandEl(false));setTitle('Settings');
+    msg.className='ok';msg.textContent='Saved. Everyone sees the new name and logo, including on the login page.'}catch(e){msg.className='err';msg.textContent=e.message}};
+  view.replaceChildren(el('div',{class:'card',style:'max-width:620px'},el('h2',{style:'margin-top:0'},'Branding'),
+    el('div',{class:'form'},el('label',{},'Site name'),nameIn,el('label',{},'Logo'),el('div',{},prev,el('div',{style:'margin-top:8px'},file),
+      el('p',{class:'help'},'PNG, JPEG, GIF, WebP or SVG, at most '+MAXKB+' KB. With a logo, the menu shows the logo instead of the name (on a white background, so dark logos work too). The name is used in the browser tab, and under the logo on the login page.'))),
+    w?el('div',{class:'bar',style:'margin:14px 0 0'},el('button',{class:'btn',onclick:save},'Save'),
+      rmBtn):el('p',{class:'help'},'You have read-only access.'),msg,
+    el('p',{class:'help'},'The name and logo are the same for everyone who uses this server, and are visible before signing in. In a multi-tenant installation only give the Settings permission to the operator.')));
+  drawPrev();
+}
 boot();
 </script></body></html>

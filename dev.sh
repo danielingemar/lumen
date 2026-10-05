@@ -4,6 +4,7 @@
 #
 #   ./dev.sh                 start (auto-detects this machine's LAN IP)
 #   ./dev.sh --ip 192.168.56.1   use a specific IP (e.g. the host-only adapter your VM can see)
+#   Re-running keeps the address and settings already in deploy/.env; --ip changes the address.
 #   ./dev.sh status | stop | reset      (reset also deletes all stored data and secrets)
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -14,7 +15,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --ip) [ $# -ge 2 ] || die "--ip needs a value"; IP="$2"; shift 2;;
     start|stop|status|reset) CMD="$1"; shift;;
-    -h|--help) sed -n '2,9p' "$0"; exit 0;;
+    -h|--help) sed -n '2,10p' "$0"; exit 0;;
     *) die "unknown option: $1";;
   esac
 done
@@ -59,9 +60,19 @@ detect_ip() {
   for i in en0 en1; do ipconfig getifaddr "$i" 2>/dev/null && return; done
   return 1
 }
-[ -n "$IP" ] || IP="$(detect_ip || true)"
-[ -n "$IP" ] || die "could not detect this machine's IP. Re-run with: ./dev.sh --ip <address your VM can reach>"
-printf '%s' "$IP" | grep -Eq '^[0-9A-Za-z.-]+$' || die "invalid --ip"
+# An address already set in deploy/.env is kept; --ip is the explicit way to change it.
+EXISTING_URL="$(grep '^LUMEN_PUBLIC_URL=' deploy/.env 2>/dev/null | head -n1 | cut -d= -f2- || true)"
+if [ -n "$IP" ]; then
+  printf '%s' "$IP" | grep -Eq '^[0-9A-Za-z.-]+$' || die "invalid --ip"
+  URL="http://$IP:4318"
+elif [ -n "$EXISTING_URL" ]; then
+  URL="$EXISTING_URL"
+  echo "Keeping the existing LUMEN_PUBLIC_URL=$URL (use --ip to change it)."
+else
+  IP="$(detect_ip || true)"
+  [ -n "$IP" ] || die "could not detect this machine's IP. Re-run with: ./dev.sh --ip <address your VM can reach>"
+  URL="http://$IP:4318"
+fi
 
 # ---- secrets + settings ----
 [ -f deploy/.env ] || bash deploy/gen-env.sh dev >/dev/null
@@ -73,10 +84,9 @@ fi
 grep -q '^ELASTIC_PASSWORD=' deploy/.env || printf 'ELASTIC_PASSWORD=%s\n' "$(openssl rand -hex 16)" >> deploy/.env
 grep -q '^LUMEN_SECRET_KEY=' deploy/.env || printf 'LUMEN_SECRET_KEY=%s\n' "$(openssl rand -hex 32)" >> deploy/.env
 ADMIN_USER="$(grep '^LUMEN_ADMIN_USER=' deploy/.env | cut -d= -f2-)"; ADMIN_PW="$(grep '^LUMEN_ADMIN_PASSWORD=' deploy/.env | cut -d= -f2-)"
-set_env LUMEN_PUBLIC_URL "http://$IP:4318"
-set_env LUMEN_BIND "0.0.0.0"
+[ "$URL" = "$EXISTING_URL" ] || set_env LUMEN_PUBLIC_URL "$URL"
+grep -q '^LUMEN_BIND=' deploy/.env || set_env LUMEN_BIND "0.0.0.0"   # a value you set (for example 127.0.0.1 behind a proxy) is kept
 KEY="$(grep '^LUMEN_API_KEYS=' deploy/.env | cut -d= -f2- | cut -d, -f1 | cut -d: -f1)"
-URL="http://$IP:4318"
 
 echo "Starting Lumen (first start builds the image and can take a few minutes)..."
 "${COMPOSE[@]}" up -d --build

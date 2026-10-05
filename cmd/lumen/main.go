@@ -11,6 +11,7 @@ import (
 
 	"github.com/danielingemar/lumen/internal/auth"
 	"github.com/danielingemar/lumen/internal/backup"
+	"github.com/danielingemar/lumen/internal/branding"
 	"github.com/danielingemar/lumen/internal/config"
 	"github.com/danielingemar/lumen/internal/dashboards"
 	"github.com/danielingemar/lumen/internal/edition"
@@ -72,7 +73,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	app := server.New(ch, authn, log).WithAuth(authn).WithDashboards(dashboards.New(backend)).WithRegistry(registry.New(backend, box)).WithInstall(cfg.PublicURL, cfg.DistDir)
+	app := server.New(ch, authn, log).WithAuth(authn).WithDashboards(dashboards.New(backend)).WithRegistry(registry.New(backend, box)).WithBranding(branding.New(backend)).WithInstall(cfg.PublicURL, cfg.DistDir)
 	bg, stopBg := context.WithCancel(context.Background())
 	defer stopBg()
 	if cfg.BackupDir != "" {

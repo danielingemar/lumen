@@ -26,6 +26,11 @@ type fakeStore struct {
 	latest     []model.Latest
 	latestErr  error
 	latestFor  string
+	facets     model.Facets
+	facetCalls int
+	lastFacet  string
+	lastLogQ   model.LogQuery
+	lastTraceQ model.TraceQuery
 	archive    bool
 }
 
@@ -57,6 +62,12 @@ func (f *fakeStore) MetricLabels(_ context.Context, t, _ string, _, _ time.Time)
 	f.tenant = t
 	return nil, nil
 }
+func (f *fakeStore) Facets(_ context.Context, t, source, service string, from, to time.Time) (model.Facets, error) {
+	f.tenant = t
+	f.facetCalls++
+	f.lastFacet = source + "|" + service
+	return f.facets, nil
+}
 func (f *fakeStore) Latest(_ context.Context, t string, _ []string, _ time.Time) ([]model.Latest, error) {
 	f.tenant = t
 	if f.latestFor != "" && t != f.latestFor { // the real store filters by tenant in SQL
@@ -65,15 +76,16 @@ func (f *fakeStore) Latest(_ context.Context, t string, _ []string, _ time.Time)
 	return f.latest, f.latestErr
 }
 func (f *fakeStore) Ping(context.Context) error { return nil }
-func (f *fakeStore) QueryTraces(_ context.Context, t string, _ model.TraceQuery) ([]json.RawMessage, error) {
-	f.tenant = t
+func (f *fakeStore) QueryTraces(_ context.Context, t string, q model.TraceQuery) ([]json.RawMessage, error) {
+	f.tenant, f.lastTraceQ = t, q
 	return []json.RawMessage{json.RawMessage(`{"trace_id":"abc"}`)}, nil
 }
 func (f *fakeStore) GetTrace(_ context.Context, t, _ string) ([]json.RawMessage, error) {
 	f.tenant = t
 	return nil, nil
 }
-func (f *fakeStore) QueryLogs(ctx context.Context, t string, _ model.LogQuery) ([]json.RawMessage, error) {
+func (f *fakeStore) QueryLogs(ctx context.Context, t string, q model.LogQuery) ([]json.RawMessage, error) {
+	f.lastLogQ = q
 	f.archive = store.InArchive(ctx)
 	f.tenant = t
 	return nil, nil

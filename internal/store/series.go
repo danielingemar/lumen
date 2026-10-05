@@ -135,6 +135,10 @@ func tracesPlan(q model.SeriesQuery, p map[string]string) (seriesPlan, error) {
 		where += " AND service = {service:String}"
 		p["service"] = q.Service
 	}
+	if q.Host != "" {
+		where += " AND resource_attrs['host.name'] = {host:String}"
+		p["host"] = q.Host
+	}
 	gexpr, label := "''", ""
 	switch q.GroupBy {
 	case "":
@@ -153,6 +157,10 @@ func logsPlan(q model.SeriesQuery, p map[string]string) (seriesPlan, error) {
 	if q.Service != "" {
 		where += " AND service = {service:String}"
 		p["service"] = q.Service
+	}
+	if q.Host != "" {
+		where += " AND resource_attrs['host.name'] = {host:String}"
+		p["host"] = q.Host
 	}
 	if q.Severity != "" {
 		where += " AND severity = {severity:String}"

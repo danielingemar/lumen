@@ -15,6 +15,7 @@ const (
 	Keys       = "keys"  // agent API keys
 	Users      = "users" // users and groups
 	Backups    = "backups"
+	Settings   = "settings" // site name and logo
 )
 
 const (
@@ -40,6 +41,7 @@ var Areas = []Area{
 	{Keys, "Agent keys", "See agent keys. Write: create and delete them.", true},
 	{Users, "Users & groups", "See users and groups. Write: create, change and delete them.", true},
 	{Backups, "Backups & archive", "View archived data. Write: load or unload archived days and run a backup.", true},
+	{Settings, "Settings", "See the settings page. Write: change the site name and logo (shown to everyone, also on the login page).", true},
 }
 
 func filled(level func(Area) string) map[string]string {

@@ -1,37 +1,109 @@
-# Lumen (working name)
+<div align="center">
 
-Open-source, OpenTelemetry-native observability: traces, logs and metrics in one binary, multi-tenant from day one, with a built-in web UI (dashboards you build yourself) and one-command agents for Linux, Windows, Docker and Nextcloud.
+# Lumen
 
-**Storage:** telemetry (traces, logs, metrics) goes to **ClickHouse**. Small, frequently changing records (users, API keys, dashboards) go to **Elasticsearch**, a NoSQL document store.
+**OpenTelemetry-native observability in one binary.**<br>
+Traces, logs and metrics, dashboards you build yourself, host / service / Docker / Nextcloud monitoring, users and groups, and automatic backups of old data.
 
-**Status: early MVP.** Ingest, search, charts, dashboards and agent enrolment work. There is no alerting or PromQL yet (see Roadmap).
+[![CI](https://github.com/danielingemar/lumen/actions/workflows/ci.yml/badge.svg)](https://github.com/danielingemar/lumen/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+![Go](https://img.shields.io/badge/go-1.22%2B-00ADD8.svg)
+![Dependencies](https://img.shields.io/badge/dependencies-stdlib%20only-brightgreen.svg)
+![Status](https://img.shields.io/badge/status-early%20MVP-orange.svg)
 
-## What the UI gives you
+<img src="docs/screenshots/dashboard-nextcloud.png" alt="Nextcloud dashboard with up and down boxes" width="900">
 
-- **Dashboards you build:** add line, area, stacked-bar, single-value, table, log and trace-list panels; pick the metric (or trace/log statistic), aggregation, "split by" label, label filters, unit, size; drag panels to reorder; every change shows a live preview. Four starter dashboards in one click: **Hosts**, **Nextcloud**, **Services (traces)**, **Logs**.
-- **Metrics explorer:** chart any metric in seconds, then "Add to dashboard".
-- **Traces** (search + waterfall), **Logs** (search + volume chart), **Home** (what is reporting right now), **Add a machine** (copy-paste install commands).
-- Light and dark theme, time range (15 min to 7 days) and auto-refresh in the top bar.
-- **Sign in with a username and password, or with an API key** (a key session can read data and use dashboards, but cannot create keys or change passwords).
+*Lumen is a working name.*
 
-## 1. Try it on your own machine
+</div>
 
-Needs Docker with the compose plugin and about 8 GB RAM (Elasticsearch + ClickHouse). On a Linux host, Elasticsearch also needs `vm.max_map_count=262144` (`dev.sh` checks this and prints the one-line fix; Docker Desktop on Mac/Windows handles it itself).
+> **Status: early MVP.** Ingest, search, charts, dashboards, agents, status (up/down), users and groups, remote agent configuration, retention and backup all work. There is **no alerting and no PromQL yet** (see the [roadmap](#roadmap)). The Elasticsearch, Docker, systemd, Windows and Nextcloud integrations are covered by unit and fake-service tests; check them against your own setup first.
 
-```bash
-sudo sysctl -w vm.max_map_count=262144                                   # Linux hosts only, needed by Elasticsearch
-echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-lumen.conf    # keeps it after a reboot
-./dev.sh                       # auto-detects your LAN IP
-./dev.sh --ip 192.168.56.1     # or pick the address your VM can reach
+---
+
+## Contents
+
+- [Features](#features) · [Screenshots](#screenshots) · [How it fits together](#how-it-fits-together)
+- [Quick start](#quick-start) · [Install on a server](#install-on-a-server) · [Upgrade](#upgrade)
+- [Add machines](#add-machines) · [Hosts, instances and remote configuration](#hosts-instances-and-remote-configuration) · [Nextcloud monitoring](#nextcloud-monitoring)
+- [Status and "Down"](#status-and-down) · [Labels](#labels)
+- [Users, groups and permissions](#users-groups-and-permissions) · [Login, keys and security](#login-keys-and-security)
+- [Retention, backup and archive](#retention-backup-and-archive)
+- [Configuration](#configuration) · [API](#api) · [Development](#development) · [Contributing](#contributing) · [Roadmap](#roadmap)
+
+## Features
+
+| | |
+|---|---|
+| **Dashboards you build** | Line, area, stacked bar, single value, table, log and trace panels. Pick metric, aggregation, *split by* label, label filters, unit and size; drag to reorder; live preview. Starter dashboards: **Hosts**, **Nextcloud**, **Services (traces)**, **Logs**. |
+| **Up / Down at a glance** | Boxes for Nextcloud instances, hosts, systemd services and Docker containers. A *Down* box shows a green **0** when all is well and turns red, with names and reasons, when something is not. |
+| **Hosts & Instances pages** | See every machine and Nextcloud instance. Rename hosts, remove old ones, add log paths, choose watched services, fix a mistyped Nextcloud URL, **all in the browser**: agents pick up the change within a minute. |
+| **Dropdowns of everything that comes in** | Traces, Logs and Metrics list every service, operation, log source, host and metric Lumen has received, so you pick instead of typing. |
+| **Your own logo** | Upload a logo and site name under **Settings**; they show in the menu, the browser tab and on the login page. |
+| **Services on your machines** | systemd units and Docker containers are reported automatically (`system_service_up`, `container_up`). |
+| **Users and groups** | *Admin* (everything), *User* (read-only) and *custom* groups with none / read / write per area. Enforced by the server. |
+| **Retention and archive** | 30 days of live data. Every day is backed up before it expires and can be loaded back and browsed in the UI at any time. |
+| **Traces, logs, metrics** | OTLP/HTTP JSON ingest, trace waterfall, log search, metrics explorer with a **Labels** box. |
+| **One-command agents** | Linux (systemd), Windows, Docker. Host metrics, Prometheus scraping, log tailing, Nextcloud checks, self-metrics. |
+| **Multi-tenant from day one** | The tenant comes only from the authenticated user or key. Every row is written with it, every query filters on it. |
+
+## Screenshots
+
+| | |
+|---|---|
+| <img src="docs/screenshots/instances.png" alt="Nextcloud instances with one DOWN"> **Instances**: a down instance and why. Fix a typo and the agent picks it up. | <img src="docs/screenshots/host.png" alt="Host settings and services"> **Hosts**: log paths, watched services, systemd services and Docker containers. |
+| <img src="docs/screenshots/users.png" alt="Users and groups"> **Users & groups**: Admin, User and custom groups. | <img src="docs/screenshots/backups.png" alt="Backups and archive"> **Backups & archive**: every day is backed up; load an old day and browse it. |
+| <img src="docs/screenshots/logs.png" alt="Logs with source and host dropdowns"> **Logs**: pick a log source and a host from what has come in. | <img src="docs/screenshots/traces.png" alt="Traces with service, operation and host dropdowns"> **Traces**: service, operation and host dropdowns. |
+| <img src="docs/screenshots/settings.png" alt="Settings with logo upload"> **Settings**: your own logo and site name. | <img src="docs/screenshots/dashboard-hosts.png" alt="Hosts dashboard"> **Hosts dashboard** starter template. |
+| <img src="docs/screenshots/dashboard-nextcloud-dark.png" alt="Nextcloud dashboard, dark theme"> Light and dark theme. | |
+
+*Screenshots show example data.*
+
+## How it fits together
+
+```mermaid
+flowchart LR
+  subgraph machines [Your machines]
+    A1[lumen-agent<br/>host metrics, systemd, Docker,<br/>logs, Nextcloud checks]
+    A2[OTel SDK / Collector]
+  end
+  A1 -- "OTLP/HTTP JSON<br/>(API key)" --> L
+  A2 -- "OTLP/HTTP JSON" --> L
+  L -. "GET /api/v1/agent/config<br/>every 60 s" .-> A1
+  subgraph server [Lumen server]
+    L[lumen<br/>API + web UI]
+  end
+  L -- "traces, logs, metrics" --> CH[(ClickHouse<br/>30 days)]
+  L -- "users, groups, dashboards,<br/>hosts, instances" --> ES[(Elasticsearch)]
+  L -- "daily export" --> BK[/backup volume<br/>gzip JSON lines/]
+  B[Browser] --> L
 ```
 
-It starts Lumen, ClickHouse and Elasticsearch, then prints the web UI address, the login (username `admin` + a generated password) and copy-paste commands to run on another VM. `./dev.sh status | stop | reset` manage it.
+Telemetry lives in **ClickHouse**. Small, frequently changing records (users, groups, API keys, dashboards, host settings, instances) live in **Elasticsearch**, or in a JSON file for a single small instance.
 
-If the VM cannot connect: use an IP the VM can reach (bridged network = your LAN IP; NAT/host-only = the host address of that virtual network) and allow inbound TCP 4318 on this machine's firewall.
+## Quick start
 
-## 2. Install on a server
+```bash
+git clone https://github.com/danielingemar/lumen.git
+cd lumen
+```
 
-Rocky Linux / AlmaLinux / RHEL 9, or any host that already has Docker. 2+ vCPU, 6 GB RAM minimum (8 GB+ recommended), 20 GB+ local SSD. `install.sh` and `dev.sh` also set `vm.max_map_count=262144` themselves if you skip the two lines above, so they are safe to run either way.
+Needs Docker with the compose plugin and about 8 GB RAM (Elasticsearch + ClickHouse). On Linux hosts Elasticsearch needs `vm.max_map_count=262144` (Docker Desktop on Mac/Windows handles it itself).
+
+```bash
+sudo sysctl -w vm.max_map_count=262144                                   # Linux only
+echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-lumen.conf    # keep it after reboot
+./dev.sh                      # auto-detects your LAN IP
+./dev.sh --ip 192.168.56.1    # or choose the address your VM can reach
+```
+
+It starts Lumen, ClickHouse and Elasticsearch, prints the web UI address, the `admin` login and ready-to-paste commands for other machines. `./dev.sh status | stop | reset` manage it.
+
+If a VM cannot connect, use an IP it can reach (bridged: your LAN IP; NAT/host-only: the host address of that network) and allow inbound TCP 4318.
+
+## Install on a server
+
+Rocky Linux / AlmaLinux / RHEL 9, or any host with Docker. 2+ vCPU, 6 GB RAM minimum (8 GB+ recommended), 20 GB+ local SSD.
 
 ```bash
 sudo firewall-cmd --add-port=4318/tcp --permanent
@@ -39,181 +111,253 @@ sudo firewall-cmd --add-port=443/tcp --permanent
 sudo firewall-cmd --reload
 sudo sysctl -w vm.max_map_count=262144
 echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-lumen.conf
-sudo ./install.sh --public-url https://lumen.example.com --tenant main --with-agent
+sudo ./install.sh --public-url https://lumen.example.com --tenant main
 ```
 
-Installs Docker if missing, generates secrets, runs a preflight check, starts everything, waits until healthy, and prints the UI address and the admin login. Add `--allow-podman-removal` if podman is installed (Docker's runc replaces it). Manual steps: `deploy/install-rhel-family.sh`, `deploy/gen-env.sh`, `deploy/preflight.sh`, `make up`.
+Installs Docker if missing, generates secrets into `deploy/.env`, runs a preflight check, starts everything, waits until healthy and prints the address and the admin login. Add `--allow-podman-removal` if podman is installed. Manual steps: `deploy/install-rhel-family.sh`, `deploy/gen-env.sh`, `deploy/preflight.sh`, `make up`.
+
+**Keep `deploy/.env` safe.** It holds `LUMEN_SECRET_KEY`, which encrypts stored Nextcloud credentials; without it they cannot be read again.
 
 Production notes:
-- Use HTTPS: API keys travel in headers. Put Nginx/Caddy in front and set `LUMEN_BIND=127.0.0.1` in `deploy/.env`. Docker-published ports are normally reachable regardless of firewalld, so do not rely on firewalld alone.
-- Set `--public-url` (`LUMEN_PUBLIC_URL`) to the address agents will use; it is written into the install scripts.
-- If agents reach Lumen through a proxy such as Squid, exempt the Lumen host from it.
+- **Use HTTPS.** API keys travel in headers and Nextcloud tokens are sent to agents. Put Nginx/Caddy in front and set `LUMEN_BIND=127.0.0.1` in `deploy/.env`. Docker-published ports usually bypass firewalld, so do not rely on it alone.
+- Set `--public-url` to the address agents will use; it is written into the install scripts.
+- If agents reach Lumen through a proxy such as Squid, exempt the Lumen host.
 
-## 3. Add machines (the "Add a machine" page in the UI)
+### Upgrade
 
-Log in to the UI, choose **Add a machine**, create an agent key (give it a name such as `web-server-1`), pick the machine type, copy the command. The key is shown once; the commands already contain it.
+Pull the new source and run `./install.sh` (or `./dev.sh`) again: it adds missing settings such as `LUMEN_SECRET_KEY` to `deploy/.env`, rebuilds and restarts. **Your address and other settings in `deploy/.env` are never replaced**: `LUMEN_PUBLIC_URL` only changes if you pass `--public-url` (or `--ip` to `dev.sh`), and `LUMEN_BIND` is only set when missing. Several Lumen servers with different addresses can therefore be upgraded the same way. To upgrade without running any script at all: `docker compose -f deploy/docker-compose.yml up -d --build`. Existing data is kept, retention changes are applied to existing tables, and accounts from before groups existed become admins. **Run the agent install command once more on each machine** to get the current agent.
 
-| Type | What you paste | What it does |
+## Add machines
+
+In the UI open **Add a machine**, create an agent key (for example `web-server-1`), choose the machine type and copy the command. The key is shown once; the commands already contain it.
+
+| Type | Command | What it does |
 |---|---|---|
-| **Linux server** | `curl -fsSL URL/install/agent.sh \| sudo sh -s -- --key KEY` (or the `wget -qO-` form) | Installs a systemd service running as an unprivileged `lumen-agent` user. Optional `--logs '/var/log/*.log'`, `--docker-logs`. |
-| **Windows** | `& ([scriptblock]::Create((irm URL/install/agent.ps1))) -Key KEY` in an elevated PowerShell | Installs a scheduled task running as SYSTEM that restarts on failure. Optional `-LogPath`. |
-| **Docker host** | a `docker run ... alpine:3.20 sh -c 'wget -qO- URL/install/agent-docker.sh \| sh'` command | Runs the agent as a container that downloads and checksum-verifies the agent at start. Nothing to build or pull from a registry. |
-| **Nextcloud** | Linux or Docker command with the instance URL and token | Monitors one Nextcloud instance remotely (see below). |
-| **Download files** | links, `wget` and PowerShell `Invoke-WebRequest` commands | Raw binaries + SHA-256 for manual installs. |
+| **Linux server** | `curl -fsSL URL/install/agent.sh \| sudo sh -s -- --key KEY` | systemd service as an unprivileged `lumen-agent` user. Options: `--logs '/var/log/*.log'`, `--docker-logs`, `--docker` |
+| **Windows** | `& ([scriptblock]::Create((irm URL/install/agent.ps1))) -Key KEY` (elevated PowerShell) | Scheduled task running as SYSTEM, restarts on failure. Option: `-LogPath` |
+| **Docker host** | a `docker run ... alpine:3.20 sh -c 'wget -qO- URL/install/agent-docker.sh \| sh'` command | Agent as a container; downloads and checksum-verifies at start. Nothing to build |
+| **Nextcloud** | add the instance on the **Instances** page | see [Nextcloud monitoring](#nextcloud-monitoring) |
+| **Download files** | links with SHA-256 | raw binaries for manual installs |
 
-Remove an agent with `--uninstall` (Linux script), `-Uninstall` (Windows) or `docker rm -f lumen-agent`.
+Remove an agent with `--uninstall` (Linux), `-Uninstall` (Windows) or `docker rm -f lumen-agent`.
 
-Agents report their own health too (`service.name=lumen-agent`): uptime, items sent, send errors, scrape errors. Set `"metrics_listen": "127.0.0.1:9464"` to also expose it at `/metrics`. An agent that cannot reach Lumen cannot report that, so alert on missing `lumen_agent_uptime_seconds`.
+`--docker` adds the agent to the `docker` group so it can list containers. **Docker socket access is equivalent to root on that machine**; only use it if you want container up/down status. The Windows script and the Docker-container agent do not collect services yet.
 
-### Nextcloud monitoring
+Agents report their own health (`service.name=lumen-agent`): uptime, items sent, send errors, scrape errors, refused log paths. Set `"metrics_listen": "127.0.0.1:9464"` to also expose `/metrics`. An agent that cannot reach Lumen cannot say so: watch for a missing `lumen_agent_info` (the *Hosts DOWN* box does this).
 
-One agent can watch one or more Nextcloud instances from anywhere that can reach their URL. It collects, per instance:
+## Hosts, instances and remote configuration
+
+- **Hosts** lists every machine with an agent: status, agent version, OS, services and containers up/down. Open a host to **rename** it (a display name, useful when a container agent reports a random ID; the real name stays and is what agents and instances use), **remove** it from the list (only when it is not reporting, and not while Nextcloud instances are still checked by it; it comes back by itself if its agent reports again), set the **log files to ship**, Docker log shipping, **services that must be running** (shown DOWN when stopped or missing), and to switch service/container reporting on or off.
+- **Instances** manages the Nextcloud installations to monitor: URL, token or login, optional log file, and *which machine's agent runs the checks*.
+- Agents fetch `GET /api/v1/agent/config?host=NAME` (API key only) every 60 s and restart their collectors when it changes. Nothing to edit on the machines. Settings from the agent's local config and flags still work and are merged; an instance defined in the UI replaces a local one with the same URL.
+- **Safety:** log paths that come from the server are only read if they are under `/var/log`, `/var/lib/docker/containers`, `/var/lib/docker/volumes`, `/var/www`, `/srv`, `/mnt` or `/opt`, and never contain `..`. Otherwise a UI user could make every agent read `/etc/shadow`. Change it per machine with `allowed_log_dirs` in the agent config (`["*"]` allows all). Paths in the local config file are always trusted. Refused paths show as a warning on the host.
+- Nextcloud tokens are stored **encrypted** (AES-GCM, key from `LUMEN_SECRET_KEY`) and never shown again in the UI (only "set"). They are sent to the agent that needs them, hence HTTPS.
+- **Services:** systemd units that are running or failed, plus watched ones, as `system_service_up`. **Containers:** `container_up` through the Docker Engine API on the local socket.
+
+## Nextcloud monitoring
+
+One agent can watch several Nextcloud instances from anywhere that can reach their URL. Per instance it collects:
+
 - availability and response time (`status.php`), maintenance mode, pending DB upgrade, version;
-- with a token: active users (5m/1h/24h), user/file/storage counts, shares by type, installed apps and available updates, database size, PHP memory limit, OPcache hit rate/usage, free data space;
-- optionally, `nextcloud.log` shipped as structured logs (level, app, user and request id are kept; the request URL is dropped because it can contain tokens).
+- with a token: active users (5 min / 1 h / 24 h), user / file / storage counts, shares by type, installed apps and available updates, database size, PHP memory limit, OPcache hit rate and usage, free data space;
+- optionally `nextcloud.log` as structured logs (level, app, user and request id are kept; the request URL is dropped because it can contain tokens).
 
-Setup on the Nextcloud side (serverinfo is a default app):
+Create a token on the Nextcloud server (the *serverinfo* app is on by default):
 
 ```bash
 docker exec -u www-data <nextcloud-container> php occ config:app:set serverinfo token --value 'A_LONG_RANDOM_STRING'
-# or, without Docker:  sudo -u www-data php occ config:app:set serverinfo token --value '...'
+# without Docker:  sudo -u www-data php occ config:app:set serverinfo token --value '...'
 ```
 
-Then use the Nextcloud tab under "Add a machine". The Nextcloud hostname must be in that instance's `trusted_domains`. To use an admin user instead of a token: `--nextcloud-user USER --nextcloud-password APP_PASSWORD`. Multiple instances: use the `nextcloud` list in the agent config file (`lumen-agent.example.json`), one entry each.
+Then add the instance under **Instances**. The Nextcloud hostname must be in that instance's `trusted_domains`. An admin user plus app password works instead of a token. Instances set up earlier with `--nextcloud` flags still work and appear as "from agent flags" with a *Manage here* button.
 
-Note: the serverinfo field names were written from the app's documented response and covered by tests against a sample of that shape, not against a live server. Check the numbers against one real instance first; missing fields are skipped rather than failing.
+> The serverinfo field names follow the app's documented response and are tested against a sample of that shape, not a live server. Compare the numbers with one real instance first; missing fields are skipped.
 
-## Users, login and keys
+## Status and "Down"
 
-- **People log in with a username and password** (web UI). Passwords are stored as salted PBKDF2-HMAC-SHA256 hashes (600,000 iterations), sessions are signed HttpOnly `SameSite=Strict` cookies (12 h; Secure over HTTPS), logins are throttled per username (10 failures / 10 min), and changing or resetting a password ends that user's existing sessions.
-- **Machines and agents use API keys**, not passwords. A browser session (either kind) can never send telemetry. **You can also sign in to the UI with an API key**: that session is read-only apart from dashboards, and it ends the moment the key is deleted. Only a username login can create keys or change passwords. Keys are stored only as SHA-256 hashes; the full key is shown once at creation. Create and delete them in the UI (**Add a machine**) or with the CLI.
-- **Storage:** users, key hashes, dashboards and the session secret live in **Elasticsearch** (indices `lumen-users`, `lumen-keys`, `lumen-dashboards`, `lumen-meta`). Every operation touches a single document and uses optimistic concurrency (two people saving the same dashboard cannot silently overwrite each other); note that Elasticsearch has no multi-document transactions. Without `LUMEN_ELASTICSEARCH_URL` Lumen falls back to a JSON file (`documents.json`, 0600, in `LUMEN_DATA_DIR`), which is fine for a single small instance. An `auth.json` from an earlier version is imported automatically. Back up the `esdata` volume (or use Elasticsearch snapshots) together with ClickHouse.
-- **Licensing note:** Elasticsearch is not Apache-licensed (Elastic License 2.0 / SSPL, plus AGPL from 8.16). Running it as a separate service next to Lumen is fine, but read the terms before you redistribute it or offer it as a hosted service. Lumen only uses the basic document and search APIs, so **OpenSearch** (Apache-2.0) should work as a drop-in by pointing `LUMEN_ELASTICSEARCH_URL` at it. That has not been tested.
-- The first admin is created at startup from `LUMEN_ADMIN_USER` / `LUMEN_ADMIN_PASSWORD` / `LUMEN_ADMIN_TENANT` (the setup scripts generate these into `deploy/.env`). Changing the password in `.env` afterwards has no effect; use the UI or the CLI.
-- Every user belongs to one tenant and only sees that tenant's data. Access is controlled by groups, see "Users, groups and permissions" below.
+Status panels (a single-value panel with data source **Status**, and the boxes on **Home**) show counts of up and down hosts, services, containers and Nextcloud instances.
 
-Manage users from the command line (also works while the server is running):
+- A **host** is down when its agent has not reported for 2 minutes.
+- **Services and containers** are only counted on hosts that report (when a host is down, the host is the problem).
+- A **Nextcloud instance** is down when its agent cannot reach it, or when the agent stopped reporting. A newly added instance gets 5 minutes to deliver its first check ("starting").
+- Zero is shown in green. Clicking a box opens the Hosts or Instances page.
+
+## Dropdowns on Traces, Logs and Metrics
+
+The filter boxes list what Lumen has actually received, with counts, so you do not have to remember names:
+
+- **Traces:** service, root operation (narrowed to the chosen service) and host.
+- **Logs:** log source (the service name, for example `nginx` or `system-logs`) and host. The log-volume chart follows the same filters.
+- **Metrics:** one dropdown with every metric of the last week, plus a filter box above it.
+
+On live data the lists cover the last 7 days (not just the chart range, so something that stopped an hour ago is still listed); with the Archive switch or a custom range they follow that range. Host names come from the `host.name` that agents send, shown with the display name you gave them on the Hosts page. Lists are cached for a minute.
+
+## Settings: your logo and name
+
+**Settings** (needs the *Settings* permission) lets you upload a logo (PNG, JPEG, GIF, WebP or SVG, up to 512 KB) and a site name. With a logo the menu shows the logo (on a white background so dark logos work); the name is used in the browser tab and under the logo on the login page. They are the same for everyone on this server and visible before signing in, so in a multi-tenant installation only give the Settings permission to the operator.
+
+Uploads are checked by their real content (not the declared type), SVG files with scripts or event handlers are refused, and the logo is served with a locked-down content-security policy so it can never run code.
+
+## Labels
+
+Every metric point carries labels: key=value tags such as `host`, `instance`, `mountpoint` or `core`. You find them in two places: the **Metrics** page has a *Labels* box for the chosen metric (click a name to split the chart, a value to filter), and the panel editor offers them under *Split by* and *Only where*.
+
+## Users, groups and permissions
+
+Managed under **Users & groups**:
+
+- **Admin**: everything, including users, groups, keys and backups.
+- **User**: read-only access to data, dashboards, hosts and instances.
+- **Custom**: an admin picks *none / read / write* for each area: dashboards, traces, logs, metrics, hosts & instances, agent keys, users & groups, backups & archive, settings. Traces, logs and metrics are read-only by nature.
+
+The server enforces permissions on every request; the UI just hides what you cannot use. API keys (agents, scripts) can read data and manage dashboards, never users or keys. Safeguards: you cannot delete yourself, change your own group, or remove the last user who can manage users. A group change applies immediately; resetting a password ends that user's sessions. New passwords are generated and shown once.
 
 ```bash
-docker compose -f deploy/docker-compose.yml exec lumen /lumen users add alice --tenant main   # prints a generated password once
+lumen users add alice --tenant main --group admin|user|GROUP_ID    # default group: user
+lumen users set-group alice GROUP
+```
+
+## Login, keys and security
+
+- **People log in with username and password.** Passwords are salted PBKDF2-HMAC-SHA256 (600,000 iterations); sessions are signed HttpOnly `SameSite=Strict` cookies (12 h, `Secure` over HTTPS); logins are throttled per username (10 failures / 10 min); changing a password ends that user's sessions.
+- **Machines use API keys**, stored only as SHA-256 hashes (shown once). A browser session can never send telemetry. You can also sign in to the UI *with* an API key: that session reads data and uses dashboards but cannot manage keys, users or passwords, and ends when the key is deleted.
+- **Storage:** users, groups, key hashes, dashboards, host settings, instances and the session secret live in Elasticsearch (`lumen-users`, `-groups`, `-keys`, `-dashboards`, `-hosts`, `-instances`, `-meta`). Writes are single-document with optimistic concurrency (two people saving the same dashboard cannot silently overwrite each other). Elasticsearch has no multi-document transactions. Without `LUMEN_ELASTICSEARCH_URL` Lumen uses a JSON file (`documents.json`, mode 0600).
+- The first admin is created at startup from `LUMEN_ADMIN_USER` / `LUMEN_ADMIN_PASSWORD` / `LUMEN_ADMIN_TENANT`. Changing the password in `.env` later has no effect; use the UI or CLI. Locked out? `docker compose -f deploy/docker-compose.yml exec lumen /lumen users passwd admin`.
+- **Licensing note:** Elasticsearch is not Apache-licensed (Elastic License 2.0 / SSPL, plus AGPL from 8.16). Running it as a separate service is fine; read the terms before redistributing it or offering a hosted service. Lumen only uses basic document and search APIs, so **OpenSearch** (Apache-2.0) should work by pointing `LUMEN_ELASTICSEARCH_URL` at it (not tested).
+
+CLI (also works while the server runs):
+
+```bash
 docker compose -f deploy/docker-compose.yml exec lumen /lumen users list
+docker compose -f deploy/docker-compose.yml exec lumen /lumen users add alice --tenant main
 docker compose -f deploy/docker-compose.yml exec lumen /lumen users passwd alice
 docker compose -f deploy/docker-compose.yml exec lumen /lumen users delete alice
 docker compose -f deploy/docker-compose.yml exec lumen /lumen keys create --tenant main --name vm1
 ```
 
-Locked out? Reset the admin from the host: `... exec lumen /lumen users passwd admin`.
+## Retention, backup and archive
+
+Live data stays in ClickHouse for `LUMEN_RETENTION_DAYS` (**30**); changing the value also updates existing tables at startup. Before data expires, every completed UTC day is exported once per tenant and table as gzip JSON lines:
+
+```
+/backup/telemetry/YYYY-MM-DD/<tenant>/otel_{spans,logs,metrics}.jsonl.gz   (+ a DONE marker, written last)
+/backup/config/lumen-config-YYYY-MM-DD.json.gz    users, groups, dashboards, hosts, instances (last 30)
+```
+
+Backups are kept `LUMEN_BACKUP_RETENTION_DAYS` (**365**; `0` = forever). A failed export leaves no partial day and is retried.
+
+**Looking at an old day:** open **Backups & archive**, choose *View in archive* (the day is loaded into `*_archive` tables that never expire), and Lumen switches the top bar to **Archive** with a custom time range. Traces, logs, metrics and dashboards then show that day. Switch back with *Back to live data*, and *Unload* when done. The raw files can also be downloaded or read directly: `zcat .../otel_logs.jsonl.gz | less`.
+
+> The config dump contains **all tenants** (password hashes, encrypted credentials) and is for the operator only; it is never served by the API.
+>
+> **The backup lives on the same server as the data.** Copy it elsewhere regularly, for example from cron:
+> `docker compose -f deploy/docker-compose.yml cp lumen:/backup ./lumen-backup`
 
 ## Configuration
 
-Server (env): `LUMEN_ADDR` (:4318), `LUMEN_PUBLIC_URL`, `LUMEN_CLICKHOUSE_URL`, `LUMEN_CLICKHOUSE_DB` (lumen), `LUMEN_CLICKHOUSE_USER`, `LUMEN_CLICKHOUSE_PASSWORD`, `LUMEN_RETENTION_DAYS` (30), `LUMEN_BACKUP_DIR` (/backup, empty = no backups), `LUMEN_BACKUP_RETENTION_DAYS` (365, 0 = forever), `LUMEN_SECRET_KEY` (encrypts stored Nextcloud credentials; generated by the install scripts, keep deploy/.env safe), `LUMEN_API_KEYS` (`key:tenant,key:tenant`), `LUMEN_DIST_DIR` (/dist). `LUMEN_DATA_DIR` (/data, only for the JSON fallback), `LUMEN_ELASTICSEARCH_URL`, `LUMEN_ELASTICSEARCH_USER`, `LUMEN_ELASTICSEARCH_PASSWORD` (or `LUMEN_ELASTICSEARCH_API_KEY`), `LUMEN_ELASTICSEARCH_PREFIX` (lumen), `LUMEN_ADMIN_USER`, `LUMEN_ADMIN_PASSWORD`, `LUMEN_ADMIN_TENANT` (main). `LUMEN_API_KEYS` are optional bootstrap keys. If there are no users and no keys, nobody can log in and the server says so in its log. `LUMEN_DEV_MODE=true` disables authentication entirely (single tenant `default`): only for a private test machine.
+**Server (environment)**
 
-Agent: a JSON file (`-config`, see `lumen-agent.example.json`) and/or env vars, env wins: `LUMEN_AGENT_URL`, `LUMEN_AGENT_API_KEY`, `LUMEN_AGENT_INTERVAL`, `LUMEN_AGENT_HOST_METRICS`, `LUMEN_AGENT_LOG_PATHS`, `LUMEN_AGENT_DOCKER_LOGS`, `LUMEN_AGENT_METRICS_LISTEN`, `LUMEN_AGENT_NEXTCLOUD_{URL,TOKEN,USER,PASSWORD,SERVICE,LOG}`. The agent also scrapes any Prometheus `/metrics` endpoint (`scrape` list), so node_exporter, cAdvisor and app exporters work unchanged.
+| Variable | Default | Meaning |
+|---|---|---|
+| `LUMEN_ADDR` | `:4318` | listen address |
+| `LUMEN_PUBLIC_URL` | | address agents use; written into the install scripts |
+| `LUMEN_CLICKHOUSE_URL` / `_DB` / `_USER` / `_PASSWORD` | `http://localhost:8123` / `lumen` / `default` / | ClickHouse |
+| `LUMEN_RETENTION_DAYS` | `30` | days of live data |
+| `LUMEN_BACKUP_DIR` | `/backup` | daily export of expiring data; empty disables backups |
+| `LUMEN_BACKUP_RETENTION_DAYS` | `365` | how long backups are kept; `0` = forever |
+| `LUMEN_SECRET_KEY` | | encrypts stored Nextcloud credentials (falls back to the session secret with a warning) |
+| `LUMEN_ELASTICSEARCH_URL` / `_USER` / `_PASSWORD` / `_API_KEY` / `_PREFIX` | / / / / `lumen` | document store; without a URL a JSON file in `LUMEN_DATA_DIR` (`/data`) is used |
+| `LUMEN_ADMIN_USER` / `_PASSWORD` / `_TENANT` | / / `main` | first admin, created at startup |
+| `LUMEN_API_KEYS` | | optional bootstrap keys, `key:tenant,key:tenant` |
+| `LUMEN_DIST_DIR` | `/dist` | agent binaries served for installs |
+| `LUMEN_DEV_MODE` | `false` | `true` disables authentication entirely (single tenant `default`); private test machines only |
 
-Multi-tenancy: the tenant comes only from the authenticated API key, never from the request; every row is written with it and every query filters on it.
+If there are no users and no keys, nobody can log in and the server log says so.
+
+**Agent:** a JSON file (`-config`, see `lumen-agent.example.json`) and/or environment variables (variables win): `LUMEN_AGENT_URL`, `LUMEN_AGENT_API_KEY`, `LUMEN_AGENT_INTERVAL`, `LUMEN_AGENT_HOST_METRICS`, `LUMEN_AGENT_SYSTEMD`, `LUMEN_AGENT_CONTAINERS`, `LUMEN_AGENT_LOG_PATHS`, `LUMEN_AGENT_DOCKER_LOGS`, `LUMEN_AGENT_METRICS_LISTEN`, `LUMEN_AGENT_NO_REMOTE` (ignore the server's settings), `LUMEN_AGENT_NEXTCLOUD_{URL,TOKEN,USER,PASSWORD,SERVICE,LOG}`. The agent also scrapes any Prometheus `/metrics` endpoint (`scrape` list), so node_exporter, cAdvisor and app exporters work unchanged.
 
 ## API
 
-| Method | Path | Notes |
+| Method | Path | Needs |
 |---|---|---|
-| POST | `/v1/traces`, `/v1/logs`, `/v1/metrics` | OTLP/HTTP **JSON** only for now, gzip supported |
-| POST | `/api/v1/login`, `/api/v1/logout`, `/api/v1/password` | JSON body; browser login |
-| GET/POST/DELETE | `/api/v1/keys`, `/api/v1/keys/{id}` | agent keys, browser login required |
-| POST | `/api/v1/login` | `{"username","password"}` or `{"api_key"}` |
-| GET | `/api/v1/me` | who am I (`via_key` is true for API-key sessions) |
-| GET | `/api/v1/series` | chart data. `source=metric\|traces\|logs`; metric: `name`, `agg=avg\|sum\|min\|max\|last\|rate`, `filter=label:value` (up to 5), `group_by=host`; traces: `metric=requests\|rps\|errors\|error_rate\|avg\|p50\|p95\|p99`, `group_by=service\|name`; logs: `group_by=severity\|service`, `severity`, `q`; plus `service`, `from`, `to`, `step` (auto by default, max 90 days) |
-| GET | `/api/v1/services`, `/api/v1/metrics/names`, `/api/v1/metrics/labels?name=` | what is reporting; used by the editor dropdowns |
-| GET/POST/PUT/DELETE | `/api/v1/dashboards`, `/api/v1/dashboards/{id}` | dashboards (`name`, `description`, `body.panels`, `version` for conflict detection); an API key may use these too, for scripting |
-| GET | `/api/v1/traces` | `service`, `min_duration_ms`, `errors=true`, `from`, `to` (RFC3339), `limit` |
-| GET | `/api/v1/traces/{id}` | all spans of a trace |
-| GET | `/api/v1/logs` | `service`, `severity`, `q`, `trace_id`, `from`, `to`, `limit` |
-| GET | `/install/agent.sh`, `/install/agent.ps1`, `/install/agent-docker.sh`, `/download/{file}` | agent enrolment (no auth; contain no secrets) |
+| POST | `/v1/traces`, `/v1/logs`, `/v1/metrics` | API key. OTLP/HTTP **JSON** only for now; gzip supported |
+| POST | `/api/v1/login`, `/logout`, `/password` | login with `{"username","password"}` or `{"api_key"}` |
+| GET | `/api/v1/me` | who am I: group, permissions, `via_key` |
+| GET/POST/DELETE | `/api/v1/keys[/{id}]` | keys |
+| GET/POST/PUT/DELETE | `/api/v1/users[/{name}]`, `/api/v1/groups[/{id}]` | users |
+| GET | `/api/v1/series` | traces / logs / metrics. `source=metric\|traces\|logs`; metric: `name`, `agg=avg\|sum\|min\|max\|last\|rate`, `filter=label:value` (up to 5), `group_by`; traces: `metric=requests\|rps\|errors\|error_rate\|avg\|p50\|p95\|p99`; logs: `severity`, `q`; plus `service`, `from`, `to`, `step` (max 90 days) |
+| GET | `/api/v1/services`, `/metrics/names`, `/metrics/labels?name=` | any of traces, logs, metrics |
+| GET | `/api/v1/traces` (`service`, `host`, `operation`), `/traces/{id}`, `/logs` (`service`, `host`, `severity`, `q`) | traces / logs |
+| GET/POST/PUT/DELETE | `/api/v1/dashboards[/{id}]` | dashboards (`version` for conflict detection) |
+| GET | `/api/v1/status` | hosts or metrics: up/down counts, instances, what is down |
+| GET/PUT/DELETE | `/api/v1/hosts[/{host}]` (PUT takes `display_name`) | hosts |
+| POST | `/api/v1/hosts/{host}/remove` | hosts |
+| GET | `/api/v1/facets?source=traces\|logs[&service=]` | traces / logs: services, hosts and operations that have data |
+| GET | `/api/v1/branding`, `/branding/logo` | none (public) |
+| PUT | `/api/v1/settings/branding` | settings |
+| GET/POST/PUT/DELETE | `/api/v1/instances[/{id}]` | hosts |
+| GET | `/api/v1/agent/config?host=` | API key (never a browser session: contains credentials) |
+| GET, POST, DELETE | `/api/v1/backups`, `/backups/run`, `/backups/{day}/load`, `/backups/{day}/{spans\|logs\|metrics}` | backups |
+| any read | `?archive=1` | backups (read): query restored data |
+| GET | `/install/agent.sh`, `/install/agent.ps1`, `/install/agent-docker.sh`, `/download/{file}` | none; contain no secrets |
 
-OpenTelemetry SDKs and the Collector can send directly: set the exporter encoding to `json`, endpoint `http://lumen:4318`, header `Authorization: Bearer KEY`.
+OpenTelemetry SDKs and the Collector can send directly: exporter encoding `json`, endpoint `http://lumen:4318`, header `Authorization: Bearer KEY`.
 
-## Source layout
+## Development
 
 ```
-cmd/lumen           server        cmd/lumen-agent    agent
-internal/server     HTTP API, UI and installer routes
-internal/store      ClickHouse (HTTP interface, no driver dependency)
-internal/otlp       OTLP JSON decoding
-internal/agent      host metrics, Prometheus scrape, log tailing, Nextcloud, self-metrics, sender
-internal/install    embedded install scripts + agent download handler
-internal/ui         single-file web UI
-internal/auth       users, passwords, sessions, API keys (on top of docstore)
-internal/docstore   document store: Elasticsearch client + JSON-file fallback (estest = fake ES for tests only)
-internal/dashboards dashboards per tenant (stored through docstore)
-internal/edition    open-core hooks (auth, authorization)
-ee/                 enterprise features (commercial license, build tag "enterprise")
-deploy/             compose file, preflight, secrets generator, RHEL-family Docker installer
-install.sh dev.sh   server installer / local test setup
+cmd/lumen             server                    cmd/lumen-agent    agent
+internal/server       HTTP API, UI and installer routes, permission gate
+internal/store        ClickHouse over HTTP (no driver), archive tables, backup export/import
+internal/otlp         OTLP JSON decoding
+internal/agent        host metrics, systemd, Docker, Prometheus scrape, log tailing, Nextcloud, remote config
+internal/install      embedded install scripts + agent download handler
+internal/ui           single-file web UI
+internal/auth         users, groups, passwords, sessions, API keys (on top of docstore)
+internal/perm         permission areas and levels
+internal/registry     host settings and Nextcloud instances (secrets encrypted)
+internal/secretbox    AES-GCM for stored credentials
+internal/status       up/down computation
+internal/backup       daily export, prune, load/unload of archive days
+internal/docstore     Elasticsearch client + JSON-file fallback (estest = fake ES, tests only)
+internal/dashboards   dashboards per tenant
+internal/edition      open-core hooks (auth, authorization)
+ee/                   enterprise features (commercial license, build tag "enterprise")
+deploy/               compose file, preflight, secrets generator, RHEL-family Docker installer
+install.sh dev.sh     server installer / local test setup
 ```
 
-Build and test: `go vet ./... && go test ./...`, `make build`, `make build-ee`. The SQL is also checked against a real ClickHouse engine: `pip install chdb`, then `LUMEN_DUMP_SQL=/tmp/sql.json go test ./internal/store -run Dump && python3 scripts/test-sql.py /tmp/sql.json`. Only the Go standard library is used, so there are no dependencies to download. The Elasticsearch client is tested against a small fake (`internal/docstore/estest`), not a real Elasticsearch.
+```bash
+make test          # go vet ./... && go test ./...
+make build         # bin/lumen and bin/lumen-agent
+make build-ee      # enterprise build
+```
 
-## Before you publish the source
+The SQL (DDL, queries, backup export/import round trip, retention) is also run against a real ClickHouse engine:
 
-1. `./scripts/set-module.sh github.com/YOUR_USER/lumen` replaces the placeholder module path everywhere and checks the build.
-2. The core is Apache-2.0 (`LICENSE`). `ee/LICENSE` is a placeholder: replace it with your commercial terms, or delete `ee/` and `cmd/lumen/enterprise.go` if you do not want an enterprise tier yet.
-3. Pick the final name and check it for trademark conflicts, then search-and-replace "Lumen" and `lumen`.
-4. `.gitignore` already excludes `deploy/.env` (secrets). Check `git status` shows no `.env` before the first commit.
+```bash
+pip install chdb
+LUMEN_DUMP_SQL=/tmp/sql.json go test ./internal/store -run Dump && python3 scripts/test-sql.py /tmp/sql.json
+```
+
+Only the Go standard library is used, so there is nothing to download. The Elasticsearch client is tested against a small fake (`internal/docstore/estest`), not a real Elasticsearch.
+
+## Contributing
+
+Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately, see [SECURITY.md](SECURITY.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+
+Before you fork this into a product of your own: pick the final name and check it for trademark conflicts, and add your commercial terms to `ee/LICENSE` (or delete `ee/` and `cmd/lumen/enterprise.go` if you do not want an enterprise tier). To rename the Go module: `./scripts/set-module.sh github.com/YOU/lumen`.
 
 ## Roadmap
 
-1. Alerting (rules on any chart query, notifications), then dashboard variables and sharing
-2. Protobuf and gRPC OTLP ingest
-3. Alerting, service map, span details, then automatic correlation across traces/logs/deploys
-4. Kubernetes discovery and a Helm chart for the agent; native Windows service; Windows Event Log
-5. Server self-monitoring, per-tenant quotas, agent on-disk buffering
-6. Enterprise: OIDC/SSO, audit log (basic RBAC is already in the core)
+1. **Alerting:** rules on any chart query and the status boxes, notifications (email, webhook, Slack)
+2. Windows services and Windows Event Log in the agent
+3. Protobuf and gRPC OTLP ingest
+4. Dashboard variables and sharing, service map, span details, correlation across traces, logs and deploys
+5. Kubernetes discovery and a Helm chart for the agent
+6. Server self-monitoring, per-tenant quotas, agent on-disk buffering
+7. Enterprise: OIDC/SSO, audit log
 
+## License
 
-## Users, groups and permissions
-
-Three kinds of group, managed under **Users & groups** in the UI:
-
-- **Admin**: everything, including users, groups, keys and backups.
-- **User**: read-only access to data, dashboards, hosts and instances.
-- **Custom**: an admin picks none / read / write per area: dashboards, traces, logs, metrics, hosts & instances, agent keys, users & groups, backups & archive. Traces, logs and metrics are read-only by nature.
-
-The server enforces this on every request; the UI only hides what you cannot use. Accounts created before groups existed count as admins. API keys (agents, scripts) can read data and manage dashboards, never users or keys. Safeguards: you cannot delete yourself, change your own group, or remove the last user who can manage users. CLI: `lumen users add NAME --tenant T --group admin|user|GROUP_ID` (default `user`), `lumen users set-group NAME GROUP`.
-
-## Hosts, instances and remote agent configuration
-
-- **Hosts** lists every machine with an agent: status, agent version, OS, services and containers up/down. Open one to set log files to ship, Docker log shipping, which services must run (shown DOWN when stopped), and to toggle service/container reporting.
-- **Instances** manages the Nextcloud installations to monitor (URL, token or login, log file, and which machine's agent checks it). Fix a typo and save: no change on the machine.
-- Agents fetch their settings from `GET /api/v1/agent/config?host=NAME` every 60 s (API key only) and restart their collectors when they change. Tokens are stored encrypted (`LUMEN_SECRET_KEY`) but are sent to that agent, so serve Lumen over https.
-- Server-supplied log paths are checked by the agent: only under /var/log, /var/lib/docker/containers, /var/lib/docker/volumes, /var/www, /srv, /mnt, /opt, never with `..`. Override with `allowed_log_dirs` in the agent config (`["*"]` allows all). Paths from the local config file are always trusted. Refused paths show as a warning on the host.
-- **Services**: the agent reports systemd units (running or failed, plus watched ones) as `system_service_up`. **Containers**: `container_up`, via the Docker socket; install with `--docker`, which adds the agent to the `docker` group (root-equivalent). Windows services are not collected yet.
-- Machines installed with an older agent must run the install command once more.
-
-## Status and "Down"
-
-Status panels (data source "Status" on a single-value panel; also on Home) show up/down counts for hosts, services, containers and Nextcloud instances, and show a green 0 when nothing is down. A host is down when it stopped reporting for 2 minutes; services and containers only count on hosts that report. A Nextcloud instance is down when the agent cannot reach it or the agent stopped reporting; a newly added one gets 5 minutes to deliver its first check.
-
-## Retention, backup and archive
-
-Live data is kept `LUMEN_RETENTION_DAYS` (30) in ClickHouse; changing it also updates existing tables at startup. Every completed UTC day is exported once, per tenant and table, as gzip JSON lines:
-
-    /backup/telemetry/YYYY-MM-DD/<tenant>/otel_{spans,logs,metrics}.jsonl.gz   (+ DONE marker)
-    /backup/config/lumen-config-YYYY-MM-DD.json.gz   users, groups, dashboards, hosts, instances (all tenants; operator only, not served by the API)
-
-Backups are kept `LUMEN_BACKUP_RETENTION_DAYS` (365). To look at an old day: **Backups & archive** > View in archive (loads it into `*_archive` tables without expiry), then use the Archive switch in the top bar; pick a custom time range. Unload when done. Files can also be downloaded or read with `zcat`.
-
-The backup lives on the same server as the data. Copy it elsewhere regularly:
-
-    docker compose -f deploy/docker-compose.yml cp lumen:/backup ./lumen-backup
-
-## API additions
-
-| Endpoint | Permission |
-|---|---|
-| `GET/POST /api/v1/users`, `PUT/DELETE /api/v1/users/{name}` | users |
-| `GET/POST /api/v1/groups`, `PUT/DELETE /api/v1/groups/{id}` | users |
-| `GET /api/v1/status` | hosts or metrics |
-| `GET /api/v1/hosts`, `GET/PUT/DELETE /api/v1/hosts/{host}` | hosts |
-| `GET/POST /api/v1/instances`, `PUT/DELETE /api/v1/instances/{id}` | hosts |
-| `GET /api/v1/agent/config?host=` | API key |
-| `GET /api/v1/backups`, `POST /backups/run`, `POST/DELETE /backups/{day}/load`, `GET /backups/{day}/{spans\|logs\|metrics}` | backups |
-| any read with `?archive=1` | backups (read) |
+Apache-2.0 for the core, see [LICENSE](LICENSE). `ee/` is separately licensed.

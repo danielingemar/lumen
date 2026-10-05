@@ -140,7 +140,7 @@ func CollectNextcloud(ctx context.Context, t NextcloudTarget, now int64) ([]Poin
 	body, code, took, err := ncGet(ctx, base+"/status.php", nil)
 	if err != nil || code < 200 || code >= 300 {
 		if err == nil {
-			err = fmt.Errorf("status.php returned HTTP %d", code)
+			err = fmt.Errorf("%s/status.php returned HTTP %d: the URL must be the base address of Nextcloud (https://cloud.example.com), without /login or /index.php", base, code)
 		}
 		return []Point{pt("nextcloud_up", 0, inst)}, err
 	}

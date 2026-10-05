@@ -112,3 +112,42 @@ func TestNextcloudInstanceStates(t *testing.T) {
 		t.Fatal("down instances must say why")
 	}
 }
+
+func TestRemovedHostsStayHiddenUntilTheyReportAgain(t *testing.T) {
+	rows := []model.Latest{
+		row("lumen_agent_info", 1, 7200, map[string]string{"host": "gone1"}), // last seen before it was removed
+		row("system_service_up", 0, 7200, map[string]string{"host": "gone1", "service": "x", "state": "failed"}),
+		row("lumen_agent_info", 1, 5, map[string]string{"host": "back1"}),
+		row("lumen_agent_info", 1, 5, map[string]string{"host": "web1"}),
+	}
+	removedAt := now.Add(-time.Hour)
+	cfg := map[string]registry.HostConfig{
+		"gone1": {Host: "gone1", Removed: true, RemovedAt: removedAt},
+		"never": {Host: "never", Removed: true, RemovedAt: removedAt},           // removed before it ever reported
+		"back1": {Host: "back1", Removed: true, RemovedAt: now.Add(-time.Hour)}, // reports again after the removal
+		"web1":  {Host: "web1", DisplayName: "Web server 1"},
+	}
+	s := Compute(now, append(rows, row("lumen_agent_info", 1, 5, map[string]string{"host": "web1"})), cfg, nil)
+	names := map[string]Host{}
+	for _, h := range s.HostList {
+		names[h.Name] = h
+	}
+	if _, ok := names["gone1"]; ok {
+		t.Fatal("a removed host that has not reported since must be hidden")
+	}
+	if _, ok := names["never"]; ok {
+		t.Fatal("a removed host must not show as pending")
+	}
+	if names["back1"].Status != "up" {
+		t.Fatal("a host that reports again after being removed comes back")
+	}
+	if names["web1"].DisplayName != "Web server 1" {
+		t.Fatalf("display name: %+v", names["web1"])
+	}
+	if s.Hosts.Down != 0 {
+		t.Fatalf("a removed host must not count as down: %+v", s.Hosts)
+	}
+	if s.Services.Down != 0 || len(s.Down) != 0 {
+		t.Fatalf("a removed host's services must not count: %+v", s.Services)
+	}
+}

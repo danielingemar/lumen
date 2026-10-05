@@ -59,6 +59,30 @@ func TestDumpForEngine(t *testing.T) {
 	add("metric names", sv, sp)
 	sv, sp = buildMetricLabelsQuery("acme", "cpu", now.Add(-time.Hour), now.Add(time.Hour))
 	add("metric labels", sv, sp)
+	// dropdown lists and host / operation filters (their own tenant, so the other checks keep their row counts)
+	fw := func() (time.Time, time.Time) { return now.Add(-time.Hour), now.Add(time.Hour) }
+	f0, f1 := fw()
+	for _, src := range []string{"logs", "traces"} {
+		s, p, _ = buildFacetsQuery("facets", src, "", f0, f1)
+		add("facets "+src, s, p)
+	}
+	s, p, _ = buildFacetsQuery("facets", "traces", "checkout", f0, f1)
+	add("facets traces service", s, p)
+	s, p = buildLogsQuery("facets", model.LogQuery{Host: "web1", From: f0, To: f1})
+	add("logs host filter", s, p)
+	s, p = buildTracesQuery("facets", model.TraceQuery{Host: "web1", From: f0, To: f1})
+	add("traces host filter", s, p)
+	s, p = buildTracesQuery("facets", model.TraceQuery{Operation: "GET /pay", From: f0, To: f1})
+	add("traces operation filter", s, p)
+	s, p = buildTracesQuery("facets", model.TraceQuery{Service: "checkout", Operation: "GET /home", From: f0, To: f1})
+	add("traces service and operation filter", s, p)
+	for _, src := range []string{"logs", "traces"} {
+		sp, err := buildSeriesQuery("facets", model.SeriesQuery{Source: src, Metric: "requests", Host: "web1", From: f0, To: f1, StepSec: 3600})
+		if err != nil {
+			t.Fatal(err)
+		}
+		add("series "+src+" host filter", sp.SQL, sp.Params)
+	}
 	// backup, archive, retention and up/down queries
 	day := time.Now().UTC()
 	for _, tb := range tables {

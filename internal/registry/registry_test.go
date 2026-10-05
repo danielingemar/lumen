@@ -111,6 +111,7 @@ func TestInstanceValidation(t *testing.T) {
 		{Name: "n1", URL: "ftp://x.com", Host: "h"}, {Name: "n2", URL: "cloud.example.com", Host: "h"},
 		{Name: "n3", URL: "https://user:pw@x.com", Host: "h"}, {Name: "n4", URL: "https://x.com", Host: ""},
 		{Name: "n5", URL: "https://x.com", Host: "bad host!"}, {Name: "n6", URL: "https://x.com", Host: "h", LogPath: "a\nb"},
+		{Name: "n7", URL: "https://ks.example.com/login", Host: "h"}, {Name: "n8", URL: "https://ks.example.com/index.php/apps/files", Host: "h"},
 	} {
 		if _, err := s.CreateInstance("acme", bad); err == nil {
 			t.Errorf("%+v must be rejected", bad)
@@ -153,5 +154,56 @@ func TestHostConfig(t *testing.T) {
 		if _, err := s.PutHost("acme", bad); err == nil {
 			t.Errorf("%+v must be rejected", bad)
 		}
+	}
+}
+
+func TestSubdirectoryInstallIsAllowed(t *testing.T) {
+	s, _ := newReg(t)
+	i, err := s.CreateInstance("acme", InstanceIn{Name: "sub", URL: "https://example.com/nextcloud/", Host: "h"})
+	if err != nil || i.URL != "https://example.com/nextcloud" {
+		t.Fatalf("Nextcloud installed in a subdirectory must stay possible: %+v %v", i, err)
+	}
+}
+
+func TestHostDisplayNameAndRemoval(t *testing.T) {
+	s, _ := newReg(t)
+	h, err := s.PutHost("acme", HostConfig{Host: "b4d226bb6dfe", DisplayName: "  Nextcloud KS  ", Systemd: true})
+	if err != nil || h.DisplayName != "Nextcloud KS" || s.GetHost("acme", "b4d226bb6dfe").DisplayName != "Nextcloud KS" {
+		t.Fatalf("rename: %+v %v", h, err)
+	}
+	for _, bad := range []string{strings.Repeat("x", 61), "a\nb", "a\tb"} {
+		if _, err := s.PutHost("acme", HostConfig{Host: "h", DisplayName: bad}); err == nil {
+			t.Errorf("display name %q must be refused", bad)
+		}
+	}
+	// the real name is what agents and instances use: renaming must not change the agent's configuration
+	c1, _ := s.AgentConfig("acme", "b4d226bb6dfe")
+	s.PutHost("acme", HostConfig{Host: "b4d226bb6dfe", DisplayName: "Another label", Systemd: true})
+	c2, _ := s.AgentConfig("acme", "b4d226bb6dfe")
+	if c1.Revision != c2.Revision {
+		t.Fatal("a display name is only for the UI: it must not make agents restart their collectors")
+	}
+	// removal is refused while instances are assigned
+	s.CreateInstance("acme", InstanceIn{Name: "ks", URL: "https://ks.example.com", Host: "b4d226bb6dfe"})
+	if err := s.RemoveHost("acme", "b4d226bb6dfe"); err == nil || !strings.Contains(err.Error(), "ks") {
+		t.Fatalf("must name the instances that block removal: %v", err)
+	}
+	for _, i := range s.ListInstances("acme") {
+		s.DeleteInstance("acme", i.ID)
+	}
+	if err := s.RemoveHost("acme", "b4d226bb6dfe"); err != nil {
+		t.Fatal(err)
+	}
+	g := s.ListHosts("acme")["b4d226bb6dfe"]
+	if !g.Removed || g.RemovedAt.IsZero() || g.DisplayName != "" || len(g.LogPaths) != 0 {
+		t.Fatalf("tombstone: %+v", g)
+	}
+	if err := s.RemoveHost("acme", "bad host!"); err == nil {
+		t.Fatal("invalid host name")
+	}
+	// saving settings for the host brings it back
+	back, _ := s.PutHost("acme", HostConfig{Host: "b4d226bb6dfe", Systemd: true})
+	if back.Removed {
+		t.Fatal("saving settings must clear the removal")
 	}
 }

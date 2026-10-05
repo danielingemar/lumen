@@ -143,6 +143,36 @@ try:
     r = run(Q["latest"]); d = {(x["name"], x["attrs"].get("instance") or x["attrs"].get("container")): (float(x["v"]), int(x["t"])) for x in r}
     check("latest returns the NEWEST value per series (down now, although it was up 100 s ago), tenant isolated, only the named metrics",
           set(d) == {("nextcloud_up", "a.example.com"), ("container_up", "app")} and d[("nextcloud_up", "a.example.com")][0] == 0.0 and abs(d[("nextcloud_up", "a.example.com")][1] - time.time()) < 60, r)
+
+    # ---- dropdown lists and filters (tenant "facets")
+    fs = [
+      dict(tenant="facets", trace_id="f1", span_id="s1", parent_span_id="", name="GET /pay", service="checkout", kind=2, start_time=ts(-60), duration_ns=1_000_000, status_code=0, status_message="", attrs={}, resource_attrs={"host.name": "web1"}),
+      dict(tenant="facets", trace_id="f1", span_id="s2", parent_span_id="s1", name="SELECT", service="db", kind=3, start_time=ts(-59.9), duration_ns=1_000_000, status_code=0, status_message="", attrs={}, resource_attrs={"host.name": "db1"}),
+      dict(tenant="facets", trace_id="f2", span_id="s3", parent_span_id="", name="GET /pay", service="checkout", kind=2, start_time=ts(-50), duration_ns=1_000_000, status_code=0, status_message="", attrs={}, resource_attrs={"host.name": "web1"}),
+      dict(tenant="facets", trace_id="f3", span_id="s4", parent_span_id="", name="GET /home", service="web", kind=2, start_time=ts(-40), duration_ns=1_000_000, status_code=0, status_message="", attrs={}, resource_attrs={}),
+    ]
+    fl = [dict(tenant="facets", ts=ts(-30 - i), trace_id="", span_id="", severity="INFO", service=svc, body="x", attrs={}, resource_attrs=({"host.name": h} if h else {}))
+          for i, (svc, h) in enumerate([("nginx", "web1"), ("nginx", "web1"), ("nginx", "web2"), ("system-logs", "web1"), ("sdk-app", "")])]
+    s.query("INSERT INTO otel_spans FORMAT JSONEachRow\n" + "\n".join(json.dumps(x) for x in fs))
+    s.query("INSERT INTO otel_logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(x) for x in fl))
+    def by(rows, k): return {x["v"]: int(x["n"]) for x in rows if x["k"] == k}
+    r = run(Q["facets logs"])
+    check("log facets: every service that sends logs, with counts", by(r, "service") == {"nginx": 3, "system-logs": 1, "sdk-app": 1}, r)
+    check("log facets: every host, only rows that have one (the SDK without host.name does not add an empty entry)", by(r, "host") == {"web1": 3, "web2": 1}, r)
+    check("log facets have no operations", by(r, "op") == {}, r)
+    r = run(Q["facets traces"])
+    check("trace facets: every service with spans", by(r, "service") == {"checkout": 2, "db": 1, "web": 1}, r)
+    check("trace facets: operations are ROOT spans only (SELECT is not listed), most frequent first", by(r, "op") == {"GET /pay": 2, "GET /home": 1} and [x["v"] for x in r if x["k"] == "op"][0] == "GET /pay", r)
+    check("trace facets: hosts", by(r, "host") == {"web1": 2, "db1": 1}, r)
+    r = run(Q["facets traces service"])
+    check("choosing a service narrows the operations list to that service", by(r, "op") == {"GET /pay": 2}, r)
+    check("... but the services list still shows all of them", set(by(r, "service")) == {"checkout", "db", "web"}, r)
+    r = run(Q["logs host filter"]); check("logs filtered by host web1 = 3 lines", len(r) == 3 and all(x["service"] in ("nginx", "system-logs") for x in r), r)
+    r = run(Q["traces host filter"]); check("traces filtered by host web1 = the 2 traces whose spans ran there", sorted(x["trace_id"] for x in r) == ["f1", "f2"], r)
+    r = run(Q["traces operation filter"]); check("traces filtered by root operation GET /pay = f1 and f2", sorted(x["trace_id"] for x in r) == ["f1", "f2"], r)
+    r = run(Q["series logs host filter"]); check("the log volume chart can be limited to one host (3 lines on web1)", sum(int(x["v"]) for x in r) == 3, r)
+    r = run(Q["series traces host filter"]); check("the trace chart can be limited to one host", sum(int(x["v"]) for x in r) == 2, r)
+    r = run(Q["traces service and operation filter"]); check("service + operation that do not match = nothing", r == [], r)
 except Exception as e:
     print("FAIL exception:", str(e)[:600]); fail += 1
 sys.exit(1 if fail else 0)

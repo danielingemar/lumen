@@ -26,6 +26,7 @@ type Store interface {
 	MetricNames(ctx context.Context, tenant, service string, from, to time.Time) ([]json.RawMessage, error)
 	MetricLabels(ctx context.Context, tenant, name string, from, to time.Time) ([]json.RawMessage, error)
 
+	Facets(ctx context.Context, tenant, source, service string, from, to time.Time) (model.Facets, error)
 	Latest(ctx context.Context, tenant string, names []string, from time.Time) ([]model.Latest, error)
 
 	Ping(ctx context.Context) error

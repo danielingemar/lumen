@@ -3,6 +3,9 @@
 #
 #   sudo ./install.sh [--public-url https://lumen.example.com] [--tenant main] [--with-agent] [--allow-podman-removal] [--force]
 #
+# Safe to re-run to upgrade: existing secrets and the address already set in deploy/.env are kept
+# (the address only changes if you pass --public-url).
+#
 # Installs Docker if missing, generates secrets, starts Lumen + ClickHouse, waits until healthy, and prints
 # the ready-to-paste commands for enrolling Linux and Windows agents.
 set -euo pipefail
@@ -16,7 +19,7 @@ while [ $# -gt 0 ]; do
     --with-agent) WITH_AGENT=1; shift;;
     --allow-podman-removal) DOCKER_FLAGS+=(--allow-podman-removal); shift;;
     --force) FORCE=1; shift;;
-    -h|--help) sed -n '2,8p' "$0"; exit 0;;
+    -h|--help) sed -n '2,11p' "$0"; exit 0;;
     *) die "unknown option: $1";;
   esac
 done
@@ -38,11 +41,21 @@ echo 'vm.max_map_count=262144' | tee /etc/sysctl.d/99-lumen.conf
 echo "==> 2/5 Secrets"
 NEW_ENV=0
 if [ ! -f deploy/.env ]; then bash deploy/gen-env.sh "$TENANT" | tee /tmp/lumen-genenv.$$ >/dev/null; NEW_ENV=1; fi
-if [ -z "$PUBLIC_URL" ]; then
+# The address in deploy/.env is yours: it is only changed when you pass --public-url. Re-running the installer to
+# upgrade must never replace it (this machine may use a different address than the others you run).
+EXISTING_URL="$(grep '^LUMEN_PUBLIC_URL=' deploy/.env 2>/dev/null | head -n1 | cut -d= -f2- || true)"
+if [ -n "$PUBLIC_URL" ]; then
+  if [ -n "$EXISTING_URL" ] && [ "$EXISTING_URL" != "$PUBLIC_URL" ]; then echo "Changing LUMEN_PUBLIC_URL from $EXISTING_URL to $PUBLIC_URL (you passed --public-url)."; fi
+elif [ -n "$EXISTING_URL" ]; then
+  PUBLIC_URL="$EXISTING_URL"
+  echo "Keeping the existing LUMEN_PUBLIC_URL=$PUBLIC_URL (pass --public-url to change it)."
+else
   IP="$(hostname -I 2>/dev/null | awk '{print $1}')"; PUBLIC_URL="http://${IP:-localhost}:4318"
-  echo "No --public-url given, using $PUBLIC_URL (plain HTTP: put a TLS proxy in front before production)."
+  echo "No --public-url given and none set yet, using $PUBLIC_URL (plain HTTP: put a TLS proxy in front before production)."
 fi
-if grep -q '^LUMEN_PUBLIC_URL=' deploy/.env; then sed -i "s#^LUMEN_PUBLIC_URL=.*#LUMEN_PUBLIC_URL=$PUBLIC_URL#" deploy/.env; else echo "LUMEN_PUBLIC_URL=$PUBLIC_URL" >> deploy/.env; fi
+if [ "$PUBLIC_URL" != "$EXISTING_URL" ]; then
+  if grep -q '^LUMEN_PUBLIC_URL=' deploy/.env; then sed -i "s#^LUMEN_PUBLIC_URL=.*#LUMEN_PUBLIC_URL=$PUBLIC_URL#" deploy/.env; else echo "LUMEN_PUBLIC_URL=$PUBLIC_URL" >> deploy/.env; fi
+fi
 rm -f /tmp/lumen-genenv.$$
 if ! grep -q '^LUMEN_ADMIN_PASSWORD=' deploy/.env; then
   printf 'LUMEN_ADMIN_USER=admin\nLUMEN_ADMIN_PASSWORD=%s\nLUMEN_ADMIN_TENANT=%s\n' "$(openssl rand -hex 12)" "${TENANT:-main}" >> deploy/.env

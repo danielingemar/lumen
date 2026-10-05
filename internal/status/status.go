@@ -36,6 +36,7 @@ type Item struct {
 
 type Host struct {
 	Name             string `json:"name"`
+	DisplayName      string `json:"display_name"`
 	Status           string `json:"status"` // up | down | pending
 	Version          string `json:"version"`
 	OS               string `json:"os"`
@@ -98,10 +99,20 @@ func Compute(now time.Time, rows []model.Latest, configured map[string]registry.
 			}
 		}
 	}
-	for n := range configured {
+	for n, c := range configured {
+		if c.Removed {
+			// stays hidden until the machine reports again after it was removed
+			if h := hosts[n]; h != nil && h.LastSeen > c.RemovedAt.Unix() {
+				h.DisplayName = c.DisplayName
+			} else {
+				delete(hosts, n)
+			}
+			continue
+		}
 		if hosts[n] == nil {
 			host(n).Status = "pending"
 		}
+		hosts[n].DisplayName = c.DisplayName
 	}
 	for _, h := range hosts {
 		if h.LastSeen > 0 && age(h.LastSeen) <= Fresh {

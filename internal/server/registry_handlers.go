@@ -69,6 +69,7 @@ func (s *Server) regRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/hosts/{host}", s.need(perm.Hosts, false, s.getHost))
 	mux.Handle("PUT /api/v1/hosts/{host}", s.need(perm.Hosts, true, s.putHost))
 	mux.Handle("DELETE /api/v1/hosts/{host}", s.need(perm.Hosts, true, s.deleteHost))
+	mux.Handle("POST /api/v1/hosts/{host}/remove", s.need(perm.Hosts, true, s.removeHost))
 	mux.Handle("GET /api/v1/instances", s.need(perm.Hosts, false, s.listInstances))
 	mux.Handle("POST /api/v1/instances", s.need(perm.Hosts, true, s.createInstance))
 	mux.Handle("PUT /api/v1/instances/{id}", s.need(perm.Hosts, true, s.updateInstance))
@@ -161,6 +162,17 @@ func (s *Server) putHost(w http.ResponseWriter, r *http.Request, id edition.Iden
 	writeJSON(w, c)
 }
 
+// removeHost takes a host out of the lists (it comes back if its agent reports again).
+func (s *Server) removeHost(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	if err := s.reg.RemoveHost(id.Tenant, r.PathValue("host")); err != nil {
+		s.regErr(w, err)
+		return
+	}
+	s.forget(id.Tenant)
+	s.log.Info("host removed", "by", id.User, "tenant", id.Tenant, "host", r.PathValue("host"))
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
 func (s *Server) deleteHost(w http.ResponseWriter, r *http.Request, id edition.Identity) {
 	if err := s.reg.DeleteHost(id.Tenant, r.PathValue("host")); err != nil {
 		s.regErr(w, err)
@@ -192,11 +204,14 @@ func (s *Server) listInstances(w http.ResponseWriter, r *http.Request, id editio
 		writeErr(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	hosts := []string{}
+	hosts, names := []string{}, map[string]string{}
 	for _, h := range sn.sum.HostList {
 		hosts = append(hosts, h.Name)
+		if h.DisplayName != "" {
+			names[h.Name] = h.DisplayName
+		}
 	}
-	writeJSON(w, map[string]any{"data": sn.sum.Instances, "hosts": hosts})
+	writeJSON(w, map[string]any{"data": sn.sum.Instances, "hosts": hosts, "host_names": names})
 }
 
 func (s *Server) createInstance(w http.ResponseWriter, r *http.Request, id edition.Identity) {
