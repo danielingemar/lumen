@@ -29,7 +29,7 @@ Traces, logs and metrics, dashboards you build yourself, host / service / Docker
 - [Status and "Down"](#status-and-down) · [Labels](#labels)
 - [Users, groups and permissions](#users-groups-and-permissions) · [Login, keys and security](#login-keys-and-security)
 - [Retention, backup and archive](#retention-backup-and-archive)
-- [Configuration](#configuration) · [API](#api) · [Development](#development) · [Contributing](#contributing) · [Roadmap](#roadmap)
+- [Editions and design documents](#editions-and-design-documents) · [Configuration](#configuration) · [API](#api) · [Development](#development) · [Contributing](#contributing) · [Roadmap](#roadmap)
 
 ## Features
 
@@ -373,15 +373,25 @@ Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Re
 
 Before you fork this into a product of your own: pick the final name and check it for trademark conflicts, and add your commercial terms to `ee/LICENSE` (or delete `ee/` and `cmd/lumen/enterprise.go` if you do not want an enterprise tier). To rename the Go module: `./scripts/set-module.sh github.com/YOU/lumen`.
 
+## Editions and design documents
+
+Lumen is open core: a free **Community** edition, **Enterprise** for governance and scale, and an **Operator** add-on for running Lumen for customers or business units. The line between them is written down as a public charter, with promises such as "a released Community feature is never moved to a paid edition". These are **drafts** for discussion; nothing in them is implemented yet unless the text says *exists*.
+
+| Document | English | Svenska |
+|---|---|---|
+| Edition charter | [docs/EDITIONS.md](docs/EDITIONS.md) | [docs/EDITIONS.sv.md](docs/EDITIONS.sv.md) |
+| Design: tenancy (operator layer, quotas, metering, per-tenant retention and branding) | [docs/design/tenancy.md](docs/design/tenancy.md) | [docs/design/tenancy.sv.md](docs/design/tenancy.sv.md) |
+| Design: alerting (rules, notifications, Jira and email, on-call) | [docs/design/alerting.md](docs/design/alerting.md) | [docs/design/alerting.sv.md](docs/design/alerting.sv.md) |
+
 ## Roadmap
 
-1. **Alerting:** rules on any chart query and the status boxes, notifications (email, webhook, Slack)
+1. **Alerting:** rules on any chart query and the status boxes, notifications (email, webhook, Slack) — see the [design](docs/design/alerting.md)
 2. Windows services and Windows Event Log in the agent
 3. Protobuf and gRPC OTLP ingest
 4. Dashboard variables and sharing, service map, span details, correlation across traces, logs and deploys
 5. Kubernetes discovery and a Helm chart for the agent
 6. Server self-monitoring, per-tenant quotas, agent on-disk buffering
-7. Enterprise: OIDC/SSO, audit log
+7. Enterprise and Operator features, see the [edition charter](docs/EDITIONS.md): SSO, audit log, ticket and on-call integrations, tenant console, quotas and metering
 
 ## License
 

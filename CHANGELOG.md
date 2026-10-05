@@ -29,6 +29,7 @@ versions follow [Semantic Versioning](https://semver.org/) once a first release 
 - Nextcloud instance URLs ending in `/login` or `/index.php` are refused, and the agent explains a 404 from `status.php`.
 
 ### Docs
+- Draft documents, in English and Swedish: the **edition charter** (what is Community, Enterprise and Operator, and the promises about it), a **tenancy design** (operator layer, tenant records, quotas, usage metering, per-tenant retention and branding, dedicated storage) and an **alerting design** (rules, state machine, notifications, Jira/email/PagerDuty, on-call, security). No code yet.
 - `UPGRADING.md`: install, upgrade (git clone, read-only access, deploy key, ZIP), agent updates, rollback and troubleshooting.
 
 - **Version stamp:** the Docker build identifies the source code with a short hash (`src-3fa91c2d`, or `--build-arg VERSION=…`). It is shown at the bottom of the menu, logged at start-up and reported by every agent; the Hosts page marks agents whose version differs from the server's with **update**. The agent's version used to be `dev` for every build.
