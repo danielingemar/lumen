@@ -39,7 +39,7 @@ Traces, logs and metrics, dashboards you build yourself, host / service / Docker
 | **Up / Down at a glance** | Boxes for Nextcloud instances, hosts, systemd services and Docker containers. A *Down* box shows a green **0** when all is well and turns red, with names and reasons, when something is not. |
 | **Hosts & Instances pages** | See every machine and Nextcloud instance. Rename hosts, remove old ones, add log paths, choose watched services, fix a mistyped Nextcloud URL, **all in the browser**: agents pick up the change within a minute. |
 | **Dropdowns of everything that comes in** | Traces, Logs and Metrics list every service, operation, log source, host and metric Lumen has received, so you pick instead of typing. |
-| **Your own logo** | Upload a logo and site name under **Settings**; they show in the menu, the browser tab and on the login page. |
+| **Your own logo** | Upload a logo and site name under **Settings**; they show in the menu, in the browser tab (as the tab icon) and on the login page. |
 | **Services on your machines** | systemd units and Docker containers are reported automatically (`system_service_up`, `container_up`). |
 | **Users and groups** | *Admin* (everything), *User* (read-only) and *custom* groups with none / read / write per area. Enforced by the server. |
 | **Retention and archive** | 30 days of live data. Every day is backed up before it expires and can be loaded back and browsed in the UI at any time. |
@@ -106,9 +106,6 @@ If a VM cannot connect, use an IP it can reach (bridged: your LAN IP; NAT/host-o
 Rocky Linux / AlmaLinux / RHEL 9, or any host with Docker. 2+ vCPU, 6 GB RAM minimum (8 GB+ recommended), 20 GB+ local SSD.
 
 ```bash
-sudo firewall-cmd --add-port=4318/tcp --permanent
-sudo firewall-cmd --add-port=443/tcp --permanent
-sudo firewall-cmd --reload
 sudo sysctl -w vm.max_map_count=262144
 echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-lumen.conf
 sudo ./install.sh --public-url https://lumen.example.com --tenant main
@@ -147,7 +144,7 @@ Agents report their own health (`service.name=lumen-agent`): uptime, items sent,
 
 ## Hosts, instances and remote configuration
 
-- **Hosts** lists every machine with an agent: status, agent version, OS, services and containers up/down. Open a host to **rename** it (a display name, useful when a container agent reports a random ID; the real name stays and is what agents and instances use), **remove** it from the list (only when it is not reporting, and not while Nextcloud instances are still checked by it; it comes back by itself if its agent reports again), set the **log files to ship**, Docker log shipping, **services that must be running** (shown DOWN when stopped or missing), and to switch service/container reporting on or off.
+- **Hosts** lists every machine with an agent: status, **IP address**, agent version, OS, services and containers up/down. The agent reports the address it uses to reach Lumen (the one to show first) plus its other addresses; loopback, link-local and container-bridge addresses (docker0, br-…, veth…) are left out. Agents installed before this feature must be updated (run the install command again) before an address shows up. A container agent reports the container's own address, not the host's. Open a host to **rename** it (a display name, useful when a container agent reports a random ID; the real name stays and is what agents and instances use), **remove** it from the list (only when it is not reporting, and not while Nextcloud instances are still checked by it; it comes back by itself if its agent reports again), set the **log files to ship**, Docker log shipping, **services that must be running** (shown DOWN when stopped or missing), and to switch service/container reporting on or off.
 - **Instances** manages the Nextcloud installations to monitor: URL, token or login, optional log file, and *which machine's agent runs the checks*.
 - Agents fetch `GET /api/v1/agent/config?host=NAME` (API key only) every 60 s and restart their collectors when it changes. Nothing to edit on the machines. Settings from the agent's local config and flags still work and are merged; an instance defined in the UI replaces a local one with the same URL.
 - **Safety:** log paths that come from the server are only read if they are under `/var/log`, `/var/lib/docker/containers`, `/var/lib/docker/volumes`, `/var/www`, `/srv`, `/mnt` or `/opt`, and never contain `..`. Otherwise a UI user could make every agent read `/etc/shadow`. Change it per machine with `allowed_log_dirs` in the agent config (`["*"]` allows all). Paths in the local config file are always trusted. Refused paths show as a warning on the host.
@@ -194,7 +191,7 @@ On live data the lists cover the last 7 days (not just the chart range, so somet
 
 ## Settings: your logo and name
 
-**Settings** (needs the *Settings* permission) lets you upload a logo (PNG, JPEG, GIF, WebP or SVG, up to 512 KB) and a site name. With a logo the menu shows the logo (on a white background so dark logos work); the name is used in the browser tab and under the logo on the login page. They are the same for everyone on this server and visible before signing in, so in a multi-tenant installation only give the Settings permission to the operator.
+**Settings** (needs the *Settings* permission) lets you upload a logo (PNG, JPEG, GIF, WebP or SVG, up to 512 KB) and a site name. With a logo the menu shows the logo (on a white background so dark logos work) and the browser tab icon becomes the logo, fitted into a square; the name is used in the tab title and under the logo on the login page. Without a logo the tab shows a built-in Lumen icon. They are the same for everyone on this server and visible before signing in, so in a multi-tenant installation only give the Settings permission to the operator.
 
 Uploads are checked by their real content (not the declared type), SVG files with scripts or event handlers are refused, and the logo is served with a locked-down content-security policy so it can never run code.
 

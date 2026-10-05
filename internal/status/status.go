@@ -4,6 +4,7 @@ package status
 
 import (
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/danielingemar/lumen/internal/model"
@@ -35,15 +36,17 @@ type Item struct {
 }
 
 type Host struct {
-	Name             string `json:"name"`
-	DisplayName      string `json:"display_name"`
-	Status           string `json:"status"` // up | down | pending
-	Version          string `json:"version"`
-	OS               string `json:"os"`
-	LastSeen         int64  `json:"last_seen"`
-	Services         Counts `json:"services"`
-	Containers       Counts `json:"containers"`
-	RejectedLogPaths int    `json:"rejected_log_paths,omitempty"` // log paths this machine refused to read (agent allow-list)
+	Name             string   `json:"name"`
+	DisplayName      string   `json:"display_name"`
+	Status           string   `json:"status"` // up | down | pending
+	Version          string   `json:"version"`
+	OS               string   `json:"os"`
+	IP               string   `json:"ip"`  // the address the machine uses to reach Lumen
+	IPs              []string `json:"ips"` // its other usable addresses (the agent reports them)
+	LastSeen         int64    `json:"last_seen"`
+	Services         Counts   `json:"services"`
+	Containers       Counts   `json:"containers"`
+	RejectedLogPaths int      `json:"rejected_log_paths,omitempty"` // log paths this machine refused to read (agent allow-list)
 }
 
 type Instance struct {
@@ -89,6 +92,12 @@ func Compute(now time.Time, rows []model.Latest, configured map[string]registry.
 			h := host(r.Attrs["host"])
 			if r.T >= h.LastSeen {
 				h.LastSeen, h.Version, h.OS = r.T, r.Attrs["version"], r.Attrs["os"]
+				h.IP, h.IPs = r.Attrs["ip"], nil
+				for _, a := range strings.Split(r.Attrs["ips"], ",") {
+					if a = strings.TrimSpace(a); a != "" && len(a) <= 45 {
+						h.IPs = append(h.IPs, a)
+					}
+				}
 			}
 		}
 	}

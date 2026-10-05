@@ -42,6 +42,7 @@ func main() {
 	hostname, _ := os.Hostname()
 	snd := &agent.Sender{URL: cfg.URL, APIKey: cfg.APIKey}
 	self := agent.NewSelf(hostname)
+	self.SetLumenURL(cfg.URL)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

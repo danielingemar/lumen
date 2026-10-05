@@ -151,3 +151,22 @@ func TestRemovedHostsStayHiddenUntilTheyReportAgain(t *testing.T) {
 		t.Fatalf("a removed host's services must not count: %+v", s.Services)
 	}
 }
+
+func TestHostAddresses(t *testing.T) {
+	rows := []model.Latest{
+		row("lumen_agent_info", 1, 5, map[string]string{"host": "web1", "ip": "192.168.20.131", "ips": "192.168.20.131, 10.0.0.7,,"}),
+		row("lumen_agent_info", 1, 5, map[string]string{"host": "old1"}),                                                // an agent from before addresses were reported
+		row("lumen_agent_info", 1, 400, map[string]string{"host": "web1", "ip": "192.168.99.9", "ips": "192.168.99.9"}), // the address before it moved
+	}
+	s := Compute(now, rows, nil, nil)
+	by := map[string]Host{}
+	for _, h := range s.HostList {
+		by[h.Name] = h
+	}
+	if by["web1"].IP != "192.168.20.131" || len(by["web1"].IPs) != 2 || by["web1"].IPs[1] != "10.0.0.7" {
+		t.Fatalf("the newest report wins and the list is cleaned: %+v", by["web1"])
+	}
+	if by["old1"].IP != "" || len(by["old1"].IPs) != 0 {
+		t.Fatalf("an older agent has no address: %+v", by["old1"])
+	}
+}

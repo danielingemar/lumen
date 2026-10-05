@@ -30,6 +30,18 @@ type Self struct {
 	scrapeErrs  map[string]float64 // target -> failed scrapes
 	lastSuccess map[string]time.Time
 	rejected    int
+	lumenURL    string
+	ipAt        time.Time
+	ip          string
+	ips         []string
+}
+
+// SetLumenURL tells the agent which server it reports to, so it can work out which of its addresses reaches it.
+func (s *Self) SetLumenURL(u string) {
+	s.mu.Lock()
+	s.lumenURL = u
+	s.ipAt = time.Time{}
+	s.mu.Unlock()
 }
 
 // SetRejected records how many server-supplied log paths were refused by the local allow-list.
@@ -78,7 +90,16 @@ func (s *Self) Collect(service string, now int64) []Point {
 	add := func(name, typ string, v float64, a map[string]string) {
 		out = append(out, Point{Service: service, Name: name, Type: typ, Value: v, Attrs: a, TimeNs: now})
 	}
-	add("lumen_agent_info", "gauge", 1, map[string]string{"version": Version, "host": s.host, "os": runtime.GOOS + "/" + runtime.GOARCH})
+	if time.Since(s.ipAt) > 5*time.Minute { // addresses rarely change; looking them up costs a route lookup
+		s.ip, s.ips = LocalIPs(s.lumenURL)
+		s.ipAt = time.Now()
+	}
+	info := map[string]string{"version": Version, "host": s.host, "os": runtime.GOOS + "/" + runtime.GOARCH}
+	if s.ip != "" {
+		info["ip"] = s.ip
+		info["ips"] = strings.Join(s.ips, ",")
+	}
+	add("lumen_agent_info", "gauge", 1, info)
 	add("lumen_agent_uptime_seconds", "gauge", time.Since(s.start).Seconds(), nil)
 	add("lumen_agent_log_paths_rejected", "gauge", float64(s.rejected), nil)
 	for sig, v := range s.sent {

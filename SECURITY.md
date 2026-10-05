@@ -20,6 +20,7 @@ Only the latest commit on `main` and the latest release receive fixes.
 - Stored Nextcloud credentials are encrypted with AES-GCM (`LUMEN_SECRET_KEY`) and never returned by the API.
 - Every query is filtered by the tenant of the authenticated caller; permissions are enforced by the server, not the UI.
 - Log paths pushed to agents from the server are checked against an allow-list on the machine.
+- The UI's content-security policy allows only same-origin scripts, styles and connections, and `data:` images (for the logo preview and the generated tab icon).
 - The logo upload is verified by its content, size-limited, refuses SVG with scripts or event handlers, and is served with `Content-Security-Policy: sandbox` and `nosniff`.
 
 ## Hardening your deployment

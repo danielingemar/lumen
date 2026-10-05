@@ -21,9 +21,12 @@ versions follow [Semantic Versioning](https://semver.org/) once a first release 
 - **Dropdowns** of everything that has come in on Traces (service, operation, host), Logs (source, host) and Metrics (every metric, with a filter box); new `GET /api/v1/facets`, and `host`/`operation` filters on traces, logs and the series API.
 - **Hosts:** display names (rename) and manual removal of hosts; removal is refused while Nextcloud instances are still checked by the host.
 - **Settings page** with a site name and logo upload (new `settings` permission); shown in the menu, the browser tab and on the login page. Uploads are verified by content and SVG scripts are refused.
+- **Tab icon:** the uploaded logo is used as the browser tab icon (a built-in icon otherwise).
+- **Host IP addresses:** agents report the address they use to reach Lumen and their other addresses; shown on the Hosts list and host page.
 - Nextcloud instance URLs ending in `/login` or `/index.php` are refused, and the agent explains a 404 from `status.php`.
 
 ### Fixed
+- The content-security policy of the UI now allows `data:` images (`img-src 'self' data:`). Without it a browser blocked the logo preview on the Settings page.
 - `install.sh` and `dev.sh` no longer overwrite `LUMEN_PUBLIC_URL` (and `dev.sh` no longer `LUMEN_BIND`) when re-run to upgrade: an address already in `deploy/.env` is kept unless `--public-url` / `--ip` is given. Covered by `scripts/test-installers.sh` in CI.
 
 ### Changed

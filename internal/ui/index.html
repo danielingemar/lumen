@@ -74,7 +74,8 @@ textarea{width:100%;min-height:84px;font-family:ui-monospace,monospace;font-size
 .badge{display:inline-block;padding:1px 8px;border-radius:6px;font-size:11px;font-weight:600}.badge.up{background:#dcfce7;color:#166534}.badge.down{background:#fee2e2;color:#991b1b}.badge.pending{background:#fef3c7;color:#92400e}
 [data-theme=dark] .badge.up{background:#14532d;color:#bbf7d0}[data-theme=dark] .badge.down{background:#7f1d1d;color:#fecaca}[data-theme=dark] .badge.pending{background:#78350f;color:#fde68a}
 .help{color:var(--mut);font-size:12px;margin:4px 0 0}
-</style></head><body><div id="root"></div>
+</style><link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%235b5bd6'/%3E%3Cpath d='M22 14v30h22' fill='none' stroke='white' stroke-width='8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+</head><body><div id="root"></div>
 <script>
 'use strict';
 const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -406,7 +407,21 @@ const NAV=[['#/','Home','home',()=>true],['#/dashboards','Dashboards','dash',()=
 const iconEl=k=>{const s=svg('svg',{viewBox:'0 0 24 24'});s.innerHTML=ICON[k];return s};
 function setTitle(t){const h=$('#top h1');if(h)h.textContent=t;document.title=t+' · '+((S.brand&&S.brand.name)||'Lumen')}
 // site name and logo (public: the login page needs them before anyone is signed in)
-async function loadBrand(){try{const r=await fetch('/api/v1/branding',{cache:'no-store'});if(r.ok)S.brand=await r.json()}catch{}}
+async function loadBrand(){try{const r=await fetch('/api/v1/branding',{cache:'no-store'});if(r.ok)S.brand=await r.json()}catch{}applyFavicon()}
+// The tab icon: the uploaded logo, fitted into a square (logos are rarely square), or the built-in Lumen icon.
+const DEFAULT_ICON=(document.querySelector('link[rel=icon]')||{}).href||'';
+async function applyFavicon(){
+  let link=document.querySelector('link[rel=icon]');if(!link){link=document.createElement('link');link.rel='icon';document.head.append(link)}
+  const b=S.brand||{};
+  if(!b.has_logo){link.type='image/svg+xml';link.href=DEFAULT_ICON;return}
+  const url='/branding/logo?v='+encodeURIComponent(b.version||'');
+  try{
+    const img=new Image();await new Promise((ok,no)=>{img.onload=ok;img.onerror=no;setTimeout(no,4000);img.src=url}); // never wait for a slow logo
+    const c=document.createElement('canvas');c.width=c.height=64;const g=c.getContext('2d');
+    g.fillStyle='#fff';g.beginPath();g.roundRect?g.roundRect(0,0,64,64,12):g.rect(0,0,64,64);g.fill();
+    const w=img.naturalWidth||64,h=img.naturalHeight||64,k=Math.min(56/w,56/h);g.drawImage(img,(64-w*k)/2,(64-h*k)/2,w*k,h*k);
+    link.type='image/png';link.href=c.toDataURL('image/png')
+  }catch{link.removeAttribute('type');link.href=url}}
 const brandEl=big=>{const b=S.brand||{};return el('span',{class:'brand'},b.has_logo?el('img',{src:'/branding/logo?v='+encodeURIComponent(b.version||''),alt:b.name||'Lumen'}):null,
   (b.has_logo&&!big)?null:(b.name?el('span',{class:'bn'},b.name):(b.has_logo?null:el('span',{},'Lum',el('span',{class:'en'},'en')))))};
 // real names and the names an administrator gave the hosts (best effort: needs read access to hosts)
@@ -668,9 +683,10 @@ async function hostsPage(){
   const hs=(await api('/api/v1/hosts')).data||[],w=can('hosts',true);S.hn={};for(const h of hs)if(h.display_name)S.hn[h.name]=h.display_name;
   view.replaceChildren(
     el('div',{class:'bar'},el('span',{class:'mut'},'A machine appears here as soon as its agent reports. Open one to see its services and containers, or to choose which log files its agent ships.'),el('span',{class:'sp'}),(can('keys')||can('hosts',true))?el('a',{class:'btn',href:'#/machines'},'+ Add a machine'):null),
-    hs.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['','Host','Agent','System','Last seen','Services','Containers','Log paths',''].map(x=>el('th',{},x))),hs.map(h=>
+    hs.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['','Host','IP address','Agent','System','Last seen','Services','Containers','Log paths',''].map(x=>el('th',{},x))),hs.map(h=>
       el('tr',{class:'row',onclick:()=>{location.hash='#/h/'+encodeURIComponent(h.name)}},el('td',{},dot(h.status)),
         el('td',{},h.display_name||h.name,h.display_name?el('div',{class:'mut',style:'font-size:11px'},h.name):null,h.rejected_log_paths?el('span',{class:'pill err',title:'This machine refused some of the log paths you configured'},'⚠ '+h.rejected_log_paths+' path(s) refused'):null),
+        el('td',{class:'mono',title:(h.ips&&h.ips.length>1?'All addresses: '+h.ips.join(', '):(h.ip?'':'Not reported yet: the agent on this machine must be updated (run the install command again).'))},h.ip||el('span',{class:'mut'},'–'),h.ips&&h.ips.length>1?el('span',{class:'mut',style:'font-size:11px'},' +'+(h.ips.length-1)):null),
         el('td',{class:'mut'},h.version||'–'),el('td',{class:'mut'},h.os||'–'),el('td',{class:'mut'},ago2(h.last_seen)),el('td',{},cnt(h.services)),el('td',{},cnt(h.containers)),
         el('td',{class:'mut'},((h.config.log_paths||[]).length+(h.config.docker_logs?' + Docker':''))||'none'),
         el('td',{style:'text-align:right'},w&&h.status!=='up'?el('button',{class:'btn danger sm',title:'Remove this host from the list',onclick:ev=>{ev.stopPropagation();removeHost(h.name,h.display_name||h.name,hostsPage)}},'Remove'):null))))):
@@ -701,7 +717,8 @@ async function hostPage(raw){
     q.oninput=only.onchange=draw;draw();
     return el('div',{class:'card',style:'padding:12px 0 0'},el('div',{class:'bar',style:'padding:0 14px'},el('b',{},kind+' ('+items.length+(items.some(i=>!i.up)?', '+items.filter(i=>!i.up).length+' down':'')+')'),el('span',{class:'sp'}),q,el('label',{style:'color:var(--fg)'},only,' only down')),body)};
   view.replaceChildren(
-    el('div',{class:'bar'},el('a',{href:'#/hosts'},'← Hosts'),el('span',{class:'badge '+h.status},h.status.toUpperCase()),el('span',{class:'mut'},'agent '+(h.version||'?')+' · '+(h.os||'?')+' · last seen '+ago2(h.last_seen))),
+    el('div',{class:'bar'},el('a',{href:'#/hosts'},'← Hosts'),el('span',{class:'badge '+h.status},h.status.toUpperCase()),el('span',{class:'mut'},'agent '+(h.version||'?')+' · '+(h.os||'?')+' · last seen '+ago2(h.last_seen)),
+      h.ips&&h.ips.length?el('span',{class:'mono',title:'The first address is the one this machine uses to reach Lumen'},h.ips.join('  ·  ')):el('span',{class:'mut'},'IP address not reported (update the agent on this machine)')),
     h.rejected_log_paths?el('div',{class:'warnbox'},'This machine refused '+h.rejected_log_paths+' of the log paths below. For safety an agent only reads files under /var/log, /var/lib/docker, /var/www, /srv, /mnt and /opt when the server asks it to. Change allowed_log_dirs in /etc/lumen-agent/config.json on the machine to allow more.'):null,
     el('div',{class:'two'},
       el('div',{class:'card'},el('h2',{},'This machine'),el('label',{},'Name shown in Lumen'),nick,el('p',{class:'help'},'Only changes what Lumen shows. The machine keeps its real name ('+name+'), which agents and Nextcloud instances still use.'),el('h2',{style:'margin-top:18px'},'What this machine reports'),
@@ -821,7 +838,7 @@ async function settingsPage(){
     const rd=new FileReader();rd.onload=()=>{const b64=String(rd.result).split(',')[1]||'';pending='data:'+mime+';base64,'+b64;removing=false;drawPrev()};rd.onerror=()=>{msg.className='err';msg.textContent='Could not read the file.'};rd.readAsDataURL(f)}});
   const save=async()=>{msg.textContent='';try{
     const r=await api('/api/v1/settings/branding',{},{method:'PUT',body:{name:nameIn.value.trim(),logo:pending||'',remove_logo:removing&&!pending}});
-    S.brand=r;pending=null;removing=false;file.value='';drawPrev();
+    S.brand=r;pending=null;removing=false;file.value='';drawPrev();applyFavicon();
     const lg=$('#side .logo');if(lg)lg.replaceChildren(brandEl(false));setTitle('Settings');
     msg.className='ok';msg.textContent='Saved. Everyone sees the new name and logo, including on the login page.'}catch(e){msg.className='err';msg.textContent=e.message}};
   view.replaceChildren(el('div',{class:'card',style:'max-width:620px'},el('h2',{style:'margin-top:0'},'Branding'),
