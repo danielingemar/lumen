@@ -31,6 +31,7 @@ versions follow [Semantic Versioning](https://semver.org/) once a first release 
 - `UPGRADING.md`: install, upgrade (git clone, read-only access, deploy key, ZIP), agent updates, rollback and troubleshooting.
 
 ### Fixed
+- **Charts no longer cut off the top of a line.** When the highest value was slightly above a round number (for example 211 on an axis ending at 200, or 2100, 0.43, 105) the axis stopped below the data and the line was drawn outside the chart, so it looked empty. The top tick is now never below the data. Roughly one chart in four was affected.
 - The content-security policy of the UI now allows `data:` images (`img-src 'self' data:`). Without it a browser blocked the logo preview on the Settings page.
 - `install.sh` and `dev.sh` no longer overwrite `LUMEN_PUBLIC_URL` (and `dev.sh` no longer `LUMEN_BIND`) when re-run to upgrade: an address already in `deploy/.env` is kept unless `--public-url` / `--ip` is given. Covered by `scripts/test-installers.sh` in CI.
 
