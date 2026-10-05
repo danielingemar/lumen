@@ -25,6 +25,9 @@ versions follow [Semantic Versioning](https://semver.org/) once a first release 
 - **Host IP addresses:** agents report the address they use to reach Lumen and their other addresses; shown on the Hosts list and host page.
 - Nextcloud instance URLs ending in `/login` or `/index.php` are refused, and the agent explains a 404 from `status.php`.
 
+### Docs
+- `UPGRADING.md`: install, upgrade (git clone, read-only access, deploy key, ZIP), agent updates, rollback and troubleshooting.
+
 ### Fixed
 - The content-security policy of the UI now allows `data:` images (`img-src 'self' data:`). Without it a browser blocked the logo preview on the Settings page.
 - `install.sh` and `dev.sh` no longer overwrite `LUMEN_PUBLIC_URL` (and `dev.sh` no longer `LUMEN_BIND`) when re-run to upgrade: an address already in `deploy/.env` is kept unless `--public-url` / `--ip` is given. Covered by `scripts/test-installers.sh` in CI.

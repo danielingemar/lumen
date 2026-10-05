@@ -122,6 +122,8 @@ Production notes:
 
 ### Upgrade
 
+Full step-by-step guide, including how to upgrade with read-only access: **[UPGRADING.md](UPGRADING.md)**. In short:
+
 Pull the new source and run `./install.sh` (or `./dev.sh`) again: it adds missing settings such as `LUMEN_SECRET_KEY` to `deploy/.env`, rebuilds and restarts. **Your address and other settings in `deploy/.env` are never replaced**: `LUMEN_PUBLIC_URL` only changes if you pass `--public-url` (or `--ip` to `dev.sh`), and `LUMEN_BIND` is only set when missing. Several Lumen servers with different addresses can therefore be upgraded the same way. To upgrade without running any script at all: `docker compose -f deploy/docker-compose.yml up -d --build`. Existing data is kept, retention changes are applied to existing tables, and accounts from before groups existed become admins. **Run the agent install command once more on each machine** to get the current agent.
 
 ## Add machines
