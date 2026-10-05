@@ -124,6 +124,8 @@ function fmtVal(v,unit){
   const a=Math.abs(v);
   switch(unit){
     case 'bytes':{const u=['B','KB','MB','GB','TB','PB'];let i=0,x=v;while(Math.abs(x)>=1024&&i<5){x/=1024;i++}return trim(x)+' '+u[i]}
+    case 'bytesps':{const u=['B/s','KB/s','MB/s','GB/s','TB/s'];let i=0,x=v;while(Math.abs(x)>=1024&&i<4){x/=1024;i++}return trim(x)+' '+u[i]}
+    case 'uptime':{const d=Math.floor(v/86400),h=Math.floor(v%86400/3600),m=Math.floor(v%3600/60);return d>0?d+'d '+h+'h':h>0?h+'h '+m+'m':m+'m'}
     case 'percent':return trim(v)+'%';
     case 'percent01':return trim(v*100)+'%';
     case 'seconds':return a>=1?trim(v)+' s':a>=1e-3?trim(v*1e3)+' ms':trim(v*1e6)+' µs';
@@ -149,7 +151,7 @@ function drawChart(box,o){
   box.replaceChildren();
   const vis=series.map((s,i)=>({s,i,label:seriesLabel(s,fallback),color:PALETTE[i%PALETTE.length]}));
   if(!vis.some(x=>x.s.points.length)){box.append(el('div',{class:'empty'},'No data in this time range'));return}
-  const W=Math.max(box.clientWidth||640,260),H=height,L=58,R=12,T=8,B=22,pw=W-L-R,ph=H-T-B,span=toMs-fromMs,stepMs=step*1000;
+  const W=Math.max(box.clientWidth||640,260),H=height,R=12,T=8,B=22,ph=H-T-B,span=toMs-fromMs,stepMs=step*1000;
   const act=vis.filter(x=>!hidden.has(x.i));
   const stacked=type==='bar';
   let ymax=0,ymin=0;
@@ -157,6 +159,7 @@ function drawChart(box,o){
   else act.forEach(x=>x.s.points.forEach(p=>{ymax=Math.max(ymax,p[1]);ymin=Math.min(ymin,p[1])}));
   if(unit==='percent01'&&ymax<=1)ymax=Math.max(ymax,1);if(unit==='percent'&&ymax<=100&&ymax>50)ymax=100;
   const yt=niceTicks(ymin,ymax*1.04||1,4),y0=yt[0],y1=yt[yt.length-1];
+  const L=Math.max(58,Math.ceil(Math.max(...yt.map(v=>fmtVal(v,unit).length))*6.4)+14),pw=W-L-R; // room for the widest axis label ("57.2 MB/s")
   const X=t=>L+(t-fromMs)/span*pw,Y=v=>T+ph-(v-y0)/(y1-y0||1)*ph;
   const root=svg('svg',{viewBox:`0 0 ${W} ${H}`,height:H,role:'img'});
   yt.forEach(v=>{root.append(svg('line',{x1:L,x2:W-R,y1:Y(v),y2:Y(v),stroke:'var(--line)'}),svg('text',{x:L-6,y:Y(v)+4,'text-anchor':'end','font-size':11,fill:'var(--mut)'},fmtVal(v,unit)))});
@@ -199,7 +202,7 @@ function spark(points,w=110,h=34){if(points.length<2)return null;const xs=points
   return svg('svg',{viewBox:`0 0 ${w} ${h}`,width:w,height:h},svg('path',{d,fill:'none',stroke:'var(--acc)','stroke-width':1.6}))}
 // ---- panels ----
 const PANEL_TYPES={line:'Line chart',area:'Area chart',bar:'Bar chart (stacked)',stat:'Single value',table:'Table of series',logs:'Log lines',traces:'Trace list'};
-const UNITS={none:'Number',bytes:'Bytes',percent:'Percent (0-100)',percent01:'Percent (0-1)',seconds:'Seconds',ms:'Milliseconds',rate:'Per second'};
+const UNITS={none:'Number',bytes:'Bytes',bytesps:'Bytes per second',percent:'Percent (0-100)',percent01:'Percent (0-1)',seconds:'Seconds',uptime:'Duration (d h m)',ms:'Milliseconds',rate:'Per second'};
 const HEIGHTS={1:150,2:240,3:340};
 // Status panels (up/down counts) do not depend on the time range: they show the situation right now.
 const STATUS_KINDS={nc_down:['Nextcloud instances DOWN','#/instances'],nc_up:['Nextcloud instances up','#/instances'],host_down:['Hosts DOWN','#/hosts'],host_up:['Hosts up','#/hosts'],svc_down:['Services DOWN','#/hosts'],svc_up:['Services up','#/hosts'],container_down:['Containers DOWN','#/hosts'],container_up:['Containers up','#/hosts']};
@@ -697,6 +700,38 @@ async function removeHost(name,label,after){
   if(!confirm('Remove '+label+' from Lumen?\n\nIts history stays searchable, but the machine is no longer listed. If its agent is still running it will appear again by itself.'))return;
   try{await api('/api/v1/hosts/'+encodeURIComponent(name)+'/remove',{},{method:'POST',body:{}});after()}catch(e){alert(e.message)}}
 
+// Everything the agent reports about one machine, as charts that follow the time range of the top bar.
+function hostPerformance(name){
+  const f={host:name},H=(extra)=>[{k:'host',v:name}].concat(extra||[]);
+  const m=(title,type,w,h,metric,agg,o,unit)=>newPanel(title,type,w,h,M(metric,agg,Object.assign({filters:H(o&&o.f)},o&&o.g?{groupBy:o.g}:{})),unit);
+  const panels=[
+    m('CPU','stat',2,1,'system.cpu.utilization','last',null,'percent01'),
+    m('Load (1 min)','stat',2,1,'system.load.1m','last',null,'none'),
+    m('Memory in use','stat',2,1,'system.memory.usage','last',{f:[{k:'state',v:'used'}]},'bytes'),
+    m('Swap in use','stat',2,1,'system.paging.usage','last',{f:[{k:'state',v:'used'}]},'bytes'),
+    m('Processes','stat',2,1,'system.processes.count','last',null,'none'),
+    m('Uptime','stat',2,1,'system.uptime','last',null,'uptime'),
+    m('CPU utilization','area',6,2,'system.cpu.utilization','avg',null,'percent01'),
+    m('CPU by state','bar',6,2,'system.cpu.state','avg',{g:'state'},'percent01'),
+    m('Load average','line',6,2,'system.load.average','avg',{g:'period'},'none'),
+    m('Memory','bar',6,2,'system.memory.usage','avg',{g:'state'},'bytes'),
+    m('Disk usage by mount point','line',6,2,'system.filesystem.utilization','avg',{g:'mountpoint'},'percent01'),
+    m('Disk busy (time spent doing I/O)','line',6,2,'system.disk.utilization','avg',{g:'device'},'percent01'),
+    m('Disk throughput','line',6,2,'system.disk.io.bytes_rate','sum',{g:'direction'},'bytesps'),
+    m('Disk operations per second (IOPS)','line',6,2,'system.disk.io.ops_rate','sum',{g:'direction'},'rate'),
+    m('Network traffic','line',6,2,'system.network.io.bytes_rate','sum',{g:'direction'},'bytesps'),
+    m('Network errors and dropped packets','line',6,2,'system.network.errors_rate','sum',{g:'kind'},'rate'),
+  ];
+  const bodies=[];
+  const grid=el('div',{class:'grid'},panels.map(p=>{const body=el('div',{class:'body'});bodies.push([p,body]);
+    return el('div',{class:'panel',style:'--w:'+p.w},el('header',{},el('span',{class:'t'},p.title)),body)}));
+  const draw=()=>{const w=win();bodies.forEach(([p,b])=>loadPanel(p,b,w))};
+  draw();
+  S.onRangeChange=draw;
+  if(S.refresh)S.timers.push(setInterval(()=>{if(grid.isConnected)draw()},S.refresh*1000));
+  return el('div',{style:'margin-bottom:18px'},el('h2',{},'Performance'),
+    el('p',{class:'help',style:'margin:-4px 0 10px'},'Charts follow the time range at the top. Machines whose agent is older than this server have empty panels: run the install command again (Add a machine). Disk I/O, network, per-disk usage and CPU states are reported by Linux agents; Windows agents report CPU, memory and disk usage.'),grid)}
+
 async function hostPage(raw){
   const name=decodeURIComponent(raw),enc=encodeURIComponent(name);setTitle(name);const view=$('#view');
   const r=await api('/api/v1/hosts/'+enc),h=r.host,c=h.config||{},w=can('hosts',true);
@@ -720,6 +755,8 @@ async function hostPage(raw){
     el('div',{class:'bar'},el('a',{href:'#/hosts'},'← Hosts'),el('span',{class:'badge '+h.status},h.status.toUpperCase()),el('span',{class:'mut'},'agent '+(h.version||'?')+' · '+(h.os||'?')+' · last seen '+ago2(h.last_seen)),
       h.ips&&h.ips.length?el('span',{class:'mono',title:'The first address is the one this machine uses to reach Lumen'},h.ips.join('  ·  ')):el('span',{class:'mut'},'IP address not reported (update the agent on this machine)')),
     h.rejected_log_paths?el('div',{class:'warnbox'},'This machine refused '+h.rejected_log_paths+' of the log paths below. For safety an agent only reads files under /var/log, /var/lib/docker, /var/www, /srv, /mnt and /opt when the server asks it to. Change allowed_log_dirs in /etc/lumen-agent/config.json on the machine to allow more.'):null,
+    hostPerformance(name),
+    el('h2',{},'Settings and services'),
     el('div',{class:'two'},
       el('div',{class:'card'},el('h2',{},'This machine'),el('label',{},'Name shown in Lumen'),nick,el('p',{class:'help'},'Only changes what Lumen shows. The machine keeps its real name ('+name+'), which agents and Nextcloud instances still use.'),el('h2',{style:'margin-top:18px'},'What this machine reports'),
         el('label',{},'Log files to ship (one path or pattern per line)'),logs,el('p',{class:'help'},'Example: /var/log/nginx/*.log. Only files under /var/log, /var/lib/docker, /var/www, /srv, /mnt and /opt are allowed. Changes apply within a minute, nothing to do on the machine.'),

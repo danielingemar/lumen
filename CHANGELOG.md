@@ -21,6 +21,8 @@ versions follow [Semantic Versioning](https://semver.org/) once a first release 
 - **Dropdowns** of everything that has come in on Traces (service, operation, host), Logs (source, host) and Metrics (every metric, with a filter box); new `GET /api/v1/facets`, and `host`/`operation` filters on traces, logs and the series API.
 - **Hosts:** display names (rename) and manual removal of hosts; removal is refused while Nextcloud instances are still checked by the host.
 - **Settings page** with a site name and logo upload (new `settings` permission); shown in the menu, the browser tab and on the login page. Uploads are verified by content and SVG scripts are refused.
+- **Host page shows everything about the machine:** CPU (by state), load, memory by state, swap, every local disk's usage and inodes, disk I/O (throughput, IOPS, busy time), network traffic and errors, processes and uptime, as charts. The Linux agent collects the new metrics; existing metric names are unchanged.
+- Chart axes make room for long labels such as `57.2 MB/s`.
 - **Tab icon:** the uploaded logo is used as the browser tab icon (a built-in icon otherwise).
 - **Host IP addresses:** agents report the address they use to reach Lumen and their other addresses; shown on the Hosts list and host page.
 - Nextcloud instance URLs ending in `/login` or `/index.php` are refused, and the agent explains a 404 from `status.php`.

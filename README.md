@@ -40,6 +40,7 @@ Traces, logs and metrics, dashboards you build yourself, host / service / Docker
 | **Hosts & Instances pages** | See every machine and Nextcloud instance. Rename hosts, remove old ones, add log paths, choose watched services, fix a mistyped Nextcloud URL, **all in the browser**: agents pick up the change within a minute. |
 | **Dropdowns of everything that comes in** | Traces, Logs and Metrics list every service, operation, log source, host and metric Lumen has received, so you pick instead of typing. |
 | **Your own logo** | Upload a logo and site name under **Settings**; they show in the menu, in the browser tab (as the tab icon) and on the login page. |
+| **Everything about a host** | Open a host to see CPU (also by state: user, system, iowait, steal), load, memory (used, cached, buffers, free), swap, usage of every local disk, **disk I/O** (throughput, IOPS, busy time per device), **network** traffic and errors, processes and uptime, as charts over the chosen time range. |
 | **Services on your machines** | systemd units and Docker containers are reported automatically (`system_service_up`, `container_up`). |
 | **Users and groups** | *Admin* (everything), *User* (read-only) and *custom* groups with none / read / write per area. Enforced by the server. |
 | **Retention and archive** | 30 days of live data. Every day is backed up before it expires and can be loaded back and browsed in the UI at any time. |
@@ -53,6 +54,7 @@ Traces, logs and metrics, dashboards you build yourself, host / service / Docker
 |---|---|
 | <img src="docs/screenshots/instances.png" alt="Nextcloud instances with one DOWN"> **Instances**: a down instance and why. Fix a typo and the agent picks it up. | <img src="docs/screenshots/host.png" alt="Host settings and services"> **Hosts**: log paths, watched services, systemd services and Docker containers. |
 | <img src="docs/screenshots/users.png" alt="Users and groups"> **Users & groups**: Admin, User and custom groups. | <img src="docs/screenshots/backups.png" alt="Backups and archive"> **Backups & archive**: every day is backed up; load an old day and browse it. |
+| <img src="docs/screenshots/host-performance.png" alt="Host page with CPU, memory, disk and network charts"> **Host page**: CPU, load, memory, disks, disk I/O and network for one machine. | <img src="docs/screenshots/host.png" alt="Host settings and services"> Below the charts: settings and services. |
 | <img src="docs/screenshots/logs.png" alt="Logs with source and host dropdowns"> **Logs**: pick a log source and a host from what has come in. | <img src="docs/screenshots/traces.png" alt="Traces with service, operation and host dropdowns"> **Traces**: service, operation and host dropdowns. |
 | <img src="docs/screenshots/settings.png" alt="Settings with logo upload"> **Settings**: your own logo and site name. | <img src="docs/screenshots/dashboard-hosts.png" alt="Hosts dashboard"> **Hosts dashboard** starter template. |
 | <img src="docs/screenshots/dashboard-nextcloud-dark.png" alt="Nextcloud dashboard, dark theme"> Light and dark theme. | |
@@ -171,6 +173,30 @@ docker exec -u www-data <nextcloud-container> php occ config:app:set serverinfo 
 Then add the instance under **Instances**. The Nextcloud hostname must be in that instance's `trusted_domains`. An admin user plus app password works instead of a token. Instances set up earlier with `--nextcloud` flags still work and appear as "from agent flags" with a *Manage here* button.
 
 > The serverinfo field names follow the app's documented response and are tested against a sample of that shape, not a live server. Compare the numbers with one real instance first; missing fields are skipped.
+
+## What the agent reports about a host
+
+Reported every collection interval (15 s by default); rates are calculated by the agent from the difference between two samples. Linux agents report everything below; Windows agents report CPU, memory and disk usage.
+
+| Metric | Labels | Meaning |
+|---|---|---|
+| `system.cpu.utilization` | | share of time the CPU was busy (0-1); iowait counts as idle |
+| `system.cpu.state` | `state` = user, nice, system, iowait, irq, steal | share of time per state (0-1) |
+| `system.cpu.count` | | number of CPUs |
+| `system.load.1m` / `5m` / `15m`, `system.load.average` | `period` | load average |
+| `system.memory.total`, `used`, `available` | | bytes (`used` = total minus available) |
+| `system.memory.usage` | `state` = used, cached, buffers, free | bytes; the four add up to the total |
+| `system.paging.total`, `system.paging.usage` | `state` = used, free | swap, bytes (0 on a machine without swap) |
+| `system.filesystem.total`, `used`, `utilization` | `mountpoint`, `device`, `fstype` | every local disk: bytes and share used (0-1). Network file systems, containers' overlay mounts and pseudo file systems are left out; at most 16 |
+| `system.filesystem.inodes.utilization` | same | share of inodes used (0-1) |
+| `system.disk.io.bytes_rate`, `system.disk.io.ops_rate` | `device`, `direction` = read, write | bytes and operations per second |
+| `system.disk.utilization` | `device` | share of time the disk was busy (0-1). Whole disks only (not partitions, loop devices) |
+| `system.network.io.bytes_rate`, `system.network.packets_rate` | `device`, `direction` = receive, transmit | per second; physical interfaces only (not lo, docker0, veth…) |
+| `system.network.errors_rate` | `device`, `kind` = errors, drops | per second |
+| `system.processes.count`, `system.processes.running` | | processes |
+| `system.uptime` | | seconds since boot |
+
+Names that existed before (`system.cpu.utilization`, `system.memory.used/total`, `system.load.*m`, `system.filesystem.used/total`) keep working, so existing dashboards are unaffected. Disk usage for `/` now also carries the `device` and `fstype` labels. All of these are ordinary metrics: use them in the Metrics explorer and in your own dashboards. After upgrading the server, run the agent install command again on each machine to get the new metrics.
 
 ## Status and "Down"
 

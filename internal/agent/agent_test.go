@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"context"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -199,4 +200,72 @@ func TestSelfEndpointIsScrapable(t *testing.T) {
 	if !found {
 		t.Fatalf("self metric not found in scrape: %+v", pts)
 	}
+}
+
+// On a Linux machine the whole collector runs against the real /proc: names stay as before, new ones appear, and
+// the values are plausible.
+func TestHostCollectRealProc(t *testing.T) {
+	if _, err := os.Stat("/proc/stat"); err != nil {
+		t.Skip("no /proc")
+	}
+	h := &Host{Service: "host"}
+	h.Collect(1_000_000_000)
+	time.Sleep(300 * time.Millisecond)
+	// burn a little CPU and touch the disk so there is something to measure
+	x := 0
+	for i := 0; i < 5_000_000; i++ {
+		x += i
+	}
+	_ = x
+	pts := h.Collect(1_000_000_000 + 300_000_000)
+	by := map[string][]Point{}
+	for _, p := range pts {
+		by[p.Name] = append(by[p.Name], p)
+		if p.Value < 0 || math.IsNaN(p.Value) || math.IsInf(p.Value, 0) {
+			t.Errorf("implausible value: %+v", p)
+		}
+	}
+	for _, n := range []string{"system.cpu.utilization", "system.cpu.state", "system.cpu.count", "system.memory.total", "system.memory.used", "system.memory.usage", "system.load.1m", "system.load.average", "system.uptime", "system.processes.count", "system.paging.usage"} {
+		if len(by[n]) == 0 {
+			t.Errorf("missing %s", n)
+		}
+	}
+	if u := by["system.cpu.utilization"]; len(u) == 1 && (u[0].Value < 0 || u[0].Value > 1) {
+		t.Errorf("cpu utilization out of range: %v", u[0].Value)
+	}
+	sum := 0.0
+	for _, p := range by["system.cpu.state"] {
+		sum += p.Value
+	}
+	if len(by["system.cpu.state"]) != 6 || sum > 1.0001 {
+		t.Errorf("cpu states: %d values summing to %v", len(by["system.cpu.state"]), sum)
+	}
+	mem := 0.0
+	for _, p := range by["system.memory.usage"] {
+		mem += p.Value
+	}
+	if tot := by["system.memory.total"]; len(tot) == 1 && math.Abs(mem-tot[0].Value) > tot[0].Value*0.001 {
+		t.Errorf("memory states %v must add up to the total %v", mem, tot[0].Value)
+	}
+	for _, p := range by["system.filesystem.used"] {
+		if p.Attrs["mountpoint"] == "" || p.Attrs["device"] == "" || p.Attrs["fstype"] == "" {
+			t.Errorf("filesystem labels: %+v", p.Attrs)
+		}
+	}
+	for _, p := range by["system.filesystem.utilization"] {
+		if p.Value > 1 {
+			t.Errorf("filesystem utilization above 100%%: %+v", p)
+		}
+	}
+	for _, p := range by["system.disk.io.bytes_rate"] {
+		if d := p.Attrs["direction"]; d != "read" && d != "write" || p.Attrs["device"] == "" {
+			t.Errorf("disk io labels: %+v", p.Attrs)
+		}
+	}
+	for _, p := range by["system.network.io.bytes_rate"] {
+		if p.Attrs["device"] == "lo" || strings.HasPrefix(p.Attrs["device"], "veth") || strings.HasPrefix(p.Attrs["device"], "docker") {
+			t.Errorf("virtual interface reported: %+v", p.Attrs)
+		}
+	}
+	t.Logf("%d points; names: %d; mounts: %d; disks: %d; interfaces: %d", len(pts), len(by), len(by["system.filesystem.total"]), len(by["system.disk.utilization"]), len(by["system.network.io.bytes_rate"])/2)
 }
