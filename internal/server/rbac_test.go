@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/danielingemar/lumen/internal/auth"
+	"github.com/danielingemar/lumen/internal/buildinfo"
 	"github.com/danielingemar/lumen/internal/dashboards"
 	"github.com/danielingemar/lumen/internal/docstore"
 )
@@ -56,6 +57,9 @@ func TestBuiltinUserGroupIsReadOnly(t *testing.T) {
 	json.NewDecoder(get(rd, ts.URL+"/api/v1/me").Body).Decode(&me)
 	if me["group"] != "user" || me["group_name"] != "User" || me["perms"].(map[string]any)["dashboards"] != "read" {
 		t.Fatalf("me: %+v", me)
+	}
+	if v, _ := me["version"].(string); v == "" || v != buildinfo.Version {
+		t.Fatalf("me must tell the version of the server (shown in the UI, compared with the agents): %+v", me["version"])
 	}
 }
 

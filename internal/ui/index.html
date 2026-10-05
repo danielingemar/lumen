@@ -97,6 +97,9 @@ if(!RANGES[S.range]&&!(S.range==='custom'&&S.custom))S.range='1h';
 // what the signed-in user may do: area -> none|read|write (from /api/v1/me)
 S.brand={name:'',has_logo:false,version:''};S.hn={};
 const hostLabel=n=>S.hn[n]||n;
+// An agent built from the same source as the server has the same version string; a different one means it should be updated.
+const agentOld=v=>!!(S.me&&S.me.version&&S.me.version!=='dev'&&v&&v!==S.me.version);
+const oldChip=v=>agentOld(v)?el('span',{class:'pill err',title:'This agent ('+v+') is not the version of this server ('+S.me.version+'). Run the install command again on this machine (Add a machine).'},'update'):null;
 const can=(a,w)=>{const l=(S.me&&S.me.perms&&S.me.perms[a])||'none';return w?l==='write':l==='read'||l==='write'};
 const win=()=>{let to=Date.now(),from=to-(RANGES[S.range]||36e5);if(S.range==='custom'&&S.custom){from=S.custom.from;to=S.custom.to}return{from:new Date(from).toISOString(),to:new Date(to).toISOString(),fromMs:from,toMs:to}};
 function clearTimers(){S.timers.forEach(clearInterval);S.timers=[]}
@@ -471,7 +474,7 @@ function shell(){
   if(!can('backups'))S.archive=false;
   $('#root').replaceChildren(el('div',{id:'app'},
     el('aside',{id:'side'},el('div',{class:'logo'},brandEl(false)),el('nav',{},NAV.filter(n=>n[3]()).map(([h,t,i])=>el('a',{href:h,'data-h':h},iconEl(i),t))),
-      el('div',{class:'foot'},el('div',{},S.me.user?S.me.user:'API key',' · ',el('b',{},S.me.tenant)),el('div',{class:'mut',style:'font-size:11px'},S.me.group_name||''),
+      el('div',{class:'foot'},el('div',{},S.me.user?S.me.user:'API key',' · ',el('b',{},S.me.tenant)),el('div',{class:'mut',style:'font-size:11px'},S.me.group_name||'',S.me.version?el('span',{title:'Version of this Lumen server. Servers and agents built from the same source show the same value.'},' · '+(S.me.version.startsWith('src-')?'build '+S.me.version.slice(4):S.me.version)):null),
         el('div',{class:'row'},el('button',{onclick:()=>setTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark')},'Theme'),el('button',{onclick:async()=>{try{await api('/api/v1/logout',{},{method:'POST',body:{}})}catch{}showLogin()}},'Sign out')))),
     el('div',{id:'main'},el('div',{id:'top'},el('h1',{},'Lumen'),
       can('backups')?sel('arc',[['0','Live data'],['1','Archive']],S.archive?'1':'0',v=>setArchive(v==='1')):null,
@@ -691,7 +694,7 @@ async function hostsPage(){
       el('tr',{class:'row',onclick:()=>{location.hash='#/h/'+encodeURIComponent(h.name)}},el('td',{},dot(h.status)),
         el('td',{},h.display_name||h.name,h.display_name?el('div',{class:'mut',style:'font-size:11px'},h.name):null,h.rejected_log_paths?el('span',{class:'pill err',title:'This machine refused some of the log paths you configured'},'⚠ '+h.rejected_log_paths+' path(s) refused'):null),
         el('td',{class:'mono',title:(h.ips&&h.ips.length>1?'All addresses: '+h.ips.join(', '):(h.ip?'':'Not reported yet: the agent on this machine must be updated (run the install command again).'))},h.ip||el('span',{class:'mut'},'–'),h.ips&&h.ips.length>1?el('span',{class:'mut',style:'font-size:11px'},' +'+(h.ips.length-1)):null),
-        el('td',{class:'mut'},h.version||'–'),el('td',{class:'mut'},h.os||'–'),el('td',{class:'mut'},ago2(h.last_seen)),el('td',{},cnt(h.services)),el('td',{},cnt(h.containers)),
+        el('td',{class:'mut'},h.version||'–',' ',oldChip(h.version)),el('td',{class:'mut'},h.os||'–'),el('td',{class:'mut'},ago2(h.last_seen)),el('td',{},cnt(h.services)),el('td',{},cnt(h.containers)),
         el('td',{class:'mut'},((h.config.log_paths||[]).length+(h.config.docker_logs?' + Docker':''))||'none'),
         el('td',{style:'text-align:right'},w&&h.status!=='up'?el('button',{class:'btn danger sm',title:'Remove this host from the list',onclick:ev=>{ev.stopPropagation();removeHost(h.name,h.display_name||h.name,hostsPage)}},'Remove'):null))))):
     el('div',{class:'card empty'},'No machine has reported yet. ',el('a',{href:'#/machines'},'Add a machine'),' to start collecting data.'));
@@ -753,7 +756,7 @@ async function hostPage(raw){
     q.oninput=only.onchange=draw;draw();
     return el('div',{class:'card',style:'padding:12px 0 0'},el('div',{class:'bar',style:'padding:0 14px'},el('b',{},kind+' ('+items.length+(items.some(i=>!i.up)?', '+items.filter(i=>!i.up).length+' down':'')+')'),el('span',{class:'sp'}),q,el('label',{style:'color:var(--fg)'},only,' only down')),body)};
   view.replaceChildren(
-    el('div',{class:'bar'},el('a',{href:'#/hosts'},'← Hosts'),el('span',{class:'badge '+h.status},h.status.toUpperCase()),el('span',{class:'mut'},'agent '+(h.version||'?')+' · '+(h.os||'?')+' · last seen '+ago2(h.last_seen)),
+    el('div',{class:'bar'},el('a',{href:'#/hosts'},'← Hosts'),el('span',{class:'badge '+h.status},h.status.toUpperCase()),el('span',{class:'mut'},'agent '+(h.version||'?')+' · '+(h.os||'?')+' · last seen '+ago2(h.last_seen)),oldChip(h.version),
       h.ips&&h.ips.length?el('span',{class:'mono',title:'The first address is the one this machine uses to reach Lumen'},h.ips.join('  ·  ')):el('span',{class:'mut'},'IP address not reported (update the agent on this machine)')),
     h.rejected_log_paths?el('div',{class:'warnbox'},'This machine refused '+h.rejected_log_paths+' of the log paths below. For safety an agent only reads files under /var/log, /var/lib/docker, /var/www, /srv, /mnt and /opt when the server asks it to. Change allowed_log_dirs in /etc/lumen-agent/config.json on the machine to allow more.'):null,
     hostPerformance(name),

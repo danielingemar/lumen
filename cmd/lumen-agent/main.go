@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -26,7 +27,7 @@ func main() {
 	version := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 	if *version {
-		println(agent.Version)
+		fmt.Println(agent.Version)
 		return
 	}
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))

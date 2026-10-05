@@ -30,6 +30,9 @@ versions follow [Semantic Versioning](https://semver.org/) once a first release 
 ### Docs
 - `UPGRADING.md`: install, upgrade (git clone, read-only access, deploy key, ZIP), agent updates, rollback and troubleshooting.
 
+- **Version stamp:** the Docker build identifies the source code with a short hash (`src-3fa91c2d`, or `--build-arg VERSION=…`). It is shown at the bottom of the menu, logged at start-up and reported by every agent; the Hosts page marks agents whose version differs from the server's with **update**. The agent's version used to be `dev` for every build.
+- The web page is served with an `ETag` and `Cache-Control: no-cache`, so an upgrade shows at once without a hard reload.
+
 ### Fixed
 - **Charts no longer cut off the top of a line.** When the highest value was slightly above a round number (for example 211 on an axis ending at 200, or 2100, 0.43, 105) the axis stopped below the data and the line was drawn outside the chart, so it looked empty. The top tick is now never below the data. Roughly one chart in four was affected.
 - The content-security policy of the UI now allows `data:` images (`img-src 'self' data:`). Without it a browser blocked the logo preview on the Settings page.

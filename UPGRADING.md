@@ -93,7 +93,17 @@ curl -s http://127.0.0.1:4318/healthz                   # prints: ok
 sudo docker compose -f deploy/docker-compose.yml logs --tail=20 lumen
 ```
 
-Then open Lumen in the browser and press **Ctrl+F5** (the interface is cached). Browsers also cache the tab icon hard: close and reopen the tab if you still see the old one.
+Then open Lumen in the browser. The page is revalidated on every load, so an upgrade shows at once; if it still looks old, press **Ctrl+F5**. Browsers cache the tab icon hard: close and reopen the tab if you still see the old one.
+
+**Which version is this server running?** The bottom of the menu shows the build, for example `build 3fa91c2d`. It identifies the source code, so every server (and every agent) built from the same code shows the same value. To see what a folder *should* show, run this in the Lumen folder; it must match the menu after a rebuild:
+
+```bash
+echo "build $(find . -type f \( -name '*.go' -o -name '*.html' -o -name go.mod \) ! -name '*_test.go' | LC_ALL=C sort | xargs cat | sha256sum | cut -c1-8)"
+```
+
+- The menu shows an **older** value than the folder: the server was not rebuilt, or the container was not recreated. Run `sudo docker compose -f deploy/docker-compose.yml up -d --build` again.
+- The folder itself is old: `git pull` brought nothing (check `git log --oneline | head -3` against the repository on GitHub, and that the change was pushed).
+- `build dev`: the server was built outside Docker (a plain `go build`), so agents are not compared.
 
 ## 5. Update the agents
 
@@ -105,7 +115,7 @@ On each monitored machine, run the install command again; it replaces the binary
 curl -fsSL https://YOUR-LUMEN/install/agent.sh | sudo sh -s -- --key YOUR_KEY
 ```
 
-The **Hosts** page shows each agent's version.
+The **Hosts** page shows each agent's version. An agent that is not the same build as its server is marked **update**: run the install command again on that machine.
 
 ## Going back
 

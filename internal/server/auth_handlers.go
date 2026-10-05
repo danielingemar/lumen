@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/danielingemar/lumen/internal/auth"
+	"github.com/danielingemar/lumen/internal/buildinfo"
 	"github.com/danielingemar/lumen/internal/edition"
 	"github.com/danielingemar/lumen/internal/perm"
 )
@@ -126,7 +127,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, id edition.Identity)
 	} else if !id.Session {
 		groupName = "Administrator (dev mode)"
 	}
-	writeJSON(w, map[string]any{"user": id.User, "tenant": id.Tenant, "session": id.Session, "via_key": id.ViaKey, "group": group, "group_name": groupName, "perms": id.Perms, "archive_enabled": id.Can(perm.Backups, false)})
+	writeJSON(w, map[string]any{"user": id.User, "tenant": id.Tenant, "session": id.Session, "via_key": id.ViaKey, "group": group, "group_name": groupName, "perms": id.Perms, "archive_enabled": id.Can(perm.Backups, false), "version": buildinfo.Version})
 }
 
 func (s *Server) listKeys(w http.ResponseWriter, r *http.Request, id edition.Identity) {
