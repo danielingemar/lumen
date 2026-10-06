@@ -252,3 +252,41 @@ func TestRemovedInstancesStayHiddenUntilTheyReportAgain(t *testing.T) {
 		t.Fatalf("%+v", s.Instances)
 	}
 }
+
+func TestDeeperChecksOfAnInstance(t *testing.T) {
+	at := map[string]string{"instance": "cloud.example.com", "host": "h1"}
+	rows := []model.Latest{
+		row("nextcloud_up", 1, 3, at), row("nextcloud_users", 4, 3, at),
+		row("nextcloud_info", 1, 3, map[string]string{"instance": "cloud.example.com", "host": "h1", "version": "34.0.1", "update_version": "34.0.3"}),
+		row("nextcloud_cron_age_seconds", 5000, 20, at), row("nextcloud_update_available", 1, 20, at), row("nextcloud_webdav_ok", 0, 14*60, at),
+		row("nextcloud_tls_cert_expiry_seconds", 86400*9, 29*60, at), row("nextcloud_tls_cert_valid", 1, 29*60, at),
+		// another instance, and a result that is too old to be shown
+		row("nextcloud_up", 1, 3, map[string]string{"instance": "other.example.com", "host": "h1"}), row("nextcloud_cron_age_seconds", 1, 3000, map[string]string{"instance": "other.example.com", "host": "h1"}),
+	}
+	s := Compute(now, rows, nil, nil)
+	var ks, other *Instance
+	for i := range s.Instances {
+		switch s.Instances[i].Key {
+		case "cloud.example.com":
+			ks = &s.Instances[i]
+		case "other.example.com":
+			other = &s.Instances[i]
+		}
+	}
+	if ks == nil || ks.Checks == nil {
+		t.Fatalf("%+v", s.Instances)
+	}
+	c := ks.Checks
+	if c.CronAgeSeconds == nil || *c.CronAgeSeconds != 5000 || c.UpdateAvailable == nil || !*c.UpdateAvailable || c.UpdateVersion != "34.0.3" ||
+		c.WebDAVOK == nil || *c.WebDAVOK || c.TLSExpirySeconds == nil || *c.TLSExpirySeconds != 86400*9 || c.TLSValid == nil || !*c.TLSValid {
+		t.Fatalf("%+v", c)
+	}
+	// each check is shown for a few of its own intervals: cron 5 minutes, the login check 15, the certificate 30
+	old := []model.Latest{row("nextcloud_up", 1, 3, at), row("nextcloud_cron_age_seconds", 5000, 6*60, at), row("nextcloud_webdav_ok", 1, 16*60, at), row("nextcloud_tls_cert_expiry_seconds", 100, 31*60, at), row("nextcloud_update_available", 1, 6*60, at)}
+	if g := Compute(now, old, nil, nil); len(g.Instances) != 1 || g.Instances[0].Checks != nil {
+		t.Fatalf("a check that stopped is not shown with its old value: %+v", g.Instances[0].Checks)
+	}
+	if other == nil || other.Checks != nil {
+		t.Fatalf("a result older than 20 minutes is not shown, and an instance with none has no checks: %+v", other)
+	}
+}

@@ -53,7 +53,7 @@ func (s *Server) putBranding(w http.ResponseWriter, r *http.Request, id edition.
 		writeErr(w, http.StatusBadRequest, err.Error())
 	case err != nil:
 		s.log.Error("branding update failed", "err", err)
-		writeErr(w, http.StatusServiceUnavailable, "the settings store is unavailable")
+		writeErr(w, http.StatusServiceUnavailable, "the settings store is unavailable (the reason is in the server log: docker compose logs lumen, look for \"registry error\")")
 	default:
 		s.log.Info("branding changed", "by", id.User, "tenant", id.Tenant)
 		writeJSON(w, p)

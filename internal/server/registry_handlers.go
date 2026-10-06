@@ -91,7 +91,7 @@ func (s *Server) regErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusNotFound, "not found")
 	default:
 		s.log.Error("registry error", "err", err)
-		writeErr(w, http.StatusServiceUnavailable, "the settings store is unavailable")
+		writeErr(w, http.StatusServiceUnavailable, "the settings store is unavailable (the reason is in the server log: docker compose logs lumen, look for \"registry error\")")
 	}
 }
 

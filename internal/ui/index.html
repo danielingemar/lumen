@@ -870,6 +870,21 @@ async function instancePage(raw){
   if(i.status==='down')notes.push(el('div',{class:'errbox'},el('b',{},'This instance is down. '),i.reason||''));
   if(i.status==='pending')notes.push(el('div',{class:'warnbox'},i.reason||'Waiting for the first check.'));
   if(i.status==='up'&&!i.details)notes.push(el('div',{class:'warnbox'},el('b',{},'Only availability is monitored. '),i.has_token||i.has_password?'The agent reaches Nextcloud, but the serverinfo request fails, so users, files, storage and the rest are missing. Check the token or login (Edit), and that the serverinfo app is enabled: occ app:enable serverinfo.':(i.managed?'Add a serverinfo token (Edit) to also see users, files, storage, shares, apps, database and PHP cache. ':'')+(i.managed?'':'This instance was set up with agent flags on the machine; add --nextcloud-token there, or use Manage here.')));
+  // the deeper checks: background jobs, updates, the login check and the certificate
+  {const ck=i.checks||{},dur=s=>{s=Math.abs(Math.round(s));const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),mi=Math.floor(s%3600/60);return d?d+' d '+h+' h':h?h+' h '+mi+' min':mi+' min'};
+   const old=i.created&&Date.now()-Date.parse(i.created)>5*60e3;
+   if(i.status==='up'){
+     if(ck.cron_age_seconds==null&&i.details&&i.managed&&old){
+       notes.push(i.has_password?el('div',{class:'warnbox'},el('b',{},'Background jobs and the login check cannot be read. '),'The user must be a Nextcloud administrator and the Provisioning API app must be enabled. The reason is in the agent\'s log on '+i.host+'.')
+         :el('p',{class:'help'},'Background jobs (when cron last ran) and the login check are not monitored. They need an administrator user with an app password (Edit): a serverinfo token cannot read them.'))}
+     if(ck.cron_age_seconds!=null&&ck.cron_age_seconds>4200)notes.push(el('div',{class:'warnbox'},el('b',{},'Background jobs have not run for '+(ck.cron_age_seconds>3600*24*365?'as long as anyone can tell':dur(ck.cron_age_seconds))+'. '),'File cleanup, notifications, mail and previews pile up. Check that the system cron or timer runs cron.php and that the background job mode is Cron.'));
+     if(ck.webdav_ok===false)notes.push(el('div',{class:'errbox'},el('b',{},'The login check fails. '),'A user cannot log in and list their files over WebDAV: the web server, PHP, the database or the storage is failing. The reason is in the agent\'s log on '+i.host+'.'));
+     if(ck.update_available)notes.push(el('div',{class:'warnbox'},el('b',{},'Nextcloud '+(ck.update_version||'a newer version')+' is available. '),'This instance runs '+((i.info&&i.info.version)||'an older version')+'. Plan the update; security fixes come in the minor versions.'));
+   }
+   if(ck.tls_expiry_seconds!=null){
+     if(ck.tls_expiry_seconds<0)notes.push(el('div',{class:'errbox'},el('b',{},'The certificate expired '+dur(ck.tls_expiry_seconds)+' ago. '),'Browsers refuse the site until it is renewed.'));
+     else if(ck.tls_expiry_seconds<14*86400)notes.push(el('div',{class:'warnbox'},el('b',{},'The certificate expires in '+dur(ck.tls_expiry_seconds)+'. '),'If it renews automatically, the renewal is failing.'));
+     else if(ck.tls_valid===false)notes.push(el('div',{class:'warnbox'},el('b',{},'The certificate is not trusted, or not for this name. '),'Browsers will warn. Fine for an internal instance with its own certificate authority.'))}}
   const F=(extra)=>[{k:'instance',v:key}].concat(extra||[]);
   const m=(title,type,wd,h,metric,agg,o,unit)=>newPanel(title,type,wd,h,M(metric,agg,Object.assign({filters:F(o&&o.f)},o&&o.g?{groupBy:o.g}:{})),unit);
   const stats=[
@@ -878,12 +893,15 @@ async function instancePage(raw){
     m('Shares','stat',2,1,'nextcloud_shares','last',{f:[{k:'type',v:'total'}]},'none'),m('Public links','stat',2,1,'nextcloud_shares','last',{f:[{k:'type',v:'link'}]},'none'),
     m('Database size','stat',2,1,'nextcloud_database_size_bytes','last',null,'bytes'),m('Free data space','stat',2,1,'nextcloud_data_free_bytes','last',null,'bytes'),
     m('Apps installed','stat',2,1,'nextcloud_apps_installed','last',null,'none'),m('App updates','stat',2,1,'nextcloud_apps_updates_available','last',null,'none'),
-    m('OPcache hit rate','stat',2,1,'nextcloud_php_opcache_hit_rate','last',null,'percent'),m('Maintenance mode','stat',2,1,'nextcloud_maintenance_mode','last',null,'none')];
+    m('OPcache hit rate','stat',2,1,'nextcloud_php_opcache_hit_rate','last',null,'percent'),m('Maintenance mode','stat',2,1,'nextcloud_maintenance_mode','last',null,'none'),
+    m('Last background job','stat',2,1,'nextcloud_cron_age_seconds','last',null,'uptime'),m('Certificate valid for','stat',2,1,'nextcloud_tls_cert_expiry_seconds','last',null,'uptime'),
+    m('Login check (1 = ok)','stat',2,1,'nextcloud_webdav_ok','last',null,'none'),m('Update available (1 = yes)','stat',2,1,'nextcloud_update_available','last',null,'none')];
   const charts=[
     m('Availability (1 = up)','line',6,2,'nextcloud_up','min',null,'none'),m('Response time','line',6,2,'nextcloud_status_response_seconds','avg',null,'seconds'),
     m('Active users','line',6,2,'nextcloud_active_users','avg',{g:'period'},'none'),m('Shares by type','line',6,2,'nextcloud_shares','avg',{g:'type'},'none'),
     m('Users','line',6,2,'nextcloud_users','avg',null,'none'),m('Files','line',6,2,'nextcloud_files','avg',null,'none'),
     m('Database size','line',6,2,'nextcloud_database_size_bytes','avg',null,'bytes'),m('Free data space','line',6,2,'nextcloud_data_free_bytes','avg',null,'bytes'),
+    m('Time since the last background job','line',6,2,'nextcloud_cron_age_seconds','max',null,'seconds'),m('Login check response time','line',6,2,'nextcloud_webdav_response_seconds','avg',null,'seconds'),
     m('PHP OPcache hit rate','line',6,2,'nextcloud_php_opcache_hit_rate','avg',null,'percent'),m('PHP OPcache memory used','line',6,2,'nextcloud_php_opcache_used_bytes','avg',null,'bytes')];
   const bodies=[],mk=ps=>el('div',{class:'grid'},ps.map(p=>{const b=el('div',{class:'body'});bodies.push([p,b]);return el('div',{class:'panel',style:'--w:'+p.w},el('header',{},el('span',{class:'t'},p.title)),b)}));
   const perf=can('metrics')?el('div',{},el('h2',{},'Usage and performance'),el('p',{class:'help',style:'margin:-4px 0 10px'},'Charts follow the time range at the top. Users, files, storage and the PHP cache come from the serverinfo app and need a token or login on the instance.'),mk(stats),mk(charts)):el('div',{class:'card empty'},'Your account may not read metrics.');

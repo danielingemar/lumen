@@ -27,6 +27,7 @@ Lumen is developed in the open, and some of it will be sold. Anyone who builds o
 |---|---|---|---|
 | OTLP ingest, search, dashboards, metrics explorer, traces, logs | Yes (exists) | Yes | Yes |
 | Agents, host performance, services and containers, Hosts and Instances, Nextcloud monitoring, up/down status | Yes (exists) | Yes | Yes |
+| Deeper Nextcloud checks: background jobs (cron), available updates, TLS certificate, WebDAV login check; alert templates for them | Yes (exists) | Yes | Yes |
 | Local backups and archive, retention | Yes (exists) | Yes | Yes |
 | Users, groups, area permissions, API keys | Yes (exists) | Yes | Yes |
 | Tenant isolation | Yes (exists) | Yes | Yes |

@@ -27,6 +27,7 @@ Lumen utvecklas öppet, och en del av det kommer att säljas. Den som bygger på
 |---|---|---|---|
 | OTLP-insamling, sökning, dashboards, mätvärdesutforskare, traces, loggar | Ja (finns) | Ja | Ja |
 | Agenter, hostprestanda, tjänster och containrar, Hosts och Instances, Nextcloud-övervakning, upp/ner-status | Ja (finns) | Ja | Ja |
+| Djupare Nextcloud-kontroller: bakgrundsjobb (cron), tillgängliga uppdateringar, TLS-certifikat, WebDAV-inloggning; larmmallar för dem | Ja (finns) | Ja | Ja |
 | Lokal backup och arkiv, lagringstid | Ja (finns) | Ja | Ja |
 | Användare, grupper, områdesbehörigheter, API-nycklar | Ja (finns) | Ja | Ja |
 | Isolering mellan tenants | Ja (finns) | Ja | Ja |

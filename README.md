@@ -163,10 +163,16 @@ Agents report their own health (`service.name=lumen-agent`): uptime, items sent,
 
 ## Nextcloud monitoring
 
+All of this is in the Community edition: it is what an administrator needs to know whether a Nextcloud works. What belongs to the paid editions is what is built *on* it for other people: SLA reports, status pages and checks from several places (Enterprise), and per-customer reports for a hosting provider (Operator add-on). See [docs/EDITIONS.md](docs/EDITIONS.md).
+
 One agent can watch several Nextcloud instances from anywhere that can reach their URL. Per instance it collects:
 
 - availability and response time (`status.php`), maintenance mode, pending DB upgrade, version;
 - with a token: active users (5 min / 1 h / 24 h), user / file / storage counts, shares by type, installed apps and available updates, database size, PHP memory limit, OPcache hit rate and usage, free data space;
+- **Nextcloud updates:** whether a newer Nextcloud version exists (and which), next to the app updates above;
+- **background jobs:** how long ago Nextcloud's cron last ran, the cron mode and any cron errors Nextcloud recorded. This is the value Nextcloud's own admin overview checks (it complains after an hour). It needs an **administrator user with an app password** (the Provisioning API), because a serverinfo token cannot read it. Without one the instance page says so;
+- **TLS certificate:** days until an https instance's certificate expires, and whether it is trusted and for this name. It is read even when the instance is down, since an expired certificate is a common reason for that;
+- **login check:** a WebDAV login and file-listing as that user, every five minutes. It touches the web server, PHP, the database and the storage, so it finds failures that `status.php` does not. Same administrator login as above;
 - optionally `nextcloud.log` as structured logs (level, app, user and request id are kept; the request URL is dropped because it can contain tokens).
 
 Create a token on the Nextcloud server (the *serverinfo* app is on by default):

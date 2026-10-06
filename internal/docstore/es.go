@@ -54,6 +54,46 @@ var mappings = map[string]string{
 	"groups":         `{"dynamic":false,"properties":{"id":{"type":"keyword"},"tenant":{"type":"keyword"},"name":{"type":"keyword"},"created":{"type":"date"},"perms":{"type":"object","enabled":false}}}`,
 	"hosts":          `{"dynamic":false,"properties":{"tenant":{"type":"keyword"},"host":{"type":"keyword"},"updated":{"type":"date"}}}`,
 	"instances":      `{"dynamic":false,"properties":{"id":{"type":"keyword"},"tenant":{"type":"keyword"},"name":{"type":"keyword"},"host":{"type":"keyword"},"updated":{"type":"date"}}}`,
+	"instances_gone": `{"dynamic":false,"properties":{"tenant":{"type":"keyword"},"key":{"type":"keyword"},"at":{"type":"date"}}}`,
+	"agent_updates":  `{"dynamic":false,"properties":{"tenant":{"type":"keyword"},"host":{"type":"keyword"},"at":{"type":"date"}}}`,
+	"tenants":        `{"dynamic":false,"properties":{"id":{"type":"keyword"},"status":{"type":"keyword"}}}`,
+	"usage":          `{"dynamic":false,"properties":{"tenant":{"type":"keyword"},"day":{"type":"keyword"}}}`,
+	"audit":          `{"dynamic":false,"properties":{"tenant":{"type":"keyword"},"time":{"type":"date"}}}`,
+	"support_grants": `{"dynamic":false,"properties":{"tenant":{"type":"keyword"}}}`,
+}
+
+// genericMapping is used for a collection that has no entry above (it should have one, and a test says so): only the
+// tenant is searchable, which is all the code ever filters on. Without a mapping Elasticsearch would guess, and a guessed
+// text field does not match an exact "term" filter.
+const genericMapping = `{"dynamic":false,"properties":{"tenant":{"type":"keyword"}}}`
+
+func mappingFor(coll string) string {
+	if m, ok := mappings[coll]; ok {
+		return m
+	}
+	return genericMapping
+}
+
+// createIndex creates one collection's index. It is safe to call when the index exists.
+func (e *ES) createIndex(ctx context.Context, coll string) error {
+	code, b, err := e.do(ctx, "PUT", "/"+e.index(coll), json.RawMessage(`{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":`+mappingFor(coll)+`}`))
+	if err != nil {
+		return err
+	}
+	if code == 400 && bytes.Contains(b, []byte("resource_already_exists_exception")) {
+		return nil
+	}
+	if code == 401 || code == 403 {
+		return fmt.Errorf("elasticsearch rejected the credentials (HTTP %d)", code)
+	}
+	if code >= 300 {
+		return fmt.Errorf("creating index %s: HTTP %d: %s", e.index(coll), code, snippet(b))
+	}
+	return nil
+}
+
+func noIndex(code int, b []byte) bool {
+	return code == 404 && bytes.Contains(b, []byte("index_not_found_exception"))
 }
 
 func (e *ES) index(coll string) string { return e.cfg.Prefix + "-" + coll }
@@ -99,19 +139,9 @@ func snippet(b []byte) string {
 
 // EnsureIndices creates the indices with their mappings (idempotent). Call at startup.
 func (e *ES) EnsureIndices(ctx context.Context) error {
-	for coll, m := range mappings {
-		code, b, err := e.do(ctx, "PUT", "/"+e.index(coll), json.RawMessage(`{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":`+m+`}`))
-		if err != nil {
+	for coll := range mappings {
+		if err := e.createIndex(ctx, coll); err != nil {
 			return err
-		}
-		if code == 400 && bytes.Contains(b, []byte("resource_already_exists_exception")) {
-			continue
-		}
-		if code == 401 || code == 403 {
-			return fmt.Errorf("elasticsearch rejected the credentials (HTTP %d)", code)
-		}
-		if code >= 300 {
-			return fmt.Errorf("creating index %s: HTTP %d: %s", e.index(coll), code, snippet(b))
 		}
 	}
 	return nil
@@ -171,6 +201,12 @@ func (e *ES) write(ctx context.Context, op, coll, id string, v any, version stri
 		q += "&if_seq_no=" + url.QueryEscape(seq) + "&if_primary_term=" + url.QueryEscape(term)
 	}
 	code, b, err := e.do(ctx, "PUT", "/"+e.index(coll)+"/"+op+"/"+url.PathEscape(id)+q, v)
+	if err == nil && noIndex(code, b) && version == "" { // a collection that has no index yet (added by a newer version of Lumen)
+		if cerr := e.createIndex(ctx, coll); cerr != nil {
+			return cerr
+		}
+		code, b, err = e.do(ctx, "PUT", "/"+e.index(coll)+"/"+op+"/"+url.PathEscape(id)+q, v)
+	}
 	if err != nil {
 		return err
 	}
@@ -204,8 +240,8 @@ func (e *ES) Delete(ctx context.Context, coll, id string) error {
 }
 
 func (e *ES) List(ctx context.Context, coll string, filter map[string]string, limit int) ([]Doc, error) {
-	if limit <= 0 || limit > 1000 {
-		limit = 1000
+	if limit <= 0 || limit > 10000 { // 10 000 is Elasticsearch's default result window
+		limit = 10000
 	}
 	filters := []map[string]any{}
 	for k, v := range filter {
@@ -217,6 +253,9 @@ func (e *ES) List(ctx context.Context, coll string, filter map[string]string, li
 	})
 	if err != nil {
 		return nil, err
+	}
+	if noIndex(code, b) {
+		return nil, nil // nothing has ever been stored in this collection
 	}
 	if code != 200 {
 		return nil, fmt.Errorf("elasticsearch search: HTTP %d: %s", code, snippet(b))

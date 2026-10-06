@@ -12,7 +12,8 @@ import (
 )
 
 // Metric names the status view needs.
-var Names = []string{"lumen_agent_info", "lumen_agent_log_paths_rejected", "nextcloud_up", "nextcloud_info", "nextcloud_users", "system_service_up", "container_up"}
+var Names = []string{"lumen_agent_info", "lumen_agent_log_paths_rejected", "nextcloud_up", "nextcloud_info", "nextcloud_users", "system_service_up", "container_up",
+	"nextcloud_cron_age_seconds", "nextcloud_update_available", "nextcloud_webdav_ok", "nextcloud_tls_cert_expiry_seconds", "nextcloud_tls_cert_valid"}
 
 const (
 	Fresh      = 120 * time.Second // a sample newer than this counts as "reporting now"
@@ -59,6 +60,31 @@ type Instance struct {
 	Label    string            `json:"label,omitempty"`
 	Info     map[string]string `json:"info,omitempty"` // Nextcloud, PHP and database versions, as reported by the agent
 	Details  bool              `json:"details"`        // users, files, storage... are reported (a serverinfo token or login works)
+	Checks   *Checks           `json:"checks,omitempty"`
+}
+
+// Checks are the results of the deeper checks of an instance, as far as they are reported. A nil field means "not
+// reported" (for example background jobs need an administrator login), which is not the same as a bad result.
+type Checks struct {
+	CronAgeSeconds   *float64 `json:"cron_age_seconds,omitempty"`   // since Nextcloud's cron last ran
+	UpdateAvailable  *bool    `json:"update_available,omitempty"`   // a newer Nextcloud version exists
+	UpdateVersion    string   `json:"update_version,omitempty"`     // which
+	WebDAVOK         *bool    `json:"webdav_ok,omitempty"`          // a user can log in and list their files
+	TLSExpirySeconds *float64 `json:"tls_expiry_seconds,omitempty"` // until the certificate expires (negative: it has)
+	TLSValid         *bool    `json:"tls_valid,omitempty"`          // trusted and for this name
+}
+
+// checkFresh is how old a deeper check may be and still be shown: a few of its own intervals (cron and updates are
+// collected every minute or so, the login check every five minutes, the certificate every ten), so that a check that
+// stops, for example because the administrator login was removed, disappears instead of showing an old value.
+func checkFresh(name string) time.Duration {
+	switch name {
+	case "nextcloud_webdav_ok":
+		return 15 * time.Minute
+	case "nextcloud_tls_cert_expiry_seconds", "nextcloud_tls_cert_valid":
+		return 30 * time.Minute
+	}
+	return 5 * time.Minute
 }
 
 type Summary struct {
@@ -188,8 +214,19 @@ func ComputeWith(now time.Time, rows []model.Latest, configured map[string]regis
 	}
 	// versions (nextcloud_info labels) and whether serverinfo works (nextcloud_users is reported) per instance
 	infoRow, detailRow := map[string]model.Latest{}, map[string]model.Latest{}
+	checkRow := map[string]map[string]model.Latest{} // metric name -> instance -> newest row
 	for _, r := range rows {
 		k := r.Attrs["instance"]
+		if strings.HasPrefix(r.Name, "nextcloud_cron_") || strings.HasPrefix(r.Name, "nextcloud_tls_") || r.Name == "nextcloud_update_available" || r.Name == "nextcloud_webdav_ok" {
+			if k != "" && age(r.T) <= checkFresh(r.Name) {
+				if checkRow[r.Name] == nil {
+					checkRow[r.Name] = map[string]model.Latest{}
+				}
+				if r.T >= checkRow[r.Name][k].T {
+					checkRow[r.Name][k] = r
+				}
+			}
+		}
 		switch r.Name {
 		case "nextcloud_info":
 			if k != "" && r.T >= infoRow[k].T {
@@ -212,6 +249,38 @@ func ComputeWith(now time.Time, rows []model.Latest, configured map[string]regis
 		}
 		if r, ok := detailRow[key]; ok && age(r.T) <= Fresh {
 			in.Details = true
+		}
+		var c Checks
+		have := false
+		f := func(name string) (float64, bool) {
+			r, ok := checkRow[name][key]
+			return r.Value, ok
+		}
+		if v, ok := f("nextcloud_cron_age_seconds"); ok {
+			c.CronAgeSeconds, have = &v, true
+		}
+		if v, ok := f("nextcloud_update_available"); ok {
+			b := v >= 1
+			c.UpdateAvailable, have = &b, true
+			if r, ok := infoRow[key]; ok && b {
+				if uv := r.Attrs["update_version"]; uv != "" && len(uv) <= 40 {
+					c.UpdateVersion = uv
+				}
+			}
+		}
+		if v, ok := f("nextcloud_webdav_ok"); ok {
+			b := v >= 1
+			c.WebDAVOK, have = &b, true
+		}
+		if v, ok := f("nextcloud_tls_cert_expiry_seconds"); ok {
+			c.TLSExpirySeconds, have = &v, true
+		}
+		if v, ok := f("nextcloud_tls_cert_valid"); ok {
+			b := v >= 1
+			c.TLSValid, have = &b, true
+		}
+		if have {
+			in.Checks = &c
 		}
 	}
 	seen := map[string]bool{}

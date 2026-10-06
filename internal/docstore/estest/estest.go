@@ -5,6 +5,7 @@ package estest
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -25,11 +26,12 @@ type Fake struct {
 	idx      map[string]map[string]*fakeDoc
 	seq      int64
 	AuthSeen string
+	Mappings map[string]string // the body each index was created with, by index name
 }
 
 // New starts a fake Elasticsearch. Close the returned server when done.
 func New() (*httptest.Server, *Fake) {
-	f := &Fake{idx: map[string]map[string]*fakeDoc{}}
+	f := &Fake{idx: map[string]map[string]*fakeDoc{}, Mappings: map[string]string{}}
 	return httptest.NewServer(f), f
 }
 
@@ -54,6 +56,9 @@ func (f *Fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f.idx[idx] = map[string]*fakeDoc{}
+		if body, err := io.ReadAll(r.Body); err == nil {
+			f.Mappings[idx] = string(body)
+		}
 		reply(200, `{"acknowledged":true}`)
 		return
 	}

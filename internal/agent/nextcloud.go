@@ -116,6 +116,21 @@ var ncMetrics = []ncMetric{
 // nextcloud_up), plus an error describing what failed, so a broken serverinfo login does not
 // hide the availability signal.
 func CollectNextcloud(ctx context.Context, t NextcloudTarget, now int64) ([]Point, error) {
+	pts, err := collectCore(ctx, t, now)
+	up := false
+	for _, p := range pts {
+		if p.Name == "nextcloud_up" && p.Value >= 1 {
+			up = true
+		}
+	}
+	extra, xerr := collectDeep(ctx, t, now, up)
+	if err == nil {
+		err = xerr
+	}
+	return append(pts, extra...), err
+}
+
+func collectCore(ctx context.Context, t NextcloudTarget, now int64) ([]Point, error) {
 	base := strings.TrimRight(t.URL, "/")
 	u, err := url.Parse(base)
 	if err != nil || u.Host == "" {
@@ -193,6 +208,19 @@ func CollectNextcloud(ctx context.Context, t NextcloudTarget, now int64) ([]Poin
 	}
 	if v := str(si, "ocs", "data", "server", "database", "version"); v != "" {
 		info["db_version"] = v
+	}
+	if avail, ok := boolAt(si, "ocs", "data", "nextcloud", "system", "update", "available"); ok {
+		v := 0.0
+		if avail {
+			v = 1
+			if nv := str(si, "ocs", "data", "nextcloud", "system", "update", "available_version"); nv != "" {
+				info["update_version"] = nv
+			}
+		}
+		pts = append(pts, pt("nextcloud_update_available", v, with(nil)))
+		if at, ok := num(si, "ocs", "data", "nextcloud", "system", "update", "lastupdatedat"); ok && at > 0 {
+			pts = append(pts, pt("nextcloud_update_checked_timestamp_seconds", at, with(nil)))
+		}
 	}
 	pts = append(pts, pt("nextcloud_info", 1, info))
 	for _, m := range ncMetrics {
