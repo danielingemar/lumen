@@ -47,6 +47,7 @@ func (s *Store) groupFromCache(tenant, id string) (Group, bool, bool) {
 func (s *Store) GetGroup(tenant, id string) (Group, bool) {
 	for _, g := range builtins() {
 		if g.ID == id {
+			g.Perms = perm.ForTenant(g.Perms, tenant)
 			return g, true
 		}
 	}
@@ -72,6 +73,9 @@ func (s *Store) GetGroup(tenant, id string) (Group, bool) {
 // ListGroups returns the built-in groups followed by the tenant's own, sorted by name.
 func (s *Store) ListGroups(tenant string) []Group {
 	out := builtins()
+	for i := range out {
+		out[i].Perms = perm.ForTenant(out[i].Perms, tenant) // shown as it applies in this tenant
+	}
 	c, cancel := ctx()
 	defer cancel()
 	docs, _ := s.b.List(c, collGroups, map[string]string{"tenant": tenant}, 500)
@@ -108,6 +112,9 @@ func (s *Store) CreateGroup(tenant, name, desc string, perms map[string]string) 
 	if err != nil {
 		return Group{}, err
 	}
+	if err := operatorOnlyHere(tenant, p); err != nil {
+		return Group{}, err
+	}
 	g := Group{ID: "g_" + RandomToken(6), Tenant: tenant, Name: name, Description: strings.TrimSpace(desc), Perms: p, Created: time.Now().UTC()}
 	c, cancel := ctx()
 	defer cancel()
@@ -132,6 +139,9 @@ func (s *Store) UpdateGroup(tenant, id, name, desc string, perms map[string]stri
 	}
 	p, err := perm.Normalize(perms)
 	if err != nil {
+		return Group{}, err
+	}
+	if err := operatorOnlyHere(tenant, p); err != nil {
 		return Group{}, err
 	}
 	g.Name, g.Description, g.Perms = name, strings.TrimSpace(desc), p
@@ -176,7 +186,16 @@ func EffectiveGroup(u User) string {
 // PermsFor returns what a user may do. A missing group means no access (fail closed).
 func (s *Store) PermsFor(u User) map[string]string {
 	if g, ok := s.GetGroup(u.Tenant, EffectiveGroup(u)); ok {
-		return g.Perms
+		return perm.ForTenant(g.Perms, u.Tenant)
 	}
 	return perm.Normalize2None()
+}
+
+// operatorOnlyHere refuses to give the operator console to a group of an ordinary tenant: a customer must never be
+// able to manage other customers, whatever an administrator of that customer does.
+func operatorOnlyHere(tenant string, p map[string]string) error {
+	if tenant != perm.OperatorTenant && p[perm.Operator] != perm.None && p[perm.Operator] != "" {
+		return errors.New("the operator console can only be given to groups in the operator tenant")
+	}
+	return nil
 }

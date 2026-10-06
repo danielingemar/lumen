@@ -56,7 +56,8 @@ Traces, logs and metrics, dashboards you build yourself, host / service / Docker
 | <img src="docs/screenshots/instances.png" alt="Nextcloud instances with one DOWN"> **Instances**: a down instance and why. Fix a typo and the agent picks it up. | <img src="docs/screenshots/host.png" alt="Host settings and services"> **Hosts**: log paths, watched services, systemd services and Docker containers. |
 | <img src="docs/screenshots/users.png" alt="Users and groups"> **Users & groups**: Admin, User and custom groups. | <img src="docs/screenshots/backups.png" alt="Backups and archive"> **Backups & archive**: every day is backed up; load an old day and browse it. |
 | <img src="docs/screenshots/host-performance.png" alt="Host page with CPU, memory, disk and network charts"> **Host page**: CPU, load, memory, disks, disk I/O and network for one machine. | <img src="docs/screenshots/host.png" alt="Host settings and services"> Below the charts: settings and services. |
-| <img src="docs/screenshots/instance.png" alt="One Nextcloud instance: versions, usage, charts and log"> **One instance**: status, versions, usage and performance, and its log. | <img src="docs/screenshots/licence.png" alt="The licence card under Settings"> **Licence** under Settings. | <img src="docs/screenshots/licence-ended.png" alt="The banner when a licence has ended"> When a licence has ended: a banner, and Enterprise channels marked. |
+| <img src="docs/screenshots/instance.png" alt="One Nextcloud instance: versions, usage, charts and log"> **One instance**: status, versions, usage and performance, and its log. | <img src="docs/screenshots/tenants.png" alt="The tenant console"> **Tenants** (Operator add-on): status, use against limits, data today. | <img src="docs/screenshots/support-access.png" alt="An operator inside a tenant"> An operator **inside a tenant** (with the customer's consent): a banner, and everything is on record. |
+| <img src="docs/screenshots/licence.png" alt="The licence card under Settings"> **Licence** under Settings. | <img src="docs/screenshots/licence-ended.png" alt="The banner when a licence has ended"> When a licence has ended: a banner, and Enterprise channels marked. |
 | <img src="docs/screenshots/alerts.png" alt="A firing alert"> **Alerts**: what is firing, with Acknowledge and Silence. | <img src="docs/screenshots/alerts-rule.png" alt="The rule editor"> **Rule editor**, with a replay of the last 24 hours. |
 | <img src="docs/screenshots/logs.png" alt="Logs with source and host dropdowns"> **Logs**: pick a log source and a host from what has come in. | <img src="docs/screenshots/traces.png" alt="Traces with service, operation and host dropdowns"> **Traces**: service, operation and host dropdowns. |
 | <img src="docs/screenshots/settings.png" alt="Settings with logo upload"> **Settings**: your own logo and site name. | <img src="docs/screenshots/dashboard-hosts.png" alt="Hosts dashboard"> **Hosts dashboard** starter template. |
@@ -265,6 +266,25 @@ Each channel can be limited to some importances (for example only critical) and 
 
 **What is not there yet:** rules on traces (error rate, latency), escalation policies and on-call schedules, recurring maintenance windows, message templates, assigning an alert to a person, and metrics about the alert engine itself. See the [design](docs/design/alerting.md). A single server runs the evaluation; there is no high-availability mode yet.
 
+## Tenants and the operator console
+
+A **tenant** is one customer (or team) of an installation: its users, keys, dashboards, hosts and data are invisible to every other tenant. Isolation is always on and free. The people who run the installation can manage all tenants from the **Tenants** page, which is part of the **Operator add-on** (it needs an Operator licence; without one Lumen still counts what each tenant sends, but enforces nothing and never cuts anyone off).
+
+**Setting up.** The operators are users of the reserved tenant `operator`. In an installation with several tenants, install with `LUMEN_ADMIN_TENANT=operator` (or add an administrator there with `lumen users add --tenant operator --group admin`). Tenants that already exist get a record automatically at start-up. A customer's group can never be given the console, however it is made.
+
+**What an operator can do** (Tenants in the menu):
+
+- **Add a tenant** with its first administrator (a password is made and shown once, unless you give one).
+- **Limits** per tenant: hosts, Nextcloud instances, users, groups, keys, dashboards, items per second and bytes per day. A limit **warns** (on the operator's page and the tenant's own Settings page) or, if you choose "enforce", **refuses**: new users and keys are refused with a clear message, data above the rate or daily volume gets `429` with `Retry-After` (OTLP exporters wait and retry), and a new host above the host limit is turned away. A host that is already reporting is never turned away.
+- **Suspend** a tenant, with a reason: its users cannot sign in, open sessions stop, and incoming data is either refused or accepted and thrown away (your choice). Nothing is deleted. Resume brings everything back at once. The operator tenant cannot be suspended.
+- **Go into a tenant** for support, for up to 4 hours, read-only or with write access. The tenant decides whether that is allowed: *off*, *only when an administrator allows it* (the default for new tenants; they allow it for a chosen time under Settings, Support access) or *any time*. Inside, you act as one of the tenant's administrators, a banner tells you so, **everything you change is on record and the tenant can read the record** (Settings, Access log), and you cannot widen your own access.
+- **Export** a tenant's settings and documents as a zip (no passwords, key hashes or sealed secrets; telemetry is in the daily backups).
+- **Remove** a tenant for good: you type its id, then its users, keys, dashboards, hosts, instances, alert rules and channels, and its traces, logs and metrics (also archived days and the daily backups) are deleted, and Lumen checks that nothing is left. The usage records (for your invoices) and the access log are kept, and the name stays taken. A removal that fails (for example the database is down) says which step and why, and can be run again.
+- **Usage**: what each tenant sent per day (items and bytes per signal, hosts that reported, the highest number of users, keys and so on), as a table or a **CSV for your invoicing**. A byte is a byte of accepted OTLP payload after decompression, so a customer can check it. Lumen does not do billing.
+- **Audit log**: every operator action and everything done inside a tenant.
+
+**Not there yet:** a limit on stored data, on the length of a query or the number of queries at once, retention and branding per tenant, sign-in addresses per tenant, and separate storage for a tenant. See the [design](docs/design/tenancy.md).
+
 ## Labels
 
 Every metric point carries labels: key=value tags such as `host`, `instance`, `mountpoint` or `core`. You find them in two places: the **Metrics** page has a *Labels* box for the chosen metric (click a name to split the chart, a value to filter), and the panel editor offers them under *Split by* and *Only where*.
@@ -336,6 +356,7 @@ Backups are kept `LUMEN_BACKUP_RETENTION_DAYS` (**365**; `0` = forever). A faile
 | `LUMEN_ALERT_ALLOW_PRIVATE` | `false` | let alert channels reach loopback and private addresses (an internal mail relay or webhook receiver) |
 | `LUMEN_ALERT_GROUP_WAIT` | `30s` | how long related alerts are collected into one message |
 | `LUMEN_ALERT_REPEAT` | `4h` | how often a firing alert is announced again until acknowledged |
+| `LUMEN_ADMIN_TENANT` | `main` | the tenant of the first administrator. In an installation with several tenants set it to `operator`: that tenant holds the operator console and owns the licence |
 | `LUMEN_LICENSE_FILE` | | path of a licence file (read at start and every minute, so a renewal can be dropped in); otherwise the licence saved under Settings is used |
 | `LUMEN_BUILD_TAGS` | | in `deploy/.env`, for the build: `enterprise` builds the Enterprise edition |
 | `LUMEN_SECRET_KEY` | | encrypts stored Nextcloud credentials (falls back to the session secret with a warning) |
@@ -378,6 +399,11 @@ If there are no users and no keys, nobody can log in and the server log says so.
 | GET | `/api/v1/alerts/deliveries` | notification channels |
 | GET | `/api/v1/notifications/types` | notification channels (field definitions the form is built from) |
 | GET/POST/PUT/DELETE | `/api/v1/notifications/channels[/{id}]`, POST `.../{id}/test` | notification channels |
+| GET, POST | `/api/v1/operator/tenants`, GET, PUT `.../{id}`, POST `.../{id}/suspend`, `/resume`, `/offboard`, `/enter`, GET `.../{id}/export` | operator console (Operator licence) |
+| POST | `/api/v1/operator/leave` | an operator inside a tenant |
+| GET | `/api/v1/operator/usage?from=&to=&tenant=&format=csv`, `/api/v1/operator/audit` | operator console |
+| GET | `/api/v1/usage`, `/api/v1/audit` | settings: a tenant's own use and its access log |
+| GET, PUT, POST, DELETE | `/api/v1/support-access`, `/support-access/grant` | settings: who may come in for support |
 | GET, PUT, DELETE | `/api/v1/settings/license` (`{"license": "<file contents>"}`) | settings (write to change), tenant that owns the installation |
 | GET | `/api/v1/agent/config?host=` | API key (never a browser session: contains credentials) |
 | GET, POST, DELETE | `/api/v1/backups`, `/backups/run`, `/backups/{day}/load`, `/backups/{day}/{spans\|logs\|metrics}` | backups |
@@ -402,6 +428,9 @@ internal/registry     host settings and Nextcloud instances (secrets encrypted)
 internal/secretbox    AES-GCM for stored credentials
 internal/status       up/down computation
 internal/alerts       alert rules, state machine, notifications (email, webhook, Slack, Teams, heartbeat), SSRF guard
+internal/tenants      tenant records, limits, support-access consent, removal and export
+internal/metering     per-tenant counters, rate limiting, usage and CSV
+internal/audit        the record of operator actions and support access
 internal/license      signed licence files, offline verification, states and grace period, soft limits
 cmd/lumen-license     the publisher's tool: make signing keys, issue and inspect licences
 internal/backup       daily export, prune, load/unload of archive days
@@ -441,12 +470,14 @@ Lumen is open core: a free **Community** edition, **Enterprise** for governance 
 | Document | English | Svenska |
 |---|---|---|
 | Edition charter | [docs/EDITIONS.md](docs/EDITIONS.md) | [docs/EDITIONS.sv.md](docs/EDITIONS.sv.md) |
+| **Operating several tenants** (set-up, limits, suspension, support access, usage, removal) | [docs/OPERATING.md](docs/OPERATING.md) | [docs/OPERATING.sv.md](docs/OPERATING.sv.md) |
 | **Licensing** (how a licence is issued, installed and what happens when it ends) | [docs/LICENSING.md](docs/LICENSING.md) | [docs/LICENSING.sv.md](docs/LICENSING.sv.md) |
 | Design: tenancy (operator layer, quotas, metering, per-tenant retention and branding) | [docs/design/tenancy.md](docs/design/tenancy.md) | [docs/design/tenancy.sv.md](docs/design/tenancy.sv.md) |
 | Design: alerting (rules, notifications, Jira and email, on-call) | [docs/design/alerting.md](docs/design/alerting.md) | [docs/design/alerting.sv.md](docs/design/alerting.sv.md) |
 
 ## Roadmap
 
+0. **Tenancy, next steps:** stored-volume and query limits, retention and branding per tenant, sign-in addresses per tenant, dedicated storage.
 1. **Alerting, next steps:** trace rules, escalation and on-call, maintenance windows, templates, self-monitoring metrics — see the [design](docs/design/alerting.md)
 2. Windows services and Windows Event Log in the agent
 3. Protobuf and gRPC OTLP ingest

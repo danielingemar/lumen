@@ -21,11 +21,14 @@ const CookieName = "lumen_session"
 const SessionTTL = 12 * time.Hour
 
 type payload struct {
-	U string `json:"u,omitempty"`
-	T string `json:"t"`
-	V string `json:"v,omitempty"` // fingerprint of the password hash: changing the password ends old sessions
-	K string `json:"k,omitempty"` // for API-key logins: hash of the key (or "env:<hash>"); the session ends if the key is deleted
-	E int64  `json:"e"`
+	U  string `json:"u,omitempty"`
+	T  string `json:"t"`
+	V  string `json:"v,omitempty"` // fingerprint of the password hash: changing the password ends old sessions
+	K  string `json:"k,omitempty"` // for API-key logins: hash of the key (or "env:<hash>"); the session ends if the key is deleted
+	E  int64  `json:"e"`
+	A  string `json:"a,omitempty"`  // an operator acting inside this tenant (support access)
+	AU int64  `json:"au,omitempty"` // until when
+	AW bool   `json:"aw,omitempty"` // with write access
 }
 
 func fingerprint(hash string) string {
@@ -55,6 +58,22 @@ func (a *Auth) IssueSession(u User) string {
 	b, _ := json.Marshal(payload{U: u.Name, T: u.Tenant, V: fingerprint(u.Hash), E: time.Now().Add(SessionTTL).Unix()})
 	msg := base64.RawURLEncoding.EncodeToString(b)
 	return msg + "." + sign(a.Store.Secret(), msg)
+}
+
+// MaxActing is the longest an operator may stay inside a tenant in one go.
+const MaxActing = 4 * time.Hour
+
+// IssueActing makes the session cookie of an operator who goes into a tenant: for the given time the identity is that
+// of an administrator of the tenant (read-only unless write), and it carries the operator's name. When the time is up
+// the same cookie is simply the operator's own again.
+func (a *Auth) IssueActing(u User, tenant string, ttl time.Duration, write bool) (string, time.Time) {
+	if ttl > MaxActing {
+		ttl = MaxActing
+	}
+	until := time.Now().Add(ttl)
+	b, _ := json.Marshal(payload{U: u.Name, T: u.Tenant, V: fingerprint(u.Hash), E: time.Now().Add(SessionTTL).Unix(), A: tenant, AU: until.Unix(), AW: write})
+	msg := base64.RawURLEncoding.EncodeToString(b)
+	return msg + "." + sign(a.Store.Secret(), msg), until
 }
 
 func (a *Auth) verifyPayload(tok string) (payload, bool) {
@@ -101,7 +120,13 @@ func (a *Auth) parseSession(tok string) (edition.Identity, bool) {
 	if !ok || u.Tenant != p.T || fingerprint(u.Hash) != p.V { // deleted user, moved tenant or changed password
 		return edition.Identity{}, false
 	}
-	return edition.Identity{Tenant: u.Tenant, User: u.Name, Session: true, Perms: a.Store.PermsFor(u)}, true
+	id := edition.Identity{Tenant: u.Tenant, User: u.Name, Session: true, Perms: a.Store.PermsFor(u)}
+	// an operator who is inside a tenant: valid only while the time lasts and only for someone who still holds the operator console
+	if p.A != "" && time.Now().Unix() <= p.AU && u.Tenant == perm.OperatorTenant && id.Perms[perm.Operator] != perm.None {
+		id.Tenant, id.Operator, id.Acting, id.ActingUntil, id.ActingWrite = p.A, u.Name, true, time.Unix(p.AU, 0), p.AW
+		id.Perms = perm.ActingPerms(p.AW)
+	}
+	return id, true
 }
 
 // LoginWithKey exchanges a valid API key for a browser session (read access, dashboards; no key or password management).

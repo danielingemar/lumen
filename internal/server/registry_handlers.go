@@ -223,6 +223,9 @@ func (s *Server) listInstances(w http.ResponseWriter, r *http.Request, id editio
 }
 
 func (s *Server) createInstance(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	if !s.quotaOK(w, id, "instances") {
+		return
+	}
 	var in instanceIn
 	if !readJSON(w, r, &in) {
 		return

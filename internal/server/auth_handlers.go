@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/danielingemar/lumen/internal/auth"
 	"github.com/danielingemar/lumen/internal/buildinfo"
@@ -86,6 +87,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.a.Limiter.Reset(bucket)
+		if !s.tenantUsable(w, edition.Identity{Tenant: tenant}) {
+			return
+		}
 		auth.SetCookie(w, r, tok, int(auth.SessionTTL.Seconds()))
 		writeJSON(w, map[string]any{"user": "", "tenant": tenant, "via_key": true})
 		return
@@ -106,6 +110,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.a.Limiter.Reset(name)
+	if !s.tenantUsable(w, edition.Identity{Tenant: u.Tenant}) {
+		return
+	}
 	auth.SetCookie(w, r, s.a.IssueSession(u), int(auth.SessionTTL.Seconds()))
 	writeJSON(w, map[string]any{"user": u.Name, "tenant": u.Tenant})
 }
@@ -128,6 +135,9 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, id edition.Identity)
 		groupName = "Administrator (dev mode)"
 	}
 	me := map[string]any{"user": id.User, "tenant": id.Tenant, "session": id.Session, "via_key": id.ViaKey, "group": group, "group_name": groupName, "perms": id.Perms, "archive_enabled": id.Can(perm.Backups, false), "version": buildinfo.Version}
+	if id.Acting {
+		me["acting"] = map[string]any{"tenant": id.Tenant, "operator": id.Operator, "until": id.ActingUntil.UTC().Format(time.RFC3339), "write": id.ActingWrite}
+	}
 	if s.lic != nil && s.isOwner(id) && id.Can(perm.Settings, false) {
 		me["license"] = s.lic.Info()
 	}
@@ -143,6 +153,9 @@ func (s *Server) listKeys(w http.ResponseWriter, r *http.Request, id edition.Ide
 }
 
 func (s *Server) createKey(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	if !s.quotaOK(w, id, "keys") {
+		return
+	}
 	var in struct{ Name string }
 	if !readJSON(w, r, &in) {
 		return

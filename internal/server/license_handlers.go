@@ -70,6 +70,7 @@ func (s *Server) putLicense(w http.ResponseWriter, r *http.Request, id edition.I
 		writeErr(w, http.StatusInternalServerError, "the licence could not be saved")
 		return
 	}
+	s.auditOp(id, id.Tenant, "licence.install", l.ID, l.Customer)
 	s.log.Info("licence installed", "by", id.User, "customer", l.Customer, "id", l.ID, "editions", l.Editions, "expires", l.Expires.Format("2006-01-02"))
 	writeJSON(w, s.licenseView(r, id))
 }
@@ -87,6 +88,7 @@ func (s *Server) deleteLicense(w http.ResponseWriter, r *http.Request, id editio
 		writeErr(w, http.StatusInternalServerError, "the licence could not be removed")
 		return
 	}
+	s.auditOp(id, id.Tenant, "licence.remove", "", "")
 	s.log.Info("licence removed", "by", id.User)
 	writeJSON(w, s.licenseView(r, id))
 }

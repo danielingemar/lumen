@@ -32,6 +32,7 @@ type fakeStore struct {
 	lastLogQ   model.LogQuery
 	lastTraceQ model.TraceQuery
 	archive    bool
+	metrics    int // metric points stored
 }
 
 func (f *fakeStore) InsertSpans(_ context.Context, r []model.Span) error {
@@ -42,7 +43,10 @@ func (f *fakeStore) InsertLogs(_ context.Context, r []model.LogRecord) error {
 	f.logs = append(f.logs, r...)
 	return nil
 }
-func (f *fakeStore) InsertMetrics(context.Context, []model.MetricPoint) error { return nil }
+func (f *fakeStore) InsertMetrics(_ context.Context, r []model.MetricPoint) error {
+	f.metrics += len(r)
+	return nil
+}
 func (f *fakeStore) Series(_ context.Context, t string, q model.SeriesQuery) ([]model.Series, error) {
 	f.tenant, f.lastSeries = t, q
 	if q.Source == "bad" {

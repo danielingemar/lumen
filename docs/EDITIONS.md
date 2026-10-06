@@ -41,9 +41,10 @@ Lumen is developed in the open, and some of it will be sold. Anyone who builds o
 | Encrypted offsite backups (for example S3), legal hold | | Yes (planned) | |
 | Kubernetes operator, Terraform provider | | Yes (planned) | |
 | SLOs and burn-rate alerts, SLA reports, status pages, multi-location checks, forecasting | | Yes (planned) | |
-| Tenant console, quotas, usage metering and export | | | Yes (planned) |
+| Tenant console, quotas, usage metering and export | | | Yes (exists) |
 | Per-tenant branding, domains and retention | | | Yes (planned) |
-| Customer-facing reports, support access with consent, dedicated storage per tenant | | | Yes (planned) |
+| Support access with consent, and the access log the tenant can read | | | Yes (exists) |
+| Customer-facing reports, dedicated storage per tenant | | | Yes (planned) |
 | Support with an SLA, long-term-support releases, signed builds | Community support through issues | Yes | Yes |
 
 The **Operator add-on** is for running Lumen *for other people*: a hosting provider with customers, or a company with internal business units that each need isolated data, limits and reports. It can be combined with Enterprise.

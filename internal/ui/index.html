@@ -411,11 +411,12 @@ const ICON={home:'<path d="M3 11l9-8 9 8M5 10v10h14V10"/>',dash:'<rect x="3" y="
  trace:'<path d="M4 6h10M8 12h12M6 18h8"/>',logs:'<path d="M4 6h16M4 12h16M4 18h10"/>',metric:'<path d="M3 17l5-6 4 3 8-9"/><path d="M3 21h18"/>',machine:'<rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01"/>',user:'<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>',
  host:'<rect x="3" y="4" width="18" height="12" rx="1"/><path d="M8 20h8M12 16v4"/>',cloud:'<path d="M7 18a4 4 0 010-8 5 5 0 019.6-1A4.5 4.5 0 0117 18z"/>',
  users:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.3-5 6.5-5s5.7 1.5 6.5 5"/><path d="M16 4.5a3.5 3.5 0 010 7M18 15c2 .5 3.2 2 3.5 5"/>',archive:'<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11h14V8M10 12h4"/>',
+ building:'<path d="M4 21V5l8-2v18M12 21V9l8 2v10M8 9h.01M8 13h.01M8 17h.01M16 14h.01M16 18h.01"/>',
  bell:'<path d="M6 8a6 6 0 0112 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 004 0"/>',
  cog:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'};
 // each entry: href, label, icon, who may see it (hidden pages are also refused by the server)
 const NAV=[['#/','Home','home',()=>true],['#/dashboards','Dashboards','dash',()=>can('dashboards')],['#/traces','Traces','trace',()=>can('traces')],['#/logs','Logs','logs',()=>can('logs')],['#/metrics','Metrics','metric',()=>can('metrics')],
- ['#/hosts','Hosts','host',()=>can('hosts')],['#/instances','Instances','cloud',()=>can('hosts')],['#/alerts','Alerts','bell',()=>can('alerts')],['#/machines','Add a machine','machine',()=>can('keys')||can('hosts',true)],
+ ['#/hosts','Hosts','host',()=>can('hosts')],['#/instances','Instances','cloud',()=>can('hosts')],['#/alerts','Alerts','bell',()=>can('alerts')],['#/tenants','Tenants','building',()=>can('operator')],['#/machines','Add a machine','machine',()=>can('keys')||can('hosts',true)],
  ['#/users','Users & groups','users',()=>can('users')],['#/backups','Backups & archive','archive',()=>can('backups')],['#/settings','Settings','cog',()=>can('settings')],['#/account','Account','user',()=>true]];
 const iconEl=k=>{const s=svg('svg',{viewBox:'0 0 24 24'});s.innerHTML=ICON[k];return s};
 function setTitle(t){const h=$('#top h1');if(h)h.textContent=t;document.title=t+' · '+((S.brand&&S.brand.name)||'Lumen')}
@@ -489,20 +490,21 @@ function shell(){
       sel('rfr',[[0,'Refresh: off'],[10,'10 s'],[30,'30 s'],[60,'1 min']],S.refresh,v=>{S.refresh=+v;store.set('lumen.refresh',v);route(true)}),
       el('button',{class:'btn ghost',onclick:()=>route(true)},'↻')),
       el('div',{id:'arcbar',style:'display:none'},el('b',{},'Archive'),' – showing data restored from backups, not live data. Only days you have loaded contain anything. ',el('a',{href:'#/backups'},'Choose days'),el('span',{class:'sp'}),el('button',{class:'btn ghost sm',onclick:()=>setArchive(false)},'Back to live data')),
-      el('div',{id:'lbanner'}),el('div',{id:'view'}))));
+      el('div',{id:'abanner'}),el('div',{id:'lbanner'}),el('div',{id:'view'}))));
   syncTop();
+  drawActingBanner();
   drawLicenseBanner();
   refreshAlertBadge();
 }
 
 // ---- router ----
 const ROUTES=[[/^#\/$/,homePage],[/^#\/dashboards$/,dashboardsPage,'dashboards'],[/^#\/d\/([\w-]+)$/,dashboardPage,'dashboards'],[/^#\/traces$/,tracesPage,'traces'],[/^#\/t\/([\w-]+)$/,tracePage,'traces'],[/^#\/logs$/,logsPage,'logs'],[/^#\/metrics$/,metricsPage,'metrics'],
- [/^#\/hosts$/,hostsPage,'hosts'],[/^#\/h\/([^\/?]+)$/,hostPage,'hosts'],[/^#\/instances$/,instancesPage,'hosts'],[/^#\/alerts(?:\/(rules|channels|silences|history))?$/,alertsPage,'alerts'],[/^#\/n\/([^\/?]+)$/,instancePage,'hosts'],[/^#\/users$/,usersPage,'users'],[/^#\/backups$/,backupsPage,'backups'],[/^#\/settings$/,settingsPage,'settings'],[/^#\/machines$/,machinesPage],[/^#\/account$/,accountPage]];
+ [/^#\/hosts$/,hostsPage,'hosts'],[/^#\/h\/([^\/?]+)$/,hostPage,'hosts'],[/^#\/instances$/,instancesPage,'hosts'],[/^#\/alerts(?:\/(rules|channels|silences|history))?$/,alertsPage,'alerts'],[/^#\/tenants(?:\/(usage|audit))?$/,tenantsPage,'operator'],[/^#\/tenant\/([^\/?]+)$/,tenantPage,'operator'],[/^#\/n\/([^\/?]+)$/,instancePage,'hosts'],[/^#\/users$/,usersPage,'users'],[/^#\/backups$/,backupsPage,'backups'],[/^#\/settings$/,settingsPage,'settings'],[/^#\/machines$/,machinesPage],[/^#\/account$/,accountPage]];
 async function route(){
   if(S.me&&Date.now()-(S.alertAt||0)>30000){S.alertAt=Date.now();refreshAlertBadge()} // the menu's alert count, at most every 30 s
   if(!S.me)return;clearTimers();S.onRangeChange=null;
   const h=location.hash||'#/';
-  $$('#side nav a').forEach(a=>a.classList.toggle('on',a.dataset.h===h||(a.dataset.h!=='#/'&&h.startsWith(a.dataset.h))||(a.dataset.h==='#/dashboards'&&h.startsWith('#/d/'))||(a.dataset.h==='#/traces'&&h.startsWith('#/t/'))||(a.dataset.h==='#/hosts'&&h.startsWith('#/h/'))||(a.dataset.h==='#/instances'&&h.startsWith('#/n/'))||(a.dataset.h==='#/alerts'&&h.startsWith('#/alerts'))));
+  $$('#side nav a').forEach(a=>a.classList.toggle('on',a.dataset.h===h||(a.dataset.h!=='#/'&&h.startsWith(a.dataset.h))||(a.dataset.h==='#/dashboards'&&h.startsWith('#/d/'))||(a.dataset.h==='#/traces'&&h.startsWith('#/t/'))||(a.dataset.h==='#/hosts'&&h.startsWith('#/h/'))||(a.dataset.h==='#/instances'&&h.startsWith('#/n/'))||(a.dataset.h==='#/alerts'&&h.startsWith('#/alerts'))||(a.dataset.h==='#/tenants'&&h.startsWith('#/tenant/'))));
   for(const[re,fn,area]of ROUTES){const m=re.exec(h);if(m){$('#view').replaceChildren();if(area&&!can(area)){setTitle('No access');$('#view').replaceChildren(el('div',{class:'card empty'},'Your account does not have access to this page. Ask an administrator to change your group.'));return}try{await fn(...m.slice(1))}catch(e){if(e.message!=='Please sign in.')$('#view').replaceChildren(el('div',{class:'msg'},e.message))}return}}
   $('#view').replaceChildren(el('div',{class:'empty'},'Page not found.'));
 }
@@ -1057,6 +1059,121 @@ async function refreshAlertBadge(){
   try{const r=await api('/api/v1/alerts',{},{quiet:true}),n=(r.counts&&r.counts.firing)||0,a=$('#side nav a[data-h="#/alerts"]');if(a){let b=a.querySelector('.nb');if(n>0){if(!b){b=el('span',{class:'nb'});a.append(b)}b.textContent=String(n)}else if(b)b.remove()}}catch{}}
 
 // ---- settings: site name and logo ----
+
+// ---- the operator console: tenants, their limits and usage, support access ----
+const T_STATUS={active:['ACTIVE','up'],suspended:['SUSPENDED','pending'],offboarding:['BEING REMOVED','pending'],deleted:['REMOVED','down']};
+const tBadge=s=>{const b=T_STATUS[s]||[String(s).toUpperCase(),'info'];return el('span',{class:'badge '+b[1]},b[0])};
+const fmtBytes=n=>{n=+n||0;if(n<1024)return n+' B';const u=['KB','MB','GB','TB'];let i=-1;while(n>=1024&&i<3){n/=1024;i++}return (+n.toPrecision(3))+' '+u[i]};
+const fmtNum=n=>(+n||0).toLocaleString('en-US');
+const QUOTA_FIELDS=[['hosts','Hosts','number'],['instances','Nextcloud instances','number'],['users','Users','number'],['groups','Groups','number'],['keys','Agent keys','number'],['dashboards','Dashboards','number'],['ingest_per_sec','Items per second','number']];
+function usageTable(u,q,enforced){
+  const rows=[['Hosts reporting',u.hosts,q.hosts],['Nextcloud instances',u.instances,q.instances],['Users',u.users,q.users],['Groups',u.groups,q.groups],['Agent keys',u.keys,q.keys],['Dashboards',u.dashboards,q.dashboards]];
+  return el('table',{},el('tr',{},['','In use','Limit'].map(x=>el('th',{},x))),rows.map(([k,n,l])=>el('tr',{},el('td',{},k),el('td',{class:'mono'},fmtNum(n)),el('td',{class:l&&n>l?'err mono':'mono'},l?fmtNum(l):'no limit'))),
+    el('tr',{},el('td',{},'Data accepted today'),el('td',{class:'mono'},fmtBytes(u.bytes)+' · '+fmtNum(u.items)+' items'),el('td',{class:'mono'},q.ingest_bytes_per_day?fmtBytes(q.ingest_bytes_per_day)+' a day':'no limit')))}
+const tabBar=(cur)=>el('div',{class:'bar',style:'gap:6px'},[['','Tenants'],['usage','Usage'],['audit','Audit log']].map(([t,l])=>el('a',{class:'btn '+(t===cur?'':'ghost'),href:'#/tenants'+(t?'/'+t:'')},l)));
+async function tenantsPage(tab){
+  tab=tab||'';setTitle('Tenants');const view=$('#view'),w=can('operator',true);
+  const box=el('div',{});view.replaceChildren(tabBar(tab),box);
+  const draw={'':tenantsList,usage:tenantsUsage,audit:tenantsAudit}[tab]||tenantsList;
+  try{await draw(box,w)}catch(e){box.replaceChildren(el('div',{class:'card empty'},e.message,/Operator add-on/.test(e.message)?el('div',{class:'help'},el('a',{href:'#/settings'},'Open Settings, Licence')):null))}
+}
+async function tenantsList(box,w){
+  const list=(await api('/api/v1/operator/tenants')).data||[];
+  const add=()=>{
+    const f={id:el('input',{placeholder:'for example acme',size:24,maxlength:40}),name:el('input',{size:32,maxlength:80}),contact:el('input',{size:32}),plan:el('input',{size:16,placeholder:'optional'}),admin:el('input',{size:20,placeholder:'user name of the first administrator'}),pw:el('input',{type:'password',autocomplete:'new-password',size:24,placeholder:'empty: make one'}),
+      sup:el('select',{},[['ask','ask: only when the customer allows it'],['allow','allow: any time (always on record)'],['off','off: never']].map(([v,t])=>el('option',{value:v},t)))};
+    dialog('Add tenant',el('div',{class:'form'},el('label',{},'Id'),el('div',{},f.id,el('div',{class:'help'},'Lower-case letters, digits and hyphens. It is used in file names and cannot be changed.')),el('label',{},'Name'),f.name,el('label',{},'Contact'),f.contact,el('label',{},'Plan'),f.plan,el('label',{},'First administrator'),f.admin,el('label',{},'Password'),f.pw,el('label',{},'Support access'),f.sup),
+      [['Cancel',()=>{},'ghost'],['Create',async()=>{const r=await api('/api/v1/operator/tenants',{},{method:'POST',body:{id:f.id.value.trim(),name:f.name.value.trim(),contact:f.contact.value.trim(),plan:f.plan.value.trim(),admin_user:f.admin.value.trim(),admin_password:f.pw.value,support_access:f.sup.value}});
+        if(r.admin&&r.admin.password){dialog('Tenant created',el('div',{},el('p',{},'The first administrator is ',el('b',{},r.admin.user),'. The password is shown only now:'),el('p',{class:'mono',style:'font-size:16px;user-select:all'},r.admin.password),el('p',{class:'help'},r.admin.note)),[['Done',()=>{location.hash='#/tenant/'+encodeURIComponent(r.tenant.id)}]])}else location.hash='#/tenant/'+encodeURIComponent(r.tenant.id)}]])};
+  box.replaceChildren(el('div',{class:'bar'},el('span',{class:'mut'},'The customers (or teams) of this installation. Open one to see its use, set its limits, or help it.'),el('span',{class:'sp'}),w?el('button',{class:'btn',onclick:add},'+ Add tenant'):null),
+    el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['Tenant','Status','Plan','Hosts','Users','Instances','Today',''].map(x=>el('th',{},x))),list.map(t=>{const u=t.usage||{},q=t.quotas||{};
+      return el('tr',{class:'row',onclick:()=>{location.hash='#/tenant/'+encodeURIComponent(t.id)}},el('td',{},el('b',{},t.name),el('div',{class:'mut mono',style:'font-size:12px'},t.id)),el('td',{},tBadge(t.status)),el('td',{class:'mut'},t.plan||''),
+        el('td',{class:'mono'},u.hosts+(q.hosts?' / '+q.hosts:'')),el('td',{class:'mono'},u.users+(q.users?' / '+q.users:'')),el('td',{class:'mono'},u.instances+(q.instances?' / '+q.instances:'')),el('td',{class:'mono'},fmtBytes(u.bytes)),
+        el('td',{},(t.warnings||[]).length?el('span',{class:'badge pending',title:t.warnings.join('\n')},t.warnings.length+' warning'+(t.warnings.length>1?'s':'')):null))}))))}
+async function tenantsUsage(box){
+  const today=new Date().toISOString().slice(0,10),from0=new Date(Date.now()-29*864e5).toISOString().slice(0,10);
+  const list=(await api('/api/v1/operator/tenants')).data||[];
+  const fromI=el('input',{type:'date',value:from0}),toI=el('input',{type:'date',value:today}),sel=el('select',{},[el('option',{value:''},'All tenants')].concat(list.map(t=>el('option',{value:t.id},t.name+' ('+t.id+')')))),out=el('div',{});
+  const qs=()=>'from='+fromI.value+'&to='+toI.value+(sel.value?'&tenant='+encodeURIComponent(sel.value):'');
+  const csv=el('a',{class:'btn ghost',href:'#'},'Download CSV');
+  const load=async()=>{csv.href='/api/v1/operator/usage?'+qs()+'&format=csv';
+    try{const days=(await api('/api/v1/operator/usage?'+qs())).data||[];const tot={};days.forEach(d=>{const t=tot[d.tenant]||(tot[d.tenant]={items:0,bytes:0,days:0});t.items+=d.traces.items+d.logs.items+d.metrics.items;t.bytes+=d.traces.bytes+d.logs.bytes+d.metrics.bytes;t.days++});
+      out.replaceChildren(days.length?[el('h2',{},'Totals'),el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['Tenant','Days with data','Items','Data'].map(x=>el('th',{},x))),Object.entries(tot).map(([k,v])=>el('tr',{},el('td',{},k),el('td',{class:'mono'},v.days),el('td',{class:'mono'},fmtNum(v.items)),el('td',{class:'mono'},fmtBytes(v.bytes)))))),
+        el('h2',{},'Per day'),el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['Day','Tenant','Traces','Logs','Metrics','Data','Hosts','Peak users'].map(x=>el('th',{},x))),days.slice().reverse().map(d=>el('tr',{},el('td',{},d.day),el('td',{},d.tenant),el('td',{class:'mono'},fmtNum(d.traces.items)),el('td',{class:'mono'},fmtNum(d.logs.items)),el('td',{class:'mono'},fmtNum(d.metrics.items)),el('td',{class:'mono'},fmtBytes(d.traces.bytes+d.logs.bytes+d.metrics.bytes)),el('td',{class:'mono'},(d.hosts||[]).length),el('td',{class:'mono'},(d.peak||{}).users||0)))))]:el('div',{class:'card empty'},'No data in this period.'))}catch(e){out.replaceChildren(el('div',{class:'msg'},e.message))}};
+  box.replaceChildren(el('div',{class:'bar'},el('span',{class:'mut'},'What each tenant sent, per day: the basis for your invoices. A byte is a byte of accepted OTLP payload, after decompression.'),el('span',{class:'sp'}),'From',fromI,'to',toI,sel,csv),out);
+  [fromI,toI,sel].forEach(x=>x.onchange=load);await load()}
+async function tenantsAudit(box){
+  const list=(await api('/api/v1/operator/audit')).data||[];
+  box.replaceChildren(list.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['Time','Tenant','Who','What','Target','Detail'].map(x=>el('th',{},x))),list.map(e=>el('tr',{},el('td',{class:'mut'},new Date(e.time).toLocaleString()),el('td',{},e.tenant),el('td',{},e.actor+(e.acting?' (inside the tenant)':'')),el('td',{class:'mono'},e.action),el('td',{class:'mono',style:'font-size:12px'},e.target||''),el('td',{class:'mut'},e.detail||''))))):el('div',{class:'card empty'},'Nothing has been recorded yet.'))}
+async function tenantPage(raw){
+  const id=decodeURIComponent(raw),view=$('#view'),w=can('operator',true);
+  const d=await api('/api/v1/operator/tenants/'+encodeURIComponent(id)),t=d.tenant;setTitle(t.name);
+  const again=()=>tenantPage(raw),note=el('div',{style:'min-height:20px;margin:8px 0'});
+  const act=fn=>async()=>{try{await fn();again()}catch(e){alert(e.message)}};
+  const q=t.quotas||{};
+  const enter=()=>{const wr=el('input',{type:'checkbox'}),mins=el('select',{},[[30,'30 minutes'],[60,'1 hour'],[120,'2 hours'],[240,'4 hours']].map(([v,l])=>el('option',{value:v,selected:v===60?'':null},l)));
+    dialog('Go into '+t.name,el('div',{},el('p',{},'You will see this tenant as one of its administrators. Everything you do there is on record, and the tenant can read the record.'),el('div',{class:'form'},el('label',{},'For'),mins,el('label',{},'Access'),el('label',{style:'color:var(--fg)'},wr,' allow changes (otherwise read-only)'))),
+      [['Cancel',()=>{},'ghost'],['Go in',async()=>{await api('/api/v1/operator/tenants/'+encodeURIComponent(id)+'/enter',{},{method:'POST',body:{write:wr.checked,minutes:+mins.value}});location.hash='#/';location.reload()}]])};
+  const suspend=()=>{const why=el('input',{size:40,maxlength:200,placeholder:'for example unpaid invoice'});
+    dialog('Suspend '+t.name,el('div',{},el('p',{},'Its users cannot sign in and its agents are '+(t.suspend_ingest==='drop'?'told all is well while their data is thrown away':'refused')+' until you resume it. Nothing is deleted.'),el('div',{class:'form'},el('label',{},'Reason'),why)),
+      [['Cancel',()=>{},'ghost'],['Suspend',async()=>{await api('/api/v1/operator/tenants/'+encodeURIComponent(id)+'/suspend',{},{method:'POST',body:{reason:why.value.trim()}});again()}]])};
+  const remove=()=>{const c=el('input',{size:24,placeholder:'type the id: '+id,autocomplete:'off'});
+    dialog('Remove '+t.name+' for good',el('div',{},el('div',{class:'errbox'},el('b',{},'This cannot be undone. '),'All of the tenant\'s users, keys, dashboards, settings and its traces, logs and metrics are deleted, also from the archive and the daily backups. Usage records and the access log are kept. Download an export first if the customer may need their settings.'),el('div',{class:'form',style:'margin-top:10px'},el('label',{},'Confirm'),c)),
+      [['Cancel',()=>{},'ghost'],['Remove for good',async()=>{await api('/api/v1/operator/tenants/'+encodeURIComponent(id)+'/offboard',{},{method:'POST',body:{confirm:c.value.trim()}});again()},'danger']])};
+  const f={name:el('input',{value:t.name,size:32,maxlength:80}),contact:el('input',{value:t.contact||'',size:32}),plan:el('input',{value:t.plan||'',size:16}),notes:el('textarea',{style:'min-height:54px'},t.notes||''),
+    drop:el('select',{},[['reject','refused (agents see an error and keep trying)'],['drop','answered as accepted and thrown away']].map(([v,l])=>el('option',{value:v,selected:v===t.suspend_ingest?'':null},l)))};
+  const qin={};QUOTA_FIELDS.forEach(([k])=>qin[k]=el('input',{type:'number',min:0,value:q[k]||0,style:'width:110px'}));
+  const qbytes=el('input',{type:'number',min:0,step:'any',value:q.ingest_bytes_per_day?+(q.ingest_bytes_per_day/1048576).toFixed(2):0,style:'width:110px'}),hard=el('input',{type:'checkbox',checked:q.hard});
+  const save=async()=>{note.textContent='';try{const quotas={hard:hard.checked,ingest_bytes_per_day:Math.round(+qbytes.value*1048576)};QUOTA_FIELDS.forEach(([k])=>quotas[k]=Math.max(0,Math.round(+qin[k].value)));
+    await api('/api/v1/operator/tenants/'+encodeURIComponent(id),{},{method:'PUT',body:{name:f.name.value.trim(),contact:f.contact.value.trim(),plan:f.plan.value.trim(),notes:f.notes.value,suspend_ingest:f.drop.value,quotas}});note.className='ok';note.textContent='Saved.';setTimeout(again,500)}catch(e){note.className='err';note.textContent=e.message}};
+  const off=t.offboard;
+  view.replaceChildren(el('div',{class:'bar'},el('a',{href:'#/tenants'},'← Tenants')),
+    el('div',{class:'bar',style:'gap:10px;flex-wrap:wrap'},tBadge(t.status),el('span',{class:'mono mut'},t.id),t.suspended_reason?el('span',{class:'mut'},'suspended: '+t.suspended_reason):null,el('span',{class:'sp'}),
+      w&&t.status!=='deleted'&&t.status!=='offboarding'?[el('button',{class:'btn',onclick:enter,title:'See what the tenant sees, for support'},'Go into tenant'),
+        t.status==='suspended'?el('button',{class:'btn ghost',onclick:act(()=>api('/api/v1/operator/tenants/'+encodeURIComponent(id)+'/resume',{},{method:'POST',body:{}}))},'Resume'):(t.reserved?null:el('button',{class:'btn ghost',onclick:suspend},'Suspend')),
+        el('a',{class:'btn ghost',href:'/api/v1/operator/tenants/'+encodeURIComponent(id)+'/export'},'Export'),
+        t.reserved?null:el('button',{class:'btn danger',onclick:remove},'Remove…')]:null),
+    off?el('div',{class:off.state==='failed'?'errbox':'warnbox',style:'margin:10px 0'},el('b',{},off.state==='done'?'Removed. ':off.state==='failed'?'The removal stopped. ':'Being removed… '),off.error?off.error:'',
+      el('ul',{style:'margin:6px 0 0 18px'},(off.steps||[]).map(s=>el('li',{},(s.done?'✓ ':'· ')+s.name+(s.detail?': '+s.detail:'')))),
+      off.state==='failed'&&w?el('div',{style:'margin-top:8px'},el('button',{class:'btn sm',onclick:async()=>{try{await api('/api/v1/operator/tenants/'+encodeURIComponent(id)+'/offboard',{},{method:'POST',body:{confirm:id}});again()}catch(e){alert(e.message)}}},'Run the removal again')):null):null,
+    (d.warnings||[]).map(x=>el('div',{class:'warnbox',style:'margin:8px 0'},x)),
+    el('div',{class:'two'},
+      el('div',{class:'card'},el('h2',{style:'margin-top:0'},'Details'),el('div',{class:'form'},el('label',{},'Name'),f.name,el('label',{},'Contact'),f.contact,el('label',{},'Plan'),f.plan,el('label',{},'Notes'),f.notes,el('label',{},'While suspended, data is'),f.drop),
+        el('p',{class:'help'},'Created '+new Date(t.created).toLocaleDateString()+(t.migrated?' (it existed before the console; it has no first-administrator record)':'')+'.')),
+      el('div',{class:'card'},el('h2',{style:'margin-top:0'},'Use now'),usageTable(d.usage,q),el('p',{class:'help'},'Hosts are those that sent metrics in the last 24 hours.'))),
+    el('div',{class:'card',style:'margin-top:14px'},el('h2',{style:'margin-top:0'},'Limits'),el('p',{class:'help'},'0 means no limit. With "refuse" off, a limit only warns (here and on the tenant\'s own Settings page); with it on, new users, keys and so on are refused, data above the rate or the daily volume gets "429 try again", and a host above the host limit is turned away. A host that is already reporting is never turned away.'),
+      el('div',{class:'form'},QUOTA_FIELDS.flatMap(([k,l])=>[el('label',{},l),qin[k]]).concat([el('label',{},'Data per day (MB)'),qbytes,el('label',{},'Refuse'),el('label',{style:'color:var(--fg)'},hard,' enforce the limits (otherwise they only warn)')]))),
+    w&&t.status!=='deleted'&&t.status!=='offboarding'?el('div',{class:'bar',style:'margin-top:10px'},el('button',{class:'btn',onclick:save},'Save details and limits'),note):null,
+    el('div',{class:'two',style:'margin-top:14px'},
+      el('div',{class:'card'},el('h2',{style:'margin-top:0'},'Support access'),el('p',{},t.support_access==='allow'?'The tenant lets an operator in at any time.':t.support_access==='off'?'The tenant has switched support access off.':'An operator can go in only while one of the tenant\'s administrators has allowed it.'),
+        d.grant?el('p',{class:'ok'},'Allowed until '+new Date(d.grant.until).toLocaleString()+' by '+d.grant.by+'.'):null,el('p',{class:'help'},'The tenant decides this under its own Settings. Everything an operator does inside is recorded and visible to the tenant.')),
+      el('div',{class:'card'},el('h2',{style:'margin-top:0'},'Users ('+(d.users||[]).length+')'),(d.users||[]).length?el('table',{},(d.users||[]).map(u=>el('tr',{},el('td',{},u.name),el('td',{class:'mut'},u.group)))):el('p',{class:'mut'},'No users.'))),
+    el('div',{class:'card',style:'margin-top:14px;padding:0'},el('h2',{style:'margin:14px'},'Last 30 days'),(d.days||[]).length?el('table',{},el('tr',{},['Day','Items','Data','Hosts'].map(x=>el('th',{},x))),(d.days||[]).slice().reverse().slice(0,30).map(x=>el('tr',{},el('td',{},x.day),el('td',{class:'mono'},fmtNum(x.traces.items+x.logs.items+x.metrics.items)),el('td',{class:'mono'},fmtBytes(x.traces.bytes+x.logs.bytes+x.metrics.bytes)),el('td',{class:'mono'},(x.hosts||[]).length)))):el('p',{class:'mut',style:'margin:14px'},'No data yet.')),
+    el('div',{class:'card',style:'margin-top:14px;padding:0'},el('h2',{style:'margin:14px'},'Recent events'),(d.audit||[]).length?el('table',{},(d.audit||[]).map(e=>el('tr',{},el('td',{class:'mut'},new Date(e.time).toLocaleString()),el('td',{},e.actor),el('td',{class:'mono'},e.action),el('td',{class:'mut'},e.detail||'')))):el('p',{class:'mut',style:'margin:14px'},'Nothing yet.')));
+  if(off&&off.state==='purging')S.timers.push(setTimeout(()=>{if(location.hash==='#/tenant/'+encodeURIComponent(id))again()},2000))}
+// ---- the banner while an operator is inside a tenant ----
+function drawActingBanner(){
+  const box=$('#abanner');if(!box)return;box.replaceChildren();
+  const a=S.me&&S.me.acting;if(!a)return;
+  box.append(el('div',{class:'warnbox',style:'margin:0 0 12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap'},el('span',{},el('b',{},'You are inside the tenant '+a.tenant),' as the operator '+a.operator+', '+(a.write?'with write access':'read-only')+', until '+new Date(a.until).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'. What you do here is on record and the tenant can read it.'),
+    el('span',{class:'sp'}),el('button',{class:'btn sm',onclick:async()=>{try{await api('/api/v1/operator/leave',{},{method:'POST',body:{}})}catch{}location.hash='#/tenants';location.reload()}},'Leave tenant')))}
+// ---- under Settings: a tenant's own usage, who may come in for support, and what was done ----
+async function tenantCards(view,w){
+  let u;try{u=await api('/api/v1/usage')}catch{return}
+  const q=u.quotas||{},card=el('div',{class:'card',style:'max-width:620px;margin-top:14px'});view.append(card);
+  card.replaceChildren(el('h2',{style:'margin-top:0'},'Usage and limits ',tBadge(u.status)),(u.warnings||[]).map(x=>el('div',{class:'warnbox',style:'margin-bottom:8px'},x)),usageTable(u.usage,q,u.enforced),
+    el('p',{class:'help'},u.enforced?'These limits are set by your provider.':'Your provider has not switched limits on for this installation: the numbers are shown, but nothing is enforced.'));
+  if(S.me&&S.me.tenant==='operator')return;
+  let sa;try{sa=await api('/api/v1/support-access')}catch{return}
+  const sc=el('div',{class:'card',style:'max-width:620px;margin-top:14px'}),msg=el('div',{style:'min-height:20px'});view.append(sc);
+  const drawS=sa=>{const mode=el('select',{disabled:!w},[['ask','Only when I allow it'],['allow','Any time (always recorded)'],['off','Never']].map(([v,l])=>el('option',{value:v,selected:v===sa.mode?'':null},l))),dur=el('select',{},[[60,'1 hour'],[240,'4 hours'],[1440,'24 hours'],[10080,'7 days']].map(([v,l])=>el('option',{value:v},l)));
+    sc.replaceChildren(el('h2',{style:'margin-top:0'},'Support access'),el('p',{},'The people who run this service can sometimes help best by looking at your account. You decide whether they may. When they do, they act as one of your administrators, everything they do is written to the log below, and you can end it at any time.'),
+      el('div',{class:'form'},el('label',{},'An operator may come in'),el('div',{},mode,w?el('button',{class:'btn sm',style:'margin-left:8px',onclick:async()=>{try{drawS(await api('/api/v1/support-access',{},{method:'PUT',body:{mode:mode.value}}));msg.className='ok';msg.textContent='Saved.'}catch(e){msg.className='err';msg.textContent=e.message}}},'Save'):null)),
+      sa.mode==='ask'&&w?el('div',{class:'bar',style:'margin-top:8px'},sa.grant?[el('span',{class:'ok'},'Allowed until '+new Date(sa.grant.until).toLocaleString()+'.'),el('button',{class:'btn ghost sm',onclick:async()=>{try{drawS(await api('/api/v1/support-access/grant',{},{method:'DELETE'}))}catch(e){msg.className='err';msg.textContent=e.message}}},'End it now')]:[el('span',{},'Allow access for'),dur,el('button',{class:'btn sm',onclick:async()=>{try{drawS(await api('/api/v1/support-access/grant',{},{method:'POST',body:{minutes:+dur.value}}));msg.className='ok';msg.textContent='Access allowed.'}catch(e){msg.className='err';msg.textContent=e.message}}},'Allow access')]):null,msg)};
+  drawS(sa);
+  let log=[];try{log=(await api('/api/v1/audit')).data||[]}catch{}
+  view.append(el('div',{class:'card',style:'max-width:620px;margin-top:14px;padding:0'},el('h2',{style:'margin:14px'},'Access log'),log.length?el('table',{},log.slice(0,15).map(e=>el('tr',{},el('td',{class:'mut'},new Date(e.time).toLocaleString()),el('td',{},e.actor+(e.acting?' (operator)':'')),el('td',{class:'mono',style:'font-size:12px'},e.action),el('td',{class:'mut'},e.detail||e.target||'')))):el('p',{class:'mut',style:'margin:14px'},'Nothing has been recorded.')))}
+
 // ---- licence: a banner when it is about to end or has ended, and the card under Settings ----
 const fmtDate=t=>t?new Date(t).toLocaleDateString():'';
 function drawLicenseBanner(){
@@ -1117,6 +1234,7 @@ async function settingsPage(){
     el('p',{class:'help'},'The name and logo are the same for everyone who uses this server, and are visible before signing in. In a multi-tenant installation only give the Settings permission to the operator.')));
   drawPrev();
   await licenseCard(view,w);
+  await tenantCards(view,w);
 }
 boot();
 </script></body></html>

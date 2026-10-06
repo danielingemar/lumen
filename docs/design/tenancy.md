@@ -4,6 +4,8 @@
 
 > **Status: proposal, no code yet.** This document describes a design and the decisions it needs. Effort sizes are rough (S = days, M = a few weeks, L = more than a month, for one developer).
 
+> **Implementation status (October 2026).** Phases 1 and 2 are built, and the removal with purge from phase 3. Differences from this proposal: usage is kept in the document store (collection `usage`) instead of a ClickHouse table; instead of an operator *asking* and the tenant approving, the tenant allows access beforehand for a chosen time (Settings, Support access); there is no limit on stored volume, on the length of a query or on concurrent queries; retention, branding and sign-in addresses per tenant and dedicated storage (phases 3 and 4) are not built.
+
 ## 1. Summary
 
 Lumen already separates customers by *tenant*. This proposal adds what both of our buyers need on top of that: an **operator level above the tenants** (the people who run Lumen), **tenant records** with limits and lifecycle, **usage metering**, **per-tenant retention and branding**, and, later, **dedicated storage** for tenants that need hard isolation.

@@ -6,6 +6,7 @@ package edition
 import (
 	"errors"
 	"net/http"
+	"time"
 )
 
 // Name is "community" or "enterprise".
@@ -24,6 +25,12 @@ type Identity struct {
 	ViaKey bool
 	// Perms maps an area (dashboards, traces, logs, metrics, hosts, keys, users, backups) to none|read|write.
 	Perms map[string]string
+	// Operator is set while an operator of the installation is inside a tenant for support: it is the operator's name.
+	// Everything done then is on record, and the identity is that of a tenant administrator (read-only unless asked).
+	Operator    string
+	Acting      bool
+	ActingUntil time.Time
+	ActingWrite bool
 }
 
 // Can reports whether the identity may read (or write) an area.

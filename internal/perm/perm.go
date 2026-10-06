@@ -18,6 +18,7 @@ const (
 	Settings      = "settings"      // site name and logo
 	Alerts        = "alerts"        // alert rules, acknowledging and silences
 	Notifications = "notifications" // channels that send messages (they hold secrets and reach the network)
+	Operator      = "operator"      // the tenant console: only ever granted inside the operator tenant
 )
 
 const (
@@ -45,6 +46,7 @@ var Areas = []Area{
 	{Backups, "Backups & archive", "View archived data. Write: load or unload archived days and run a backup.", true},
 	{Alerts, "Alerts", "See alerts, rules and silences. Write: manage rules and silences, acknowledge alerts.", true},
 	{Notifications, "Notification channels", "See channels. Write: create channels (email, webhook, Slack...); they hold secrets and send messages from the server.", true},
+	{Operator, "Operator console", "See tenants, their usage and limits. Write: create, suspend and remove tenants, set limits, and enter a tenant for support. Only in the operator tenant.", true},
 	{Settings, "Settings", "See the settings page. Write: change the site name and logo (shown to everyone, also on the login page).", true},
 }
 
@@ -158,4 +160,35 @@ func join(x []string) string {
 		s += v
 	}
 	return s
+}
+
+// OperatorTenant is the reserved tenant of the people who run the installation. The operator area exists only here.
+const OperatorTenant = "operator"
+
+// ForTenant removes what a tenant may not have: the operator area outside the operator tenant.
+func ForTenant(m map[string]string, tenant string) map[string]string {
+	if tenant == OperatorTenant || m[Operator] == None || m[Operator] == "" {
+		return m
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	out[Operator] = None
+	return out
+}
+
+// ActingPerms is what an operator may do inside a tenant: everything a tenant administrator may, or only read.
+// The operator console itself is not available while inside a tenant (leave first).
+func ActingPerms(write bool) map[string]string {
+	m := Admin()
+	m[Operator] = None
+	if !write {
+		for k, v := range m {
+			if v == Write {
+				m[k] = Read
+			}
+		}
+	}
+	return m
 }

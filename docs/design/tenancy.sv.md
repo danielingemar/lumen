@@ -4,6 +4,8 @@ Svenska · [English](tenancy.md)
 
 > **Status: förslag, ingen kod än.** Det här dokumentet beskriver en design och de beslut den kräver. Storleksangivelserna är grova (S = dagar, M = några veckor, L = mer än en månad, för en utvecklare).
 
+> **Genomförandestatus (oktober 2026).** Fas 1 och 2 är byggda, och borttagningen med rensning ur fas 3. Skillnader mot förslaget: användningen ligger i dokumentlagringen (samlingen `usage`) i stället för i en ClickHouse-tabell. I stället för att operatören *ber* och tenanten godkänner, tillåter tenanten åtkomst i förväg för en vald tid (Settings, Support access). Det finns ingen gräns för lagrad volym, för längden på en fråga eller för samtidiga frågor. Lagringstid, branding och inloggningsadresser per tenant samt dedikerad lagring (fas 3 och 4) är inte byggda.
+
 ## 1. Sammanfattning
 
 Lumen skiljer redan kunder åt med *tenants*. Det här förslaget lägger till det som båda våra köpare behöver ovanpå: en **operatörsnivå ovanför tenants** (de som driver Lumen), **tenant-poster** med gränser och livscykel, **användningsmätning**, **lagringstid och branding per tenant** och, senare, **dedikerad lagring** för tenants som kräver hård isolering.

@@ -93,6 +93,11 @@ func TestDumpForEngine(t *testing.T) {
 		q, pr, _ = buildUnloadQuery(tb.Name, "acme", day)
 		add("unload "+tb.Name, q, pr)
 	}
+	for _, tb := range purgeTables() {
+		add("purge "+tb, buildPurgeQuery(tb), map[string]string{"tenant": "doomed"})
+	}
+	pq, pp := buildTenantRowsQuery("doomed")
+	add("tenant rows", pq, pp)
 	q, pr := buildLoadedQuery("acme")
 	add("loaded days", q, pr)
 	q, pr = buildLatestQuery("acme", []string{"nextcloud_up", "container_up"}, now.Add(-time.Hour))

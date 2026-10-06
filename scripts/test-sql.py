@@ -133,6 +133,26 @@ try:
     left = int(str(s.query("SELECT count() FROM otel_logs_archive FORMAT CSV")).strip())
     spans_left = int(str(s.query("SELECT count() FROM otel_spans_archive FORMAT CSV")).strip())
     check("unload removes the tenant's rows of the day and keeps other tenants' rows", left == 1 and spans_left == 0, [left, spans_left])
+    # ---- removing a tenant: every row of ONE tenant goes from the live and the archive tables, nobody else's
+    def cnt(tb, tenant): return int(str(s.query("SELECT count() FROM %s WHERE tenant = '%s' FORMAT CSV" % (tb, tenant))).strip())
+    doomed_rows = {
+        "otel_spans": dict(tenant="doomed", trace_id="td", span_id="d1", parent_span_id="", name="x", service="web", kind=2, start_time=ts(-30), duration_ns=1, status_code=0, status_message="", attrs={}, resource_attrs={}),
+        "otel_logs": dict(tenant="doomed", ts=ts(-20), trace_id="", span_id="", severity="INFO", service="web", body="bye", attrs={}, resource_attrs={}),
+        "otel_metrics": dict(tenant="doomed", ts=ts(-1), name="cpu", type="gauge", service="host", value=1, attrs={"host": "d1"}),
+    }
+    for tb, row in doomed_rows.items():
+        for target in (tb, tb + "_archive"):
+            s.query("INSERT INTO " + target + " FORMAT JSONEachRow\n" + json.dumps(row))
+    before = {tb: (cnt(tb, "acme"), cnt(tb, "other")) for tb in doomed_rows}
+    r = run(Q["tenant rows"]); check("the row count of a tenant sees live and archive tables", r and int(r[0]["n"]) == 6, r)
+    for k, v in Q["purge otel_spans"]["Params"].items():
+        s.query("SET param_%s = '%s'" % (k, v))
+    for name in [k for k in Q if k.startswith("purge ")]:
+        s.query(Q[name]["SQL"] + " SETTINGS mutations_sync = 1")
+    check("purge: nothing is left of the tenant in any table", all(cnt(tb, "doomed") == 0 and cnt(tb + "_archive", "doomed") == 0 for tb in doomed_rows), [cnt(tb, "doomed") for tb in doomed_rows])
+    r = run(Q["tenant rows"]); check("the row count agrees: 0", r and int(r[0]["n"]) == 0, r)
+    after = {tb: (cnt(tb, "acme"), cnt(tb, "other")) for tb in doomed_rows}
+    check("purge: other tenants' rows are untouched", before == after and all(a > 0 or o > 0 for a, o in after.values()), [before, after])
     # ---- up/down: newest value per series
     s.query("INSERT INTO otel_metrics FORMAT JSONEachRow\n" + "\n".join(json.dumps(x) for x in [
         dict(tenant="acme", ts=ts(-100), name="nextcloud_up", type="gauge", service="ks", value=1, attrs={"instance": "a.example.com", "host": "h1"}),

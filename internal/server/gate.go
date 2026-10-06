@@ -20,6 +20,16 @@ func perms(id edition.Identity) edition.Identity {
 }
 
 func (s *Server) identity(w http.ResponseWriter, r *http.Request) (edition.Identity, bool) {
+	id, ok := s.who(w, r)
+	if !ok || !s.tenantUsable(w, id) {
+		return id, false
+	}
+	return id, true
+}
+
+// who resolves the caller without asking whether the tenant may be used (ingest answers that itself: a suspended tenant's
+// data is refused or, if the operator chose so, silently dropped).
+func (s *Server) who(w http.ResponseWriter, r *http.Request) (edition.Identity, bool) {
 	id, err := s.auth.Authenticate(r)
 	if err != nil {
 		writeErr(w, http.StatusUnauthorized, "invalid or missing credentials")
@@ -32,7 +42,11 @@ func (s *Server) identity(w http.ResponseWriter, r *http.Request) (edition.Ident
 // and "any" (any signed-in identity).
 func (s *Server) authed(action string, h handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id, ok := s.identity(w, r)
+		who := s.identity
+		if action == "ingest" {
+			who = s.who
+		}
+		id, ok := who(w, r)
 		if !ok {
 			return
 		}
@@ -98,6 +112,7 @@ func (s *Server) gate(areas []string, write bool, h handler) http.Handler {
 				return
 			}
 		}
+		s.auditActing(r, id) // an operator inside a tenant: everything that changes something is on record
 		h(w, r, id)
 	})
 }
@@ -112,6 +127,9 @@ func (s *Server) sessionOnly(area string, write bool, h handler) http.Handler {
 			return
 		}
 		id = perms(id)
+		if !s.tenantUsable(w, id) {
+			return
+		}
 		if id.ViaKey {
 			writeErr(w, http.StatusForbidden, "this needs a username and password login; an API key session cannot manage keys, users or passwords")
 			return
@@ -124,6 +142,7 @@ func (s *Server) sessionOnly(area string, write bool, h handler) http.Handler {
 			writeErr(w, http.StatusForbidden, "forbidden")
 			return
 		}
+		s.auditActing(r, id) // changes made by an operator inside a tenant are on record, also those that need a real login
 		h(w, r, id)
 	})
 }

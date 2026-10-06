@@ -40,6 +40,7 @@ type Server struct {
 	alerts             *alerts.Engine
 	lic                *license.Manager
 	owner              string
+	ten                *Tenancy
 	bkInfo             BackupInfo
 	snaps              snapCache
 	facetCache         facetCache
@@ -87,6 +88,7 @@ func (s *Server) Handler() http.Handler {
 	s.brandingRoutes(mux)
 	s.alertRoutes(mux)
 	s.licenseRoutes(mux)
+	s.tenancyRoutes(mux)
 	mux.Handle("POST /v1/traces", s.authed("ingest", s.ingestTraces))
 	mux.Handle("POST /v1/logs", s.authed("ingest", s.ingestLogs))
 	mux.Handle("POST /v1/metrics", s.authed("ingest", s.ingestMetrics))
@@ -129,6 +131,17 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, do func(ctx cont
 		return
 	}
 	if err := do(r.Context(), body); err != nil {
+		var ae *admitError
+		if errors.As(err, &ae) { // refused by a limit or because the tenant is suspended: not an error of ours
+			retryAfter(w, ae.retry)
+			writeErr(w, ae.code, ae.msg)
+			return
+		}
+		if errors.Is(err, errDropped) { // suspended with "drop": answered as accepted, thrown away
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte("{}"))
+			return
+		}
 		var de *decodeError
 		if errors.As(err, &de) {
 			writeErr(w, http.StatusBadRequest, "invalid OTLP JSON: "+de.Error())
@@ -144,13 +157,33 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, do func(ctx cont
 
 type decodeError struct{ error }
 
+// metricHosts are the distinct hosts a batch of metric points came from (at most 500: more is not a host list).
+func metricHosts(rows []model.MetricPoint) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, r := range rows {
+		if h := r.Attrs["host"]; h != "" && !seen[h] && len(out) < 500 {
+			seen[h] = true
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
 func (s *Server) ingestTraces(w http.ResponseWriter, r *http.Request, id edition.Identity) {
 	s.ingest(w, r, func(ctx context.Context, b []byte) error {
 		rows, err := otlp.DecodeTraces(b, id.Tenant)
 		if err != nil {
 			return &decodeError{err}
 		}
-		return s.store.InsertSpans(ctx, rows)
+		if err := s.admit(id, len(rows), len(b), nil); err != nil {
+			return err
+		}
+		if err := s.store.InsertSpans(ctx, rows); err != nil {
+			return err
+		}
+		s.metered(id, "traces", len(rows), len(b), nil)
+		return nil
 	})
 }
 
@@ -160,7 +193,14 @@ func (s *Server) ingestLogs(w http.ResponseWriter, r *http.Request, id edition.I
 		if err != nil {
 			return &decodeError{err}
 		}
-		return s.store.InsertLogs(ctx, rows)
+		if err := s.admit(id, len(rows), len(b), nil); err != nil {
+			return err
+		}
+		if err := s.store.InsertLogs(ctx, rows); err != nil {
+			return err
+		}
+		s.metered(id, "logs", len(rows), len(b), nil)
+		return nil
 	})
 }
 
@@ -170,7 +210,15 @@ func (s *Server) ingestMetrics(w http.ResponseWriter, r *http.Request, id editio
 		if err != nil {
 			return &decodeError{err}
 		}
-		return s.store.InsertMetrics(ctx, rows)
+		hosts := metricHosts(rows)
+		if err := s.admit(id, len(rows), len(b), hosts); err != nil {
+			return err
+		}
+		if err := s.store.InsertMetrics(ctx, rows); err != nil {
+			return err
+		}
+		s.metered(id, "metrics", len(rows), len(b), hosts)
+		return nil
 	})
 }
 

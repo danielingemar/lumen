@@ -67,6 +67,9 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request, id edition.Id
 }
 
 func (s *Server) createUser(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	if !s.quotaOK(w, id, "users") {
+		return
+	}
 	var in struct{ Name, Password, Group string }
 	if !readJSON(w, r, &in) {
 		return
@@ -175,7 +178,14 @@ func (s *Server) listGroups(w http.ResponseWriter, r *http.Request, id edition.I
 	for _, g := range s.a.Store.ListGroups(id.Tenant) {
 		out = append(out, gOut{g, members[g.ID], perm.Summary(g.Perms)})
 	}
-	writeJSON(w, map[string]any{"data": out, "areas": perm.Areas})
+	areas := make([]perm.Area, 0, len(perm.Areas))
+	for _, a := range perm.Areas {
+		if a.ID == perm.Operator && id.Tenant != perm.OperatorTenant {
+			continue // only the operator tenant can have the console
+		}
+		areas = append(areas, a)
+	}
+	writeJSON(w, map[string]any{"data": out, "areas": areas})
 }
 
 type groupIn struct {
@@ -185,6 +195,9 @@ type groupIn struct {
 }
 
 func (s *Server) createGroup(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	if !s.quotaOK(w, id, "groups") {
+		return
+	}
 	var in groupIn
 	if !readJSON(w, r, &in) {
 		return

@@ -64,6 +64,9 @@ func (s *Server) getDash(w http.ResponseWriter, r *http.Request, id edition.Iden
 }
 
 func (s *Server) createDash(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	if !s.quotaOK(w, id, "dashboards") {
+		return
+	}
 	var in dashIn
 	if !readJSONLimit(w, r, &in, dashboards.MaxBody+4096) {
 		return

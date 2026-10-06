@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/danielingemar/lumen/internal/alerts"
+	"github.com/danielingemar/lumen/internal/audit"
 	"github.com/danielingemar/lumen/internal/auth"
 	"github.com/danielingemar/lumen/internal/backup"
 	"github.com/danielingemar/lumen/internal/branding"
@@ -19,10 +20,13 @@ import (
 	"github.com/danielingemar/lumen/internal/edition"
 	"github.com/danielingemar/lumen/internal/install"
 	"github.com/danielingemar/lumen/internal/license"
+	"github.com/danielingemar/lumen/internal/metering"
+	"github.com/danielingemar/lumen/internal/perm"
 	"github.com/danielingemar/lumen/internal/registry"
 	"github.com/danielingemar/lumen/internal/secretbox"
 	"github.com/danielingemar/lumen/internal/server"
 	"github.com/danielingemar/lumen/internal/store"
+	"github.com/danielingemar/lumen/internal/tenants"
 )
 
 func main() {
@@ -79,6 +83,26 @@ func main() {
 	app := server.New(ch, authn, log).WithAuth(authn).WithDashboards(dashboards.New(backend)).WithRegistry(registry.New(backend, box)).WithBranding(branding.New(backend)).WithInstall(cfg.PublicURL, cfg.DistDir)
 	bg, stopBg := context.WithCancel(context.Background())
 	defer stopBg()
+	// tenants: a record for every tenant that exists (so an installation from before this feature shows up in the console),
+	// counting of what each one sends, and the record of who did what
+	tsvc := tenants.New(backend)
+	known := append(tenants.Discover(backend), cfg.AdminTenant, perm.OperatorTenant)
+	for _, t := range cfg.APIKeys {
+		known = append(known, t)
+	}
+	if n := tsvc.Ensure(known); n > 0 {
+		log.Info("tenant records made for existing tenants", "count", n)
+	}
+	ten := &server.Tenancy{Tenants: tsvc, Meter: metering.New(backend), Limiter: metering.NewLimiter(), Audit: audit.New(backend),
+		Off: &tenants.Offboarder{Svc: tsvc, Purger: ch, BackupDir: cfg.BackupDir, Log: log}}
+	app.WithTenancy(ten)
+	go ten.Run(bg, log)
+	for _, t := range tsvc.List() { // a removal that was interrupted by a restart carries on
+		if t.Status == tenants.Offboarding && t.Offboard != nil && t.Offboard.State == "purging" {
+			log.Info("resuming the removal of a tenant", "tenant", t.ID)
+			go ten.Off.Run(bg, t.ID)
+		}
+	}
 	lic := license.NewManager(backend, license.EmbeddedKeys(), cfg.LicenseFile)
 	lic.Load()
 	app.WithLicense(lic).WithOwnerTenant(cfg.AdminTenant)

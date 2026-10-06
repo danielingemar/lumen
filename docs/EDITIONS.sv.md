@@ -41,9 +41,10 @@ Lumen utvecklas öppet, och en del av det kommer att säljas. Den som bygger på
 | Krypterade backuper utanför servern (till exempel S3), juridisk spärr | | Ja (planerad) | |
 | Kubernetes-operator, Terraform-provider | | Ja (planerad) | |
 | SLO:er och burn-rate-larm, SLA-rapporter, statussidor, uppkopplingskontroller från flera platser, prognoser | | Ja (planerad) | |
-| Tenant-konsol, kvoter, användningsmätning och export | | | Ja (planerad) |
+| Tenant-konsol, kvoter, användningsmätning och export | | | Ja (finns) |
 | Branding, domäner och lagringstid per tenant | | | Ja (planerad) |
-| Kundvända rapporter, supportåtkomst med medgivande, dedikerad lagring per tenant | | | Ja (planerad) |
+| Supportåtkomst med medgivande, och åtkomstloggen som tenanten kan läsa | | | Ja (finns) |
+| Kundvända rapporter, dedikerad lagring per tenant | | | Ja (planerad) |
 | Support med SLA, versioner med långtidsstöd, signerade byggen | Community-support via ärenden | Ja | Ja |
 
 **Operator-tillägget** är till för att driva Lumen *åt andra*: en hostingleverantör med kunder, eller ett företag med interna verksamheter som var och en behöver isolerad data, gränser och rapporter. Det kan kombineras med Enterprise.
