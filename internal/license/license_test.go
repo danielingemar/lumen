@@ -154,8 +154,28 @@ func TestKeyFiles(t *testing.T) {
 	if _, err := ParsePrivateKey("zzz"); err == nil {
 		t.Fatal("private key")
 	}
-	if len(EmbeddedKeys()) != 0 {
-		t.Fatal("the open-source repository ships no signing keys, so a plain build verifies no licence")
+	// What is built in is the publisher's PUBLIC key(s), if any have been added (a plain open-source build has none, and then
+	// verifies no licence). Whatever is there must be usable, and a private key must never end up in the program.
+	keys := EmbeddedKeys() // panics if a built-in key is damaged
+	for id, k := range keys {
+		if len(k) != ed25519.PublicKeySize {
+			t.Errorf("the built-in key %q is not a public key", id)
+		}
+	}
+	ents, err := keyFS.ReadDir("keys")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range ents {
+		if strings.HasSuffix(e.Name(), ".key") || strings.Contains(e.Name(), "private") {
+			t.Errorf("%s: a private key must never be built into the program", e.Name())
+		}
+	}
+	// a licence signed by a key nobody trusts is never accepted, whatever keys are built in
+	_, stranger := keypair(t)
+	forged := issue(t, stranger, "main", nil)
+	if _, err := Parse(forged, keys); err == nil {
+		t.Fatal("a licence signed with an unknown key must not verify")
 	}
 }
 
