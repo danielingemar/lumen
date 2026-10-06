@@ -23,6 +23,7 @@ import (
 const (
 	collHosts = "hosts"
 	collInst  = "instances"
+	collUpd   = "agent_updates"  // updates that someone asked for in the UI, per host
 	collGone  = "instances_gone" // instances that were removed, so that their last metrics do not bring them back
 )
 
@@ -126,6 +127,7 @@ type AgentConfig struct {
 	Containers    bool            `json:"containers"`
 	WatchServices []string        `json:"watch_services"`
 	Instances     []AgentInstance `json:"instances"`
+	UpdateTo      string          `json:"update_to,omitempty"` // set by the server when an update was asked for; not part of the revision
 }
 
 type Service struct {
@@ -457,4 +459,62 @@ func (s *Service) GoneInstances(tenant string) map[string]time.Time {
 		}
 	}
 	return out
+}
+
+// ---- agent updates asked for in the UI ----
+
+// UpdateRequestTTL is how long a request for an agent update stays open. After that the agent is left alone until someone asks again.
+const UpdateRequestTTL = 2 * time.Hour
+
+type updateRequest struct {
+	Tenant string    `json:"tenant"`
+	Host   string    `json:"host"`
+	At     time.Time `json:"at"`
+}
+
+// RequestUpdate records that someone asked for the agent on a host to be updated.
+func (s *Service) RequestUpdate(tenant, host string) error {
+	if !hostRe.MatchString(host) {
+		return invalid("host name must be letters, digits, . _ - (max 128)")
+	}
+	c, cancel := ctx()
+	defer cancel()
+	return s.b.Put(c, collUpd, hostID(tenant, host), updateRequest{Tenant: tenant, Host: host, At: time.Now().UTC()}, "")
+}
+
+// UpdateRequested is when an update was asked for on this host, if that is still open.
+func (s *Service) UpdateRequested(tenant, host string) (time.Time, bool) {
+	c, cancel := ctx()
+	defer cancel()
+	d, err := s.b.Get(c, collUpd, hostID(tenant, host))
+	if err != nil {
+		return time.Time{}, false
+	}
+	var u updateRequest
+	if d.Decode(&u) != nil || time.Since(u.At) > UpdateRequestTTL {
+		return time.Time{}, false
+	}
+	return u.At, true
+}
+
+// UpdateRequests lists the open requests of a tenant by host.
+func (s *Service) UpdateRequests(tenant string) map[string]time.Time {
+	c, cancel := ctx()
+	defer cancel()
+	docs, _ := s.b.List(c, collUpd, map[string]string{"tenant": tenant}, 5000)
+	out := map[string]time.Time{}
+	for _, d := range docs {
+		var u updateRequest
+		if d.Decode(&u) == nil && time.Since(u.At) <= UpdateRequestTTL {
+			out[u.Host] = u.At
+		}
+	}
+	return out
+}
+
+// ClearUpdate closes a request (the agent now has the version that was asked for).
+func (s *Service) ClearUpdate(tenant, host string) {
+	c, cancel := ctx()
+	defer cancel()
+	_ = s.b.Delete(c, collUpd, hostID(tenant, host))
 }

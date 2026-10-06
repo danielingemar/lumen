@@ -30,6 +30,7 @@ type RemoteConfig struct {
 	Containers    bool             `json:"containers"`
 	WatchServices []string         `json:"watch_services"`
 	Instances     []RemoteInstance `json:"instances"`
+	UpdateTo      string           `json:"update_to,omitempty"` // set when someone asked in the UI for this agent to be updated
 }
 
 // ErrRemoteUnsupported means the server has no remote configuration (an older server): keep the local config.
@@ -40,7 +41,7 @@ func FetchRemote(ctx context.Context, baseURL, key, host string) (RemoteConfig, 
 	var rc RemoteConfig
 	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(cctx, "GET", strings.TrimRight(baseURL, "/")+"/api/v1/agent/config?host="+url.QueryEscape(host), nil)
+	req, err := http.NewRequestWithContext(cctx, "GET", strings.TrimRight(baseURL, "/")+"/api/v1/agent/config?host="+url.QueryEscape(host)+"&version="+url.QueryEscape(Version), nil)
 	if err != nil {
 		return rc, err
 	}

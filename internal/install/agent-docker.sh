@@ -14,4 +14,6 @@ WANT="$(grep " $NAME\$" /tmp/SHA256SUMS | cut -d' ' -f1)"
 [ -n "$WANT" ] || { echo "no checksum for $NAME" >&2; exit 1; }
 echo "$WANT  /tmp/lumen-agent" | sha256sum -c - >/dev/null || { echo "checksum mismatch, refusing to start" >&2; exit 1; }
 chmod +x /tmp/lumen-agent
+# lets the Lumen UI update this agent with one click: it downloads the new version, checks it and restarts itself in place
+export LUMEN_AGENT_SELF_UPDATE=exec:/tmp
 exec /tmp/lumen-agent

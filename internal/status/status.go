@@ -40,6 +40,7 @@ type Host struct {
 	DisplayName      string   `json:"display_name"`
 	Status           string   `json:"status"` // up | down | pending
 	Version          string   `json:"version"`
+	SelfUpdate       string   `json:"self_update,omitempty"` // how the agent can update itself ("systemd", "exec"), empty if it cannot
 	OS               string   `json:"os"`
 	IP               string   `json:"ip"`  // the address the machine uses to reach Lumen
 	IPs              []string `json:"ips"` // its other usable addresses (the agent reports them)
@@ -103,7 +104,7 @@ func ComputeWith(now time.Time, rows []model.Latest, configured map[string]regis
 		if r.Name == "lumen_agent_info" && r.Attrs["host"] != "" {
 			h := host(r.Attrs["host"])
 			if r.T >= h.LastSeen {
-				h.LastSeen, h.Version, h.OS = r.T, r.Attrs["version"], r.Attrs["os"]
+				h.LastSeen, h.Version, h.OS, h.SelfUpdate = r.T, r.Attrs["version"], r.Attrs["os"], r.Attrs["self_update"]
 				h.IP, h.IPs = r.Attrs["ip"], nil
 				for _, a := range strings.Split(r.Attrs["ips"], ",") {
 					if a = strings.TrimSpace(a); a != "" && len(a) <= 45 {

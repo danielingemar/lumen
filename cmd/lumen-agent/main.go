@@ -58,14 +58,19 @@ func main() {
 		go func() { <-ctx.Done(); srv.Close() }()
 	}
 
+	su := agent.NewSelfUpdate(os.Getenv("LUMEN_AGENT_SELF_UPDATE"), cfg.URL)
+	self.SetSelfUpdate(su.Capability())
+
 	warned := false
 	for {
 		eff, rev := cfg, ""
+		execNow := ""
 		if !cfg.NoRemote {
 			rc, err := agent.FetchRemote(ctx, cfg.URL, cfg.APIKey, hostname)
 			switch {
 			case err == nil:
 				eff, rev = cfg.Merge(rc), rc.Revision
+				execNow = updateIfAsked(ctx, su, rc, log)
 			case errors.Is(err, agent.ErrRemoteUnsupported):
 			case !warned:
 				warned = true
@@ -75,6 +80,13 @@ func main() {
 		self.SetRejected(len(eff.RejectedLogPaths))
 		if len(eff.RejectedLogPaths) > 0 {
 			log.Warn("log paths from the server were refused by this machine's allow-list (set allowed_log_dirs in the agent config to change that)", "paths", eff.RejectedLogPaths)
+		}
+		if execNow != "" { // asked to update at start-up: no need to start collectors that would be stopped at once
+			log.Info("starting the new version of the agent")
+			if err := agent.ExecInto(execNow, os.Args, os.Environ()); err != nil {
+				log.Error("could not start the new version; carrying on with this one", "err", err)
+			}
+			execNow = ""
 		}
 		runCtx, cancel := context.WithCancel(ctx)
 		var wg sync.WaitGroup
@@ -94,7 +106,15 @@ func main() {
 				case <-ctx.Done():
 					break wait
 				case <-t.C:
-					if rc, err := agent.FetchRemote(ctx, cfg.URL, cfg.APIKey, hostname); err == nil && rc.Revision != rev {
+					rc, err := agent.FetchRemote(ctx, cfg.URL, cfg.APIKey, hostname)
+					if err != nil {
+						continue
+					}
+					if p := updateIfAsked(ctx, su, rc, log); p != "" {
+						execNow = p
+						break wait
+					}
+					if rc.Revision != rev {
 						changed = true
 						break wait
 					}
@@ -106,6 +126,13 @@ func main() {
 		wg.Wait()
 		if ctx.Err() != nil {
 			return
+		}
+		if execNow != "" {
+			log.Info("updating: starting the new version of the agent", "from", agent.Version)
+			if err := agent.ExecInto(execNow, os.Args, os.Environ()); err != nil {
+				log.Error("could not start the new version; carrying on with this one", "err", err)
+			}
+			continue
 		}
 		if changed {
 			log.Info("configuration changed in the Lumen UI, restarting collectors")
@@ -242,4 +269,28 @@ func start(ctx context.Context, wg *sync.WaitGroup, cfg agent.Config, snd *agent
 		}()
 	}
 	return len(tailers)
+}
+
+// updateIfAsked acts on an update that someone asked for in the Lumen UI. It returns the path of a new binary when the
+// caller should replace this process with it; for the systemd way it only writes the request and returns "".
+func updateIfAsked(ctx context.Context, su *agent.SelfUpdate, rc agent.RemoteConfig, log *slog.Logger) string {
+	if rc.UpdateTo == "" || rc.UpdateTo == agent.Version {
+		return ""
+	}
+	if su == nil {
+		log.Warn("the server asked this agent to update, but it has no way to update itself here: run the installer again on this machine", "to", rc.UpdateTo)
+		return ""
+	}
+	out, path, err := su.Request(ctx, rc.UpdateTo)
+	switch {
+	case err != nil:
+		log.Error("update failed", "to", rc.UpdateTo, "err", err)
+	case out == agent.OutcomeRequested:
+		log.Info("update requested: the update helper will install the new version and restart the agent", "from", agent.Version, "to", rc.UpdateTo)
+	case out == agent.OutcomeSkipped:
+		log.Warn("not trying again to update to a version that was already tried in the last hour and did not take effect", "to", rc.UpdateTo)
+	case out == agent.OutcomeExec:
+		return path
+	}
+	return ""
 }

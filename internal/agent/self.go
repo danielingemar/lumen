@@ -21,6 +21,7 @@ const SelfService = "lumen-agent"
 // push to Lumen, so a silent or failing agent is visible, and (b) served at /metrics in
 // Prometheus format for external scrapers.
 type Self struct {
+	selfUpdate  string // what this agent can do about updating itself ("systemd", "exec" or "")
 	mu          sync.Mutex
 	start       time.Time
 	host        string
@@ -95,6 +96,9 @@ func (s *Self) Collect(service string, now int64) []Point {
 		s.ipAt = time.Now()
 	}
 	info := map[string]string{"version": Version, "host": s.host, "os": runtime.GOOS + "/" + runtime.GOARCH}
+	if s.selfUpdate != "" {
+		info["self_update"] = s.selfUpdate
+	}
 	if s.ip != "" {
 		info["ip"] = s.ip
 		info["ips"] = strings.Join(s.ips, ",")
@@ -163,4 +167,11 @@ func (s *Self) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	return mux
+}
+
+// SetSelfUpdate says how this agent can update itself, so that the Lumen UI knows whether to offer a one-click update.
+func (s *Self) SetSelfUpdate(mode string) {
+	s.mu.Lock()
+	s.selfUpdate = mode
+	s.mu.Unlock()
 }

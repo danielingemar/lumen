@@ -109,13 +109,25 @@ echo "build $(find . -type f \( -name '*.go' -o -name '*.html' -o -name go.mod \
 
 Upgrading the server does **not** update the agents on your monitored machines. Agents keep working, but new agent features (for example the IP address on the Hosts page, services and containers, remote configuration) need the new agent.
 
-On each monitored machine, run the install command again; it replaces the binary and restarts the service, keeping its key and settings. Copy the command from **Add a machine** in the web UI (choose the machine type). For a Linux machine it looks like this:
+**With one click.** The **Hosts** page shows each agent's version. An agent that is not the same build as its server is marked **update**. Click it (or **Update N agents** at the top of the list to do all at once) and the agent updates itself:
+
+- **A Linux machine installed with the install command:** the agent runs as an unprivileged user and cannot replace its own file, so it only asks. A small helper owned by root (started by a systemd path unit, `lumen-agent-update`) downloads the new version from your Lumen server, checks it against the server's checksums, replaces the file, restarts the agent, and puts the old version back if the new one does not stay up. What is installed is only what your server offers; the agent decides nothing but "please update". Look at what happened with `journalctl -u lumen-agent-update`.
+- **A Docker container:** the agent downloads the new version, checks the checksum and that the file says it is the version asked for, and replaces its own process. The container keeps running. A restart of the container downloads the latest version anyway.
+- **Not Windows:** run the install command again there.
+
+Monitoring of a machine pauses for a few seconds while it restarts. If an update has not happened ten minutes after the click, the label says **update failed?**: look at the log named above on that machine. An update that did not take effect (for example because the server's download folder is out of date) is not retried more than once an hour.
+
+**Agents installed before this feature** cannot update themselves yet. For these, click the label to see the command, and do it by hand **once**; after that a click is enough:
 
 ```bash
-curl -fsSL https://YOUR-LUMEN/install/agent.sh | sudo sh -s -- --key YOUR_KEY
+# Linux, installed with the install command: updates the agent, keeps its settings, needs no key
+curl -fsSL https://YOUR-LUMEN/install/agent.sh | sudo sh -s -- --update
+
+# Docker container (it downloads the new version when it starts)
+docker restart lumen-agent
 ```
 
-The **Hosts** page shows each agent's version. An agent that is not the same build as its server is marked **update**: run the install command again on that machine.
+(Running the install command with `--key` again also works on Linux, but it writes the settings from scratch: any log paths and instances given as flags on that machine are replaced by what you give it.)
 
 ## Going back
 

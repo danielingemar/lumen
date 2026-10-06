@@ -86,9 +86,11 @@ jobs:
           done
       - name: Installers keep an existing address and settings
         run: bash scripts/test-installers.sh
+      - name: Agent update helper (settings kept, checksum enforced, rollback)
+        run: bash scripts/test-agent-update.sh
       - name: Executable bits
         run: |
-          for f in dev.sh install.sh deploy/gen-env.sh deploy/install-rhel-family.sh deploy/preflight.sh scripts/set-module.sh scripts/test-sql.py scripts/test-installers.sh; do
+          for f in dev.sh install.sh deploy/gen-env.sh deploy/install-rhel-family.sh deploy/preflight.sh scripts/set-module.sh scripts/test-sql.py scripts/test-installers.sh scripts/test-agent-update.sh; do
             [ "$(git ls-files -s "$f" | cut -c1-6)" = 100755 ] || { echo "$f must be executable in git (git update-index --chmod=+x $f)"; exit 1; }
           done
       - name: Compose file is valid

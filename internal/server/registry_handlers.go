@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"errors"
+	"github.com/danielingemar/lumen/internal/buildinfo"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,6 +69,8 @@ func (s *Server) regRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/status", s.needAny([]string{perm.Hosts, perm.Metrics}, s.statusSummary))
 	mux.Handle("GET /api/v1/hosts", s.need(perm.Hosts, false, s.listHosts))
 	mux.Handle("GET /api/v1/hosts/{host}", s.need(perm.Hosts, false, s.getHost))
+	mux.Handle("POST /api/v1/hosts/{host}/update", s.need(perm.Hosts, true, s.updateAgent))
+	mux.Handle("POST /api/v1/hosts-update-all", s.need(perm.Hosts, true, s.updateAllAgents))
 	mux.Handle("PUT /api/v1/hosts/{host}", s.need(perm.Hosts, true, s.putHost))
 	mux.Handle("DELETE /api/v1/hosts/{host}", s.need(perm.Hosts, true, s.deleteHost))
 	mux.Handle("POST /api/v1/hosts/{host}/remove", s.need(perm.Hosts, true, s.removeHost))
@@ -111,7 +115,8 @@ func (s *Server) statusSummary(w http.ResponseWriter, r *http.Request, id editio
 
 type hostOut struct {
 	status.Host
-	Config registry.HostConfig `json:"config"`
+	Config          registry.HostConfig `json:"config"`
+	UpdateRequested int64               `json:"update_requested,omitempty"` // when someone asked for an update of this agent (unix seconds), while it is open
 }
 
 func (s *Server) listHosts(w http.ResponseWriter, r *http.Request, id edition.Identity) {
@@ -121,13 +126,14 @@ func (s *Server) listHosts(w http.ResponseWriter, r *http.Request, id edition.Id
 		return
 	}
 	cfgs := s.reg.ListHosts(id.Tenant)
+	reqs := s.reg.UpdateRequests(id.Tenant)
 	out := []hostOut{}
 	for _, h := range sn.sum.HostList {
 		c, ok := cfgs[h.Name]
 		if !ok {
 			c = registry.DefaultHost(h.Name)
 		}
-		out = append(out, hostOut{h, c})
+		out = append(out, hostOut{h, c, reqs[h.Name].Unix() * b2i(!reqs[h.Name].IsZero())})
 	}
 	writeJSON(w, map[string]any{"data": out})
 }
@@ -152,7 +158,11 @@ func (s *Server) getHost(w http.ResponseWriter, r *http.Request, id edition.Iden
 	if ctrs == nil {
 		ctrs = []status.Item{}
 	}
-	writeJSON(w, map[string]any{"host": hostOut{h, s.reg.GetHost(id.Tenant, name)}, "services": svcs, "containers": ctrs})
+	var asked int64
+	if at, ok := s.reg.UpdateRequested(id.Tenant, name); ok {
+		asked = at.Unix()
+	}
+	writeJSON(w, map[string]any{"host": hostOut{h, s.reg.GetHost(id.Tenant, name), asked}, "services": svcs, "containers": ctrs})
 }
 
 func (s *Server) putHost(w http.ResponseWriter, r *http.Request, id edition.Identity) {
@@ -324,6 +334,91 @@ func (s *Server) agentConfig(w http.ResponseWriter, r *http.Request, id edition.
 		s.regErr(w, err)
 		return
 	}
+	// someone asked in the UI for this agent to be updated: tell it which version it should have, until it has it
+	if _, asked := s.reg.UpdateRequested(id.Tenant, host); asked {
+		switch v := r.URL.Query().Get("version"); {
+		case buildinfo.Version == "" || buildinfo.Version == "dev":
+		case v == buildinfo.Version:
+			s.reg.ClearUpdate(id.Tenant, host)
+		default:
+			cfg.UpdateTo = buildinfo.Version
+		}
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, cfg)
+}
+
+func b2i(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// whyNotUpdatable explains why the one-click update cannot be used for a host, or returns "" if it can.
+func whyNotUpdatable(h status.Host) string {
+	switch {
+	case buildinfo.Version == "" || buildinfo.Version == "dev":
+		return "this server was built without a version stamp (a plain go build), so it does not know which version the agents should have"
+	case h.Version == "" || h.Version == buildinfo.Version:
+		return "this agent already has the version of this server"
+	case h.SelfUpdate == "":
+		return "this agent cannot update itself: it was installed before one-click updates, or it is a Windows agent. Run the installer again on the machine (on Linux: add --update to keep its settings); for an agent in a container, restart the container"
+	}
+	return ""
+}
+
+// updateAgent asks for the agent on one host to be updated to this server's version.
+func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	name := r.PathValue("host")
+	sn, err := s.snapshot(r.Context(), id.Tenant)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	for _, h := range sn.sum.HostList {
+		if h.Name != name {
+			continue
+		}
+		if why := whyNotUpdatable(h); why != "" {
+			writeErr(w, http.StatusBadRequest, why)
+			return
+		}
+		if err := s.reg.RequestUpdate(id.Tenant, name); err != nil {
+			s.regErr(w, err)
+			return
+		}
+		s.auditOp(id, id.Tenant, "agent.update", name, h.Version+" to "+buildinfo.Version)
+		writeJSON(w, map[string]any{"ok": true, "mode": h.SelfUpdate, "target": buildinfo.Version})
+		return
+	}
+	writeErr(w, http.StatusNotFound, "no such host")
+}
+
+// updateAllAgents asks every agent that can update itself and has another version than this server to do so.
+func (s *Server) updateAllAgents(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	sn, err := s.snapshot(r.Context(), id.Tenant)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	if buildinfo.Version == "" || buildinfo.Version == "dev" {
+		writeErr(w, http.StatusBadRequest, whyNotUpdatable(status.Host{}))
+		return
+	}
+	requested, manual := []string{}, []string{}
+	for _, h := range sn.sum.HostList {
+		switch why := whyNotUpdatable(h); {
+		case why == "":
+			if s.reg.RequestUpdate(id.Tenant, h.Name) == nil {
+				requested = append(requested, h.Name)
+			}
+		case h.Version != "" && h.Version != buildinfo.Version: // outdated but cannot update itself
+			manual = append(manual, h.Name)
+		}
+	}
+	if len(requested) > 0 {
+		s.auditOp(id, id.Tenant, "agent.update", strings.Join(requested, ","), "to "+buildinfo.Version)
+	}
+	writeJSON(w, map[string]any{"requested": requested, "manual": manual, "target": buildinfo.Version})
 }

@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"github.com/danielingemar/lumen/internal/buildinfo"
 	"io"
 	"log/slog"
 	"net/http"
@@ -267,5 +268,135 @@ func TestAnEmptyInstanceListIsAnEmptyArray(t *testing.T) {
 	_, b := do(ad, "GET", ts.URL+"/api/v1/instances", "")
 	if !strings.Contains(string(b), `"data":[]`) {
 		t.Fatalf("scripts that read the API expect an array, not null: %s", b)
+	}
+}
+
+func TestOneClickAgentUpdate(t *testing.T) {
+	ts, a, fs := regServer(t)
+	ad, rd, ot := client(), client(), client()
+	login(t, ad, ts, "admin", "admins-long-password")
+	login(t, rd, ts, "reader", "readers-long-password")
+	login(t, ot, ts, "other", "others-long-password")
+	acmeKey, _, _ := a.Store.CreateKey("acme", "agent")
+	globexKey, _, _ := a.Store.CreateKey("globex", "agent")
+	old := buildinfo.Version
+	defer func() { buildinfo.Version = old }()
+	now := time.Now().Unix()
+	info := func(host, version, self string) model.Latest {
+		at := map[string]string{"host": host, "version": version, "os": "linux/amd64"}
+		if self != "" {
+			at["self_update"] = self
+		}
+		return model.Latest{Name: "lumen_agent_info", Attrs: at, Value: 1, T: now - 3}
+	}
+	fs.latestFor = "acme"
+	fs.latest = []model.Latest{info("web1", "src-old", "systemd"), info("web2", "src-old", ""), info("web3", "src-new", "systemd"), info("web4", "src-old", "exec")}
+	cfg := func(key, host, version string) map[string]any {
+		req, _ := http.NewRequest("GET", ts.URL+"/api/v1/agent/config?host="+host+"&version="+version, nil)
+		req.Header.Set("Authorization", "Bearer "+key)
+		r, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		var m map[string]any
+		json.NewDecoder(r.Body).Decode(&m)
+		return m
+	}
+	hosts := func() map[string]map[string]any {
+		_, b := do(ad, "GET", ts.URL+"/api/v1/hosts", "")
+		var out struct{ Data []map[string]any }
+		json.Unmarshal(b, &out)
+		m := map[string]map[string]any{}
+		for _, h := range out.Data {
+			m[h["name"].(string)] = h
+		}
+		return m
+	}
+	// a server without a version stamp does not know what to update to
+	buildinfo.Version = "dev"
+	if r, b := do(ad, "POST", ts.URL+"/api/v1/hosts/web1/update", ""); r.StatusCode != 400 || !strings.Contains(string(b), "without a version stamp") {
+		t.Fatalf("%d %s", r.StatusCode, b)
+	}
+	buildinfo.Version = "src-new"
+	// who may
+	if c := code(rd, "POST", ts.URL+"/api/v1/hosts/web1/update", ""); c != 403 {
+		t.Fatalf("read-only users cannot update agents: %d", c)
+	}
+	if c := code(ot, "POST", ts.URL+"/api/v1/hosts/web1/update", ""); c != 404 {
+		t.Fatalf("another tenant has no such host: %d", c)
+	}
+	if c := code(ad, "POST", ts.URL+"/api/v1/hosts/nothing/update", ""); c != 404 {
+		t.Fatal(c)
+	}
+	// what cannot be done, with the way out
+	if r, b := do(ad, "POST", ts.URL+"/api/v1/hosts/web2/update", ""); r.StatusCode != 400 || !strings.Contains(string(b), "cannot update itself") || !strings.Contains(string(b), "--update") {
+		t.Fatalf("an agent that cannot update itself is told what to do instead: %d %s", r.StatusCode, b)
+	}
+	if r, b := do(ad, "POST", ts.URL+"/api/v1/hosts/web3/update", ""); r.StatusCode != 400 || !strings.Contains(string(b), "already has the version") {
+		t.Fatalf("%d %s", r.StatusCode, b)
+	}
+	// nothing is asked of an agent that has not been asked
+	if c := cfg(acmeKey, "web1", "src-old"); c["update_to"] != nil {
+		t.Fatalf("%v", c)
+	}
+	if hosts()["web1"]["update_requested"] != nil || hosts()["web1"]["self_update"] != "systemd" {
+		t.Fatalf("the host list says how the agent updates and that nothing is asked: %v", hosts()["web1"])
+	}
+	// the click
+	r, b := do(ad, "POST", ts.URL+"/api/v1/hosts/web1/update", "")
+	if r.StatusCode != 200 || !strings.Contains(string(b), `"mode":"systemd"`) || !strings.Contains(string(b), `"target":"src-new"`) {
+		t.Fatalf("%d %s", r.StatusCode, b)
+	}
+	if hosts()["web1"]["update_requested"] == nil {
+		t.Fatal("the host list shows that an update was asked for")
+	}
+	if c := cfg(acmeKey, "web1", "src-old"); c["update_to"] != "src-new" {
+		t.Fatalf("the agent is told which version to get: %v", c)
+	}
+	if c := cfg(acmeKey, "web2", "src-old"); c["update_to"] != nil {
+		t.Fatal("only the host that was asked")
+	}
+	if c := cfg(globexKey, "web1", "src-old"); c["update_to"] != nil {
+		t.Fatal("another tenant's host of the same name is not affected")
+	}
+	if c := cfg(acmeKey, "web1", "src-old"); c["revision"] == nil || c["revision"] == "" {
+		t.Fatal("revision stays")
+	}
+	// the update must not change the configuration revision, or every agent would restart its collectors for nothing
+	before := cfg(acmeKey, "web2", "src-old")["revision"]
+	do(ad, "POST", ts.URL+"/api/v1/hosts/web4/update", "")
+	if cfg(acmeKey, "web4", "src-old")["update_to"] != "src-new" {
+		t.Fatal("exec agents too")
+	}
+	if cfg(acmeKey, "web2", "src-old")["revision"] != before {
+		t.Fatal("asking for an update elsewhere does not touch other hosts' configuration")
+	}
+	// the agent has the new version: the request is closed
+	if c := cfg(acmeKey, "web1", "src-new"); c["update_to"] != nil {
+		t.Fatalf("%v", c)
+	}
+	if hosts()["web1"]["update_requested"] != nil {
+		t.Fatal("closed once the agent reports the version asked for")
+	}
+	if c := cfg(acmeKey, "web1", "src-old"); c["update_to"] != nil {
+		t.Fatal("and it stays closed: an agent that falls back is not pushed again until someone asks")
+	}
+	// update all: those that can, and a list of those that need the installer
+	r, b = do(ad, "POST", ts.URL+"/api/v1/hosts-update-all", "")
+	var all struct {
+		Requested, Manual []string
+		Target            string
+	}
+	json.Unmarshal(b, &all)
+	sort.Strings(all.Requested)
+	if r.StatusCode != 200 || strings.Join(all.Requested, ",") != "web1,web4" || strings.Join(all.Manual, ",") != "web2" || all.Target != "src-new" {
+		t.Fatalf("web3 is current, web2 cannot do it itself: %d %s", r.StatusCode, b)
+	}
+	if c := code(rd, "POST", ts.URL+"/api/v1/hosts-update-all", ""); c != 403 {
+		t.Fatal(c)
+	}
+	if hosts()["web3"]["update_requested"] != nil {
+		t.Fatal("a current agent is not asked")
 	}
 }

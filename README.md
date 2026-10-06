@@ -138,11 +138,13 @@ In the UI open **Add a machine**, create an agent key (for example `web-server-1
 
 | Type | Command | What it does |
 |---|---|---|
-| **Linux server** | `curl -fsSL URL/install/agent.sh \| sudo sh -s -- --key KEY` | systemd service as an unprivileged `lumen-agent` user. Options: `--logs '/var/log/*.log'`, `--docker-logs`, `--docker` |
+| **Linux server** | `curl -fsSL URL/install/agent.sh \| sudo sh -s -- --key KEY` (later: `... -- --update`) | systemd service as an unprivileged `lumen-agent` user. Options: `--logs '/var/log/*.log'`, `--docker-logs`, `--docker` |
 | **Windows** | `& ([scriptblock]::Create((irm URL/install/agent.ps1))) -Key KEY` (elevated PowerShell) | Scheduled task running as SYSTEM, restarts on failure. Option: `-LogPath` |
 | **Docker host** | a `docker run ... alpine:3.20 sh -c 'wget -qO- URL/install/agent-docker.sh \| sh'` command | Agent as a container; downloads and checksum-verifies at start. Nothing to build |
 | **Nextcloud** | add the instance on the **Instances** page | see [Nextcloud monitoring](#nextcloud-monitoring) |
 | **Download files** | links with SHA-256 | raw binaries for manual installs |
+
+**Updating agents.** An agent that is not the same build as the server is marked *update* on the Hosts page. Click it, or *Update N agents*, to update it (a root-owned helper installs what the server offers after checking its checksums and rolls back if the new version does not stay up; a container agent replaces itself in place). Agents from before this feature, and Windows agents, need the install command once: click the label to see it. See [UPGRADING.md](UPGRADING.md).
 
 Remove an agent with `--uninstall` (Linux), `-Uninstall` (Windows) or `docker rm -f lumen-agent`.
 
@@ -392,6 +394,7 @@ If there are no users and no keys, nobody can log in and the server log says so.
 | GET | `/api/v1/branding`, `/branding/logo` | none (public) |
 | PUT | `/api/v1/settings/branding` | settings |
 | GET/POST/PUT/DELETE | `/api/v1/instances[/{id}]` | hosts |
+| POST | `/api/v1/hosts/{host}/update`, `/api/v1/hosts-update-all` | hosts (write): ask the agent on one host, or on every outdated host, to update itself |
 | POST | `/api/v1/instance-keys/{address}/remove` | hosts (write): remove an instance nobody registered here, once its agent has stopped reporting it |
 | GET | `/api/v1/alerts` | alerts (also `counts`) |
 | POST, DELETE | `/api/v1/alerts/ack/{fingerprint}` | alerts (write) |
