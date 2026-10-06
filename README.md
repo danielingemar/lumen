@@ -176,6 +176,8 @@ docker exec -u www-data <nextcloud-container> php occ config:app:set serverinfo 
 
 Then add the instance under **Instances**. The Nextcloud hostname must be in that instance's `trusted_domains`. An admin user plus app password works instead of a token. Instances set up earlier with `--nextcloud` flags still work and appear as "from agent flags" with a *Manage here* button.
 
+**Removing instances that are gone.** *Remove* on an instance you added here takes it out of the list at once, and what its agent still reports for a minute or so does not bring it back as an instance nobody manages. An instance that was only ever set up with agent flags (or is the leftover of an old setup) has no Remove while its agent still reports it, because it would only come back; take the `--nextcloud` flag out of the agent's settings, or stop that agent. Two minutes after the agent has stopped reporting it, the row says *stopped reporting* and gets a **Remove** button. If an agent reports it again later, it is listed again.
+
 > The serverinfo field names follow the app's documented response and are tested against a sample of that shape, not a live server. Compare the numbers with one real instance first; missing fields are skipped.
 
 ## What the agent reports about a host
@@ -390,6 +392,7 @@ If there are no users and no keys, nobody can log in and the server log says so.
 | GET | `/api/v1/branding`, `/branding/logo` | none (public) |
 | PUT | `/api/v1/settings/branding` | settings |
 | GET/POST/PUT/DELETE | `/api/v1/instances[/{id}]` | hosts |
+| POST | `/api/v1/instance-keys/{address}/remove` | hosts (write): remove an instance nobody registered here, once its agent has stopped reporting it |
 | GET | `/api/v1/alerts` | alerts (also `counts`) |
 | POST, DELETE | `/api/v1/alerts/ack/{fingerprint}` | alerts (write) |
 | GET/POST/PUT/DELETE | `/api/v1/alerts/rules[/{id}]` | alerts |

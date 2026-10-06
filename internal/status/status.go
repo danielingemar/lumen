@@ -81,6 +81,16 @@ func (c *Counts) add(up bool) {
 // Compute builds the summary. configured are the hosts that have a stored configuration (so they show up even
 // before they report); instances are the registered Nextcloud instances.
 func Compute(now time.Time, rows []model.Latest, configured map[string]registry.HostConfig, instances []registry.Instance) Summary {
+	return ComputeWith(now, rows, configured, instances, nil)
+}
+
+// RemovedGrace is how long after an instance was removed its agent may still report before that counts as the instance
+// coming back (an agent learns about a removal within a minute).
+const RemovedGrace = 2 * time.Minute
+
+// ComputeWith is Compute that also knows which instances were removed and when: those are not listed until they report
+// again after the removal.
+func ComputeWith(now time.Time, rows []model.Latest, configured map[string]registry.HostConfig, instances []registry.Instance, gone map[string]time.Time) Summary {
 	age := func(t int64) time.Duration { return now.Sub(time.Unix(t, 0)) }
 	hosts := map[string]*Host{}
 	host := func(n string) *Host {
@@ -241,6 +251,9 @@ func Compute(now time.Time, rows []model.Latest, configured map[string]registry.
 		// the old address of an instance whose URL was just corrected in the UI still reports under the same name
 		if seen[k] || age(r.T) > GoneAfter || names[r.Service] {
 			continue
+		}
+		if at, removed := gone[k]; removed && r.T <= at.Add(RemovedGrace).Unix() {
+			continue // removed, and it has not reported since
 		}
 		in := Instance{InstanceOut: registry.InstanceOut{Name: r.Service, URL: "", Host: r.Attrs["host"], Key: k}, Managed: false, LastSeen: r.T, Status: "down"}
 		decorate(&in, k)

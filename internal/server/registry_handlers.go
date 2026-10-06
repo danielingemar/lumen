@@ -44,7 +44,7 @@ func (s *Server) snapshot(ctx context.Context, tenant string) (snapshot, error) 
 	if err != nil {
 		return snapshot{}, err
 	}
-	sn := snapshot{at: now, rows: rows, sum: status.Compute(now, rows, s.reg.ListHosts(tenant), s.reg.ListInstances(tenant))}
+	sn := snapshot{at: now, rows: rows, sum: status.ComputeWith(now, rows, s.reg.ListHosts(tenant), s.reg.ListInstances(tenant), s.reg.GoneInstances(tenant))}
 	s.snaps.mu.Lock()
 	if s.snaps.m == nil {
 		s.snaps.m = map[string]snapshot{}
@@ -74,6 +74,7 @@ func (s *Server) regRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/instances", s.need(perm.Hosts, true, s.createInstance))
 	mux.Handle("PUT /api/v1/instances/{id}", s.need(perm.Hosts, true, s.updateInstance))
 	mux.Handle("DELETE /api/v1/instances/{id}", s.need(perm.Hosts, true, s.deleteInstance))
+	mux.Handle("POST /api/v1/instance-keys/{key}/remove", s.need(perm.Hosts, true, s.removeUnmanaged))
 	// agents (API keys only, never a browser session: the response contains instance credentials)
 	mux.Handle("GET /api/v1/agent/config", s.authed("ingest", s.agentConfig))
 }
@@ -219,7 +220,11 @@ func (s *Server) listInstances(w http.ResponseWriter, r *http.Request, id editio
 			names[h.Name] = h.DisplayName
 		}
 	}
-	writeJSON(w, map[string]any{"data": sn.sum.Instances, "hosts": hosts, "host_names": names})
+	list := sn.sum.Instances
+	if list == nil {
+		list = []status.Instance{} // an empty list is [], not null
+	}
+	writeJSON(w, map[string]any{"data": list, "hosts": hosts, "host_names": names})
 }
 
 func (s *Server) createInstance(w http.ResponseWriter, r *http.Request, id edition.Identity) {
@@ -261,6 +266,50 @@ func (s *Server) deleteInstance(w http.ResponseWriter, r *http.Request, id editi
 		return
 	}
 	s.forget(id.Tenant)
+	s.auditOp(id, id.Tenant, "instance.remove", r.PathValue("id"), "")
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// removeUnmanaged takes an instance out of the list that nobody registered here (it was set up with agent flags on a
+// machine, or it is only the leftover of one that was removed) and that has stopped answering. It comes back only if its
+// agent reports it again.
+func (s *Server) removeUnmanaged(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	key := r.PathValue("key")
+	for _, i := range s.reg.ListInstances(id.Tenant) {
+		if i.Out().Key == key {
+			writeErr(w, http.StatusBadRequest, "this instance is managed here ("+i.Name+"): remove it with its own Remove button")
+			return
+		}
+	}
+	sn, err := s.snapshot(r.Context(), id.Tenant)
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, "cannot check the status right now: "+err.Error())
+		return
+	}
+	var found *status.Instance
+	for i := range sn.sum.Instances {
+		if sn.sum.Instances[i].Key == key {
+			found = &sn.sum.Instances[i]
+		}
+	}
+	switch {
+	case found == nil:
+		writeErr(w, http.StatusNotFound, "no such instance in the list (it may already be removed)")
+		return
+	case found.Status == "up":
+		writeErr(w, http.StatusBadRequest, "this instance is up and its agent still reports it. Stop checking it where it is set up (the agent's settings on the machine) and it can be removed from the list")
+		return
+	case time.Since(time.Unix(found.LastSeen, 0)) <= status.Fresh:
+		writeErr(w, http.StatusBadRequest, "its agent still reports it (it cannot reach it). Take it out of the agent's settings on the machine, or stop that agent: then it is gone from the list on its own, or you can remove it here once it has stopped reporting. Removed now it would only come back")
+		return
+	}
+	// dated so that anything reported after this moment counts as the instance being back
+	if err := s.reg.MarkGoneAt(id.Tenant, key, found.Name, time.Now().Add(-status.RemovedGrace)); err != nil {
+		s.regErr(w, err)
+		return
+	}
+	s.forget(id.Tenant)
+	s.auditOp(id, id.Tenant, "instance.remove", key, found.Name)
 	writeJSON(w, map[string]bool{"ok": true})
 }
 

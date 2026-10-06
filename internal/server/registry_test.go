@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -149,5 +150,122 @@ func TestHostsAndStatusAPI(t *testing.T) {
 	}
 	if c := code(rd, "GET", ts.URL+"/api/v1/status", ""); c != 500 {
 		t.Fatalf("after a change the next call recomputes (and here the database is down): %d", c)
+	}
+}
+
+func TestInstancesThatAreGoneCanBeRemoved(t *testing.T) {
+	ts, _, fs := regServer(t)
+	ad, rd, ot := client(), client(), client()
+	login(t, ad, ts, "admin", "admins-long-password")
+	login(t, rd, ts, "reader", "readers-long-password")
+	login(t, ot, ts, "other", "others-long-password")
+	now := time.Now().Unix()
+	unm := func(name, key string, v float64, age int64) model.Latest {
+		return model.Latest{Name: "nextcloud_up", Service: name, Attrs: map[string]string{"instance": key, "host": "web1"}, Value: v, T: now - age}
+	}
+	fs.latestFor = "acme"
+	fs.latest = []model.Latest{
+		{Name: "lumen_agent_info", Attrs: map[string]string{"host": "web1"}, Value: 1, T: now - 3},
+		unm("legacy", "old.example.com", 0, 600), unm("unreach", "unreach.example.com", 0, 20), unm("alive", "alive.example.com", 1, 3), unm("stale", "stale.example.com", 1, 600), unm("ks", "ks.example.com", 1, 3),
+	}
+	names := func() string {
+		_, b := do(ad, "GET", ts.URL+"/api/v1/instances", "")
+		var out struct {
+			Data []struct {
+				Name    string
+				Managed bool
+			}
+		}
+		json.Unmarshal(b, &out)
+		var n []string
+		for _, i := range out.Data {
+			m := "u"
+			if i.Managed {
+				m = "m"
+			}
+			n = append(n, i.Name+":"+m)
+		}
+		sort.Strings(n)
+		return strings.Join(n, ",")
+	}
+	if got := names(); got != "alive:u,ks:u,legacy:u,stale:u,unreach:u" {
+		t.Fatalf("%s", got)
+	}
+	rm := func(c *http.Client, key string) (int, string) {
+		r, b := do(c, "POST", ts.URL+"/api/v1/instance-keys/"+key+"/remove", "")
+		return r.StatusCode, string(b)
+	}
+	// who may
+	if c, _ := rm(rd, "old.example.com"); c != 403 {
+		t.Fatalf("a read-only user cannot remove: %d", c)
+	}
+	if c, _ := rm(ot, "old.example.com"); c != 404 {
+		t.Fatalf("another tenant has no such instance, so it cannot remove ours: %d", c)
+	}
+	// what may be removed
+	if c, b := rm(ad, "alive.example.com"); c != 400 || !strings.Contains(b, "is up and its agent still reports it") {
+		t.Fatalf("an instance that is up is refused, with the reason: %d %s", c, b)
+	}
+	if c, b := rm(ad, "unreach.example.com"); c != 400 || !strings.Contains(b, "its agent still reports it") || !strings.Contains(b, "would only come back") {
+		t.Fatalf("one whose agent keeps reporting that it cannot reach it would only come back: %d %s", c, b)
+	}
+	if c, _ := rm(ad, "nothing.example.com"); c != 404 {
+		t.Fatalf("unknown: %d", c)
+	}
+	// a managed instance has its own Remove
+	do(ad, "POST", ts.URL+"/api/v1/instances", `{"name":"mine","url":"https://mine.example.com","host":"web1"}`)
+	if c, b := rm(ad, "mine.example.com"); c != 400 || !strings.Contains(b, "managed here") {
+		t.Fatalf("%d %s", c, b)
+	}
+	// the ones that are gone
+	if c, _ := rm(ad, "old.example.com"); c != 200 {
+		t.Fatalf("%d", c)
+	}
+	if c, _ := rm(ad, "stale.example.com"); c != 200 {
+		t.Fatalf("%d", c)
+	}
+	if got := names(); got != "alive:u,ks:u,mine:m,unreach:u" {
+		t.Fatalf("removed ones are gone from the list at once: %s", got)
+	}
+	_, b := do(ad, "GET", ts.URL+"/api/v1/status", "")
+	if !strings.Contains(string(b), `"nextcloud":{"up":1,"down":1}`) && strings.Contains(string(b), "legacy") {
+		t.Fatalf("and from the status boxes: %s", b)
+	}
+	// it comes back only if its agent reports it again, well after the removal
+	fs.latest[1] = unm("legacy", "old.example.com", 1, -5) // reports again after it was removed
+	time.Sleep(10 * time.Millisecond)
+	do(ad, "POST", ts.URL+"/api/v1/instances", `{"name":"tmp","url":"https://tmp.example.com","host":"web1"}`) // any write forgets the cached status
+	if got := names(); !strings.Contains(got, "legacy:u") {
+		t.Fatalf("an instance that reports again is listed again: %s", got)
+	}
+	// removing an instance that is managed here also hides what its agent still reports for a moment
+	_, b = do(ad, "POST", ts.URL+"/api/v1/instances", `{"name":"ks","url":"https://ks.example.com","host":"web1"}`)
+	var created map[string]any
+	json.Unmarshal(b, &created)
+	if got := names(); !strings.Contains(got, "ks:m") || strings.Contains(got, "ks:u") {
+		t.Fatalf("%s", got)
+	}
+	if c := code(ad, "DELETE", ts.URL+"/api/v1/instances/"+created["id"].(string), ""); c != 200 {
+		t.Fatal(c)
+	}
+	if got := names(); strings.Contains(got, "ks:") {
+		t.Fatalf("a removed instance whose agent has just reported must not turn up as an unmanaged one: %s", got)
+	}
+	// and adding it again at the same address works
+	if c := code(ad, "POST", ts.URL+"/api/v1/instances", `{"name":"ks","url":"https://ks.example.com","host":"web1"}`); c != 200 {
+		t.Fatal(c)
+	}
+	if got := names(); !strings.Contains(got, "ks:m") {
+		t.Fatalf("%s", got)
+	}
+}
+
+func TestAnEmptyInstanceListIsAnEmptyArray(t *testing.T) {
+	ts, _, _ := regServer(t)
+	ad := client()
+	login(t, ad, ts, "admin", "admins-long-password")
+	_, b := do(ad, "GET", ts.URL+"/api/v1/instances", "")
+	if !strings.Contains(string(b), `"data":[]`) {
+		t.Fatalf("scripts that read the API expect an array, not null: %s", b)
 	}
 }

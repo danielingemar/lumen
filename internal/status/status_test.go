@@ -214,3 +214,41 @@ func TestInstanceVersionsAndDetails(t *testing.T) {
 		t.Fatalf("unmanaged instance: %+v", g)
 	}
 }
+
+func TestRemovedInstancesStayHiddenUntilTheyReportAgain(t *testing.T) {
+	flags := map[string]string{"instance": "old.example.com", "host": "h1"}
+	keep := map[string]string{"instance": "keep.example.com", "host": "h1"}
+	mk := func(rows ...model.Latest) []model.Latest { return rows }
+	unmanaged := func(name string, v float64, age int64, attrs map[string]string) model.Latest {
+		r := row("nextcloud_up", v, age, attrs)
+		r.Service = name
+		return r
+	}
+	removedAt := now.Add(-10 * time.Minute)
+	gone := map[string]time.Time{"old.example.com": removedAt}
+	// it stopped reporting before it was removed: hidden, and not counted as down
+	rows := mk(unmanaged("old", 0, 900, flags), unmanaged("keep", 1, 5, keep))
+	s := ComputeWith(now, rows, nil, nil, gone)
+	if len(s.Instances) != 1 || s.Instances[0].Name != "keep" || s.Nextcloud.Down != 0 || s.Nextcloud.Up != 1 {
+		t.Fatalf("a removed instance is not listed and not counted: %+v", s.Instances)
+	}
+	// without the record it is there, as it used to be
+	if s := Compute(now, rows, nil, nil); len(s.Instances) != 2 || s.Nextcloud.Down != 1 {
+		t.Fatalf("%+v", s.Instances)
+	}
+	// the agent's last report just after the removal (within the grace) does not bring it back
+	rows = mk(unmanaged("old", 1, 9*60, flags)) // 9 minutes ago = 1 minute after the removal
+	if s := ComputeWith(now, rows, nil, nil, gone); len(s.Instances) != 0 {
+		t.Fatalf("an agent that had not yet noticed: %+v", s.Instances)
+	}
+	// but if it reports well after the removal it is back (it is really still there)
+	rows = mk(unmanaged("old", 1, 5, flags))
+	if s := ComputeWith(now, rows, nil, nil, gone); len(s.Instances) != 1 || s.Instances[0].Status != "up" {
+		t.Fatalf("reporting again after the removal: %+v", s.Instances)
+	}
+	// a registered instance is never hidden by a stale record (it was added again)
+	reg := []registry.Instance{inst("old", "https://old.example.com", "h1", now.Add(-time.Hour))}
+	if s := ComputeWith(now, mk(unmanaged("old", 1, 5, flags)), nil, reg, gone); len(s.Instances) != 1 || !s.Instances[0].Managed {
+		t.Fatalf("%+v", s.Instances)
+	}
+}

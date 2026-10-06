@@ -207,3 +207,56 @@ func TestHostDisplayNameAndRemoval(t *testing.T) {
 		t.Fatal("saving settings must clear the removal")
 	}
 }
+
+func TestRemovedInstancesAreRemembered(t *testing.T) {
+	s, _ := newReg(t)
+	in := InstanceIn{Name: "ks", URL: "https://ks.example.com", Host: "web1"}
+	i, err := s.CreateInstance("acme", in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.GoneInstances("acme")) != 0 {
+		t.Fatal("nothing removed yet")
+	}
+	// removing a managed instance remembers its metric key, so the agent's last reports do not bring it back
+	if err := s.DeleteInstance("acme", i.ID); err != nil {
+		t.Fatal(err)
+	}
+	g := s.GoneInstances("acme")
+	if len(g) != 1 || g["ks.example.com"].IsZero() {
+		t.Fatalf("%v", g)
+	}
+	if len(s.GoneInstances("globex")) != 0 {
+		t.Fatal("another tenant does not see it")
+	}
+	// adding an instance at the same address brings it back
+	i2, err := s.CreateInstance("acme", in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.GoneInstances("acme")) != 0 {
+		t.Fatal("added again: no longer removed")
+	}
+	// moving an instance to an address that was removed brings that address back too
+	s.MarkGone("acme", "old.example.com", "old")
+	in.URL = "https://old.example.com"
+	if _, err := s.UpdateInstance("acme", i2.ID, in); err != nil {
+		t.Fatal(err)
+	}
+	if _, still := s.GoneInstances("acme")["old.example.com"]; still {
+		t.Fatal("an address that is in use again is not 'removed'")
+	}
+	// the key is checked: it ends up in an identifier
+	for _, bad := range []string{"", "a b", "x/y", "a\nb", strings.Repeat("a", 300)} {
+		if err := s.MarkGone("acme", bad, ""); err == nil {
+			t.Errorf("%q must be refused", bad)
+		}
+	}
+	for _, good := range []string{"ks.example.com", "127.0.0.1:8443", "[::1]:8080", "nc_1.internal"} {
+		if err := s.MarkGone("acme", good, ""); err != nil {
+			t.Errorf("%q: %v", good, err)
+		}
+	}
+	s.ClearGone("acme", "ks.example.com")
+	s.ClearGone("acme", "")
+}

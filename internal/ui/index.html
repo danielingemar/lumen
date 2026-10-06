@@ -808,13 +808,21 @@ async function instancesPage(){
     list.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['Status','Name','URL','Checked by','Last report','Problem',''].map(x=>el('th',{},x))),list.map(i=>el('tr',{class:'row',title:'Open the details of '+i.name,onclick:()=>{location.hash='#/n/'+encodeURIComponent(i.key)}},
       el('td',{},badge(i)),el('td',{},i.name,i.managed?null:el('span',{class:'pill',title:'Set up with agent flags on the machine, not in this list'},'from agent flags')),
       el('td',{class:'mono'},i.url||el('span',{class:'mut'},i.key)),el('td',{},i.host?hostLabel(i.host):''),el('td',{class:'mut'},i.last_seen?ago2(i.last_seen):'never'),el('td',{class:i.status==='down'?'err':'mut'},i.reason||''),
-      el('td',{style:'white-space:nowrap'},w?(i.managed?[el('button',{class:'btn ghost sm',onclick:ev=>{ev.stopPropagation();instanceForm(i,hosts,instancesPage)}},'Edit'),' ',el('button',{class:'btn danger sm',onclick:ev=>{ev.stopPropagation();del(i)}},'Remove')]:
-        el('button',{class:'btn ghost sm',title:'Take over management here',onclick:ev=>{ev.stopPropagation();instanceForm({name:i.name,host:i.host},hosts,instancesPage)}},'Manage here')):null))))):
+      el('td',{style:'white-space:nowrap'},w?(i.managed?[el('button',{class:'btn ghost sm',onclick:ev=>{ev.stopPropagation();instanceForm(i,hosts,instancesPage)}},'Edit'),' ',el('button',{class:'btn danger sm',onclick:ev=>{ev.stopPropagation();del(i)}},'Remove')]:[
+        el('button',{class:'btn ghost sm',title:'Take over management here',onclick:ev=>{ev.stopPropagation();instanceForm({name:i.name,host:i.host},hosts,instancesPage)}},'Manage here'),
+        goneNow(i)?[' ',el('button',{class:'btn danger sm',title:'It is gone: take it out of the list',onclick:ev=>{ev.stopPropagation();removeGone(i,instancesPage)}},'Remove')]:null]):null))))):
     el('div',{class:'card empty'},'No instances yet.',w?[' ',el('a',{href:'#',onclick:e=>{e.preventDefault();instanceForm({},hosts,instancesPage)}},'Add the first one')]:null),
     list.some(i=>!i.managed)?el('p',{class:'help'},'Rows marked “from agent flags” were set up with --nextcloud on the machine. “Manage here” creates the same instance in this list; then remove the old flags from the agent config on that machine so it is not checked twice.'):null);
 }
 
 // ---- one Nextcloud instance: status, versions, usage, performance and its log ----
+// Take an instance that nobody registered here, and that has stopped answering, out of the list. It comes back only if
+// its agent reports it again.
+// an instance nobody registered here can be taken out of the list once its agent has stopped reporting it
+const goneNow=i=>!i.managed&&i.status!=='up'&&(Date.now()/1000-(i.last_seen||0))>120;
+async function removeGone(i,done){
+  if(!confirm('Remove “'+i.name+'” from the list?\n\nIt is not set up here and it has stopped answering. It comes back only if its agent reports it again.'))return;
+  try{await api('/api/v1/instance-keys/'+encodeURIComponent(i.key)+'/remove',{},{method:'POST',body:{}});done()}catch(e){alert(e.message)}}
 async function instancePage(raw){
   const key=decodeURIComponent(raw),view=$('#view'),w=can('hosts',true);
   const r=await api('/api/v1/instances'),i=(r.data||[]).find(x=>x.key===key),hosts=r.hosts||[];S.hn=r.host_names||{};
@@ -829,7 +837,8 @@ async function instancePage(raw){
     el('span',{class:'mut'},'last report '+(i.last_seen?ago2(i.last_seen):'never')),chips,
     el('span',{class:'sp'}),
     w&&i.managed?[el('button',{class:'btn ghost sm',onclick:()=>instanceForm(i,hosts,()=>{instancePage(raw)})},'Edit'),el('button',{class:'btn danger sm',onclick:del},'Remove')]:null,
-    w&&!i.managed?el('button',{class:'btn ghost sm',title:'Create the same instance in this list so it can be edited here',onclick:()=>instanceForm({name:i.name,host:i.host},hosts,()=>{location.hash='#/instances'})},'Manage here'):null);
+    w&&!i.managed?el('button',{class:'btn ghost sm',title:'Create the same instance in this list so it can be edited here',onclick:()=>instanceForm({name:i.name,host:i.host},hosts,()=>{location.hash='#/instances'})},'Manage here'):null,
+    w&&!i.managed&&goneNow(i)?el('button',{class:'btn danger sm',title:'It is gone: take it out of the list',onclick:()=>removeGone(i,()=>{location.hash='#/instances'})},'Remove'):null);
   const notes=[];
   if(i.status==='down')notes.push(el('div',{class:'errbox'},el('b',{},'This instance is down. '),i.reason||''));
   if(i.status==='pending')notes.push(el('div',{class:'warnbox'},i.reason||'Waiting for the first check.'));

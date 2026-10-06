@@ -23,6 +23,7 @@ import (
 const (
 	collHosts = "hosts"
 	collInst  = "instances"
+	collGone  = "instances_gone" // instances that were removed, so that their last metrics do not bring them back
 )
 
 var (
@@ -315,7 +316,11 @@ func (s *Service) CreateInstance(tenant string, in InstanceIn) (Instance, error)
 		TokenEnc: s.box.Seal(in.Token), PasswordEnc: s.box.Seal(in.Password), Created: now, Updated: now}
 	c, cancel := ctx()
 	defer cancel()
-	return i, s.b.Create(c, collInst, i.ID, i)
+	if err := s.b.Create(c, collInst, i.ID, i); err != nil {
+		return i, err
+	}
+	s.ClearGone(tenant, i.Out().Key) // adding an instance again at the same address brings it back
+	return i, nil
 }
 
 func (s *Service) UpdateInstance(tenant, id string, in InstanceIn) (Instance, error) {
@@ -345,16 +350,28 @@ func (s *Service) UpdateInstance(tenant, id string, in InstanceIn) (Instance, er
 	cur.Updated = time.Now().UTC()
 	c, cancel := ctx()
 	defer cancel()
-	return cur, s.b.Put(c, collInst, id, cur, ver)
+	if err := s.b.Put(c, collInst, id, cur, ver); err != nil {
+		return cur, err
+	}
+	s.ClearGone(tenant, cur.Out().Key)
+	return cur, nil
 }
 
 func (s *Service) DeleteInstance(tenant, id string) error {
-	if _, _, err := s.getInstance(tenant, id); err != nil {
+	cur, _, err := s.getInstance(tenant, id)
+	if err != nil {
 		return err
 	}
 	c, cancel := ctx()
 	defer cancel()
-	return s.b.Delete(c, collInst, id)
+	if err := s.b.Delete(c, collInst, id); err != nil {
+		return err
+	}
+	// the agent may report once more before it notices that the instance is gone: do not show that as a new instance
+	if key := cur.Out().Key; key != "" {
+		_ = s.MarkGone(tenant, key, cur.Name)
+	}
+	return nil
 }
 
 // AgentConfig builds the remote configuration for one host, with decrypted secrets, and a revision hash so the
@@ -385,4 +402,59 @@ func randID() string {
 		panic("no randomness available")
 	}
 	return hex.EncodeToString(b)
+}
+
+// ---- instances that were removed ----
+
+// Gone is the record that an instance was removed. Until it reports again after At (plus a short grace for an agent that has
+// not yet noticed the change), its leftover metrics are not shown as an instance that nobody manages.
+type Gone struct {
+	Tenant string    `json:"tenant"`
+	Key    string    `json:"key"`
+	Name   string    `json:"name,omitempty"`
+	At     time.Time `json:"at"`
+}
+
+var goneKeyRe = regexp.MustCompile(`^[A-Za-z0-9.\-:\[\]_]{1,255}$`)
+
+func goneID(tenant, key string) string { return tenant + ":" + key }
+
+// MarkGone records that the instance with this metric key was removed.
+func (s *Service) MarkGone(tenant, key, name string) error {
+	return s.MarkGoneAt(tenant, key, name, time.Now().UTC())
+}
+
+// MarkGoneAt is MarkGone with the time of the removal given.
+func (s *Service) MarkGoneAt(tenant, key, name string, at time.Time) error {
+	if !goneKeyRe.MatchString(key) {
+		return invalid("that is not an instance address (host or host:port)")
+	}
+	c, cancel := ctx()
+	defer cancel()
+	return s.b.Put(c, collGone, goneID(tenant, key), Gone{Tenant: tenant, Key: key, Name: name, At: at.UTC()}, "")
+}
+
+// ClearGone forgets a removal (the instance was added again).
+func (s *Service) ClearGone(tenant, key string) {
+	if key == "" {
+		return
+	}
+	c, cancel := ctx()
+	defer cancel()
+	_ = s.b.Delete(c, collGone, goneID(tenant, key))
+}
+
+// GoneInstances returns when each removed instance (by metric key) was removed.
+func (s *Service) GoneInstances(tenant string) map[string]time.Time {
+	c, cancel := ctx()
+	defer cancel()
+	docs, _ := s.b.List(c, collGone, map[string]string{"tenant": tenant}, 5000)
+	out := map[string]time.Time{}
+	for _, d := range docs {
+		var g Gone
+		if d.Decode(&g) == nil {
+			out[g.Key] = g.At
+		}
+	}
+	return out
 }
