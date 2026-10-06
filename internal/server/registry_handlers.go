@@ -97,7 +97,15 @@ func (s *Server) statusSummary(w http.ResponseWriter, r *http.Request, id editio
 		writeErr(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	writeJSON(w, sn.sum)
+	out := struct {
+		status.Summary
+		Alerts *alertCounts `json:"alerts,omitempty"`
+	}{Summary: sn.sum}
+	if s.alerts != nil && id.Can(perm.Alerts, false) {
+		f, p := s.alerts.Counts(id.Tenant)
+		out.Alerts = &alertCounts{f, p}
+	}
+	writeJSON(w, out)
 }
 
 type hostOut struct {

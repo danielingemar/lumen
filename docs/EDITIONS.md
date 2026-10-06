@@ -31,12 +31,12 @@ Lumen is developed in the open, and some of it will be sold. Anyone who builds o
 | Users, groups, area permissions, API keys | Yes (exists) | Yes | Yes |
 | Tenant isolation | Yes (exists) | Yes | Yes |
 | Site name and logo | Instance-wide (exists) | Instance-wide | Per tenant (planned) |
-| Alert rules on metrics, status, logs and traces; email, webhook, Slack and Teams; acknowledge; basic silences; starter rules | Yes (planned) | Yes | Yes |
+| Alert rules on metrics, status, logs and traces; email, webhook, Slack and Teams; acknowledge; basic silences; starter rules | Yes (exists, except trace rules) | Yes | Yes |
 | OIDC sign-in with one provider | Yes (planned) | Yes | Yes |
 | Audit log: who changed what, viewable by administrators | Yes (planned) | Yes | Yes |
 | SAML, SCIM, LDAP group mapping; enforced MFA; API-key and session policies; PII redaction at ingest | | Yes (planned) | |
 | Tamper-evident audit log with long retention and SIEM export | | Yes (planned) | |
-| Jira, ServiceNow, PagerDuty, Opsgenie; escalation policies and on-call schedules; alert routing, grouping and templates; recurring maintenance windows with approval | | Yes (planned) | |
+| Jira, ServiceNow, PagerDuty, Opsgenie; escalation policies and on-call schedules; alert routing, grouping and templates; recurring maintenance windows with approval | | Yes (Jira, ServiceNow, PagerDuty and Opsgenie exist; the rest is planned) | |
 | High availability, ClickHouse cluster, tiered storage and downsampling, zero-downtime upgrades, point-in-time restore | | Yes (planned) | |
 | Encrypted offsite backups (for example S3), legal hold | | Yes (planned) | |
 | Kubernetes operator, Terraform provider | | Yes (planned) | |

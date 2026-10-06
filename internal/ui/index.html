@@ -76,6 +76,8 @@ textarea{width:100%;min-height:84px;font-family:ui-monospace,monospace;font-size
 .badge{display:inline-block;padding:1px 8px;border-radius:6px;font-size:11px;font-weight:600}.badge.up{background:#dcfce7;color:#166534}.badge.down{background:#fee2e2;color:#991b1b}.badge.pending{background:#fef3c7;color:#92400e}
 [data-theme=dark] .badge.up{background:#14532d;color:#bbf7d0}[data-theme=dark] .badge.down{background:#7f1d1d;color:#fecaca}[data-theme=dark] .badge.pending{background:#78350f;color:#fde68a}
 .help{color:var(--mut);font-size:12px;margin:4px 0 0}
+.badge.info{background:#e0e7ff;color:#3730a3}[data-theme=dark] .badge.info{background:#312e81;color:#c7d2fe}
+#side nav a .nb{margin-left:auto;background:var(--err);color:#fff;border-radius:99px;font-size:11px;font-weight:700;padding:0 7px;min-width:18px;text-align:center}.warn{color:#b45309}[data-theme=dark] .warn{color:#fbbf24}
 </style><link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%235b5bd6'/%3E%3Cpath d='M22 14v30h22' fill='none' stroke='white' stroke-width='8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 </head><body><div id="root"></div>
 <script>
@@ -211,8 +213,9 @@ const PANEL_TYPES={line:'Line chart',area:'Area chart',bar:'Bar chart (stacked)'
 const UNITS={none:'Number',bytes:'Bytes',bytesps:'Bytes per second',percent:'Percent (0-100)',percent01:'Percent (0-1)',seconds:'Seconds',uptime:'Duration (d h m)',ms:'Milliseconds',rate:'Per second'};
 const HEIGHTS={1:150,2:240,3:340};
 // Status panels (up/down counts) do not depend on the time range: they show the situation right now.
-const STATUS_KINDS={nc_down:['Nextcloud instances DOWN','#/instances'],nc_up:['Nextcloud instances up','#/instances'],host_down:['Hosts DOWN','#/hosts'],host_up:['Hosts up','#/hosts'],svc_down:['Services DOWN','#/hosts'],svc_up:['Services up','#/hosts'],container_down:['Containers DOWN','#/hosts'],container_up:['Containers up','#/hosts']};
+const STATUS_KINDS={alerts_firing:['Alerts firing','#/alerts'],nc_down:['Nextcloud instances DOWN','#/instances'],nc_up:['Nextcloud instances up','#/instances'],host_down:['Hosts DOWN','#/hosts'],host_up:['Hosts up','#/hosts'],svc_down:['Services DOWN','#/hosts'],svc_up:['Services up','#/hosts'],container_down:['Containers DOWN','#/hosts'],container_up:['Containers up','#/hosts']};
 function statusValue(s,k){
+  if(k==='alerts_firing'){const a=s.alerts||{firing:0,pending:0};return{n:a.firing,total:0,cls:a.firing>0?'err':'ok',names:a.pending?[a.pending+' pending']:[],label:'Alerts firing'}}
   const kind=k.split('_')[0],isDown=k.endsWith('_down');
   const cnt=({nc:s.nextcloud,host:s.hosts,svc:s.services,container:s.containers})[kind]||{up:0,down:0};
   let names=[];
@@ -408,10 +411,11 @@ const ICON={home:'<path d="M3 11l9-8 9 8M5 10v10h14V10"/>',dash:'<rect x="3" y="
  trace:'<path d="M4 6h10M8 12h12M6 18h8"/>',logs:'<path d="M4 6h16M4 12h16M4 18h10"/>',metric:'<path d="M3 17l5-6 4 3 8-9"/><path d="M3 21h18"/>',machine:'<rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01"/>',user:'<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>',
  host:'<rect x="3" y="4" width="18" height="12" rx="1"/><path d="M8 20h8M12 16v4"/>',cloud:'<path d="M7 18a4 4 0 010-8 5 5 0 019.6-1A4.5 4.5 0 0117 18z"/>',
  users:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.3-5 6.5-5s5.7 1.5 6.5 5"/><path d="M16 4.5a3.5 3.5 0 010 7M18 15c2 .5 3.2 2 3.5 5"/>',archive:'<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11h14V8M10 12h4"/>',
+ bell:'<path d="M6 8a6 6 0 0112 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 004 0"/>',
  cog:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'};
 // each entry: href, label, icon, who may see it (hidden pages are also refused by the server)
 const NAV=[['#/','Home','home',()=>true],['#/dashboards','Dashboards','dash',()=>can('dashboards')],['#/traces','Traces','trace',()=>can('traces')],['#/logs','Logs','logs',()=>can('logs')],['#/metrics','Metrics','metric',()=>can('metrics')],
- ['#/hosts','Hosts','host',()=>can('hosts')],['#/instances','Instances','cloud',()=>can('hosts')],['#/machines','Add a machine','machine',()=>can('keys')||can('hosts',true)],
+ ['#/hosts','Hosts','host',()=>can('hosts')],['#/instances','Instances','cloud',()=>can('hosts')],['#/alerts','Alerts','bell',()=>can('alerts')],['#/machines','Add a machine','machine',()=>can('keys')||can('hosts',true)],
  ['#/users','Users & groups','users',()=>can('users')],['#/backups','Backups & archive','archive',()=>can('backups')],['#/settings','Settings','cog',()=>can('settings')],['#/account','Account','user',()=>true]];
 const iconEl=k=>{const s=svg('svg',{viewBox:'0 0 24 24'});s.innerHTML=ICON[k];return s};
 function setTitle(t){const h=$('#top h1');if(h)h.textContent=t;document.title=t+' · '+((S.brand&&S.brand.name)||'Lumen')}
@@ -487,15 +491,17 @@ function shell(){
       el('div',{id:'arcbar',style:'display:none'},el('b',{},'Archive'),' – showing data restored from backups, not live data. Only days you have loaded contain anything. ',el('a',{href:'#/backups'},'Choose days'),el('span',{class:'sp'}),el('button',{class:'btn ghost sm',onclick:()=>setArchive(false)},'Back to live data')),
       el('div',{id:'view'}))));
   syncTop();
+  refreshAlertBadge();
 }
 
 // ---- router ----
 const ROUTES=[[/^#\/$/,homePage],[/^#\/dashboards$/,dashboardsPage,'dashboards'],[/^#\/d\/([\w-]+)$/,dashboardPage,'dashboards'],[/^#\/traces$/,tracesPage,'traces'],[/^#\/t\/([\w-]+)$/,tracePage,'traces'],[/^#\/logs$/,logsPage,'logs'],[/^#\/metrics$/,metricsPage,'metrics'],
- [/^#\/hosts$/,hostsPage,'hosts'],[/^#\/h\/([^\/?]+)$/,hostPage,'hosts'],[/^#\/instances$/,instancesPage,'hosts'],[/^#\/n\/([^\/?]+)$/,instancePage,'hosts'],[/^#\/users$/,usersPage,'users'],[/^#\/backups$/,backupsPage,'backups'],[/^#\/settings$/,settingsPage,'settings'],[/^#\/machines$/,machinesPage],[/^#\/account$/,accountPage]];
+ [/^#\/hosts$/,hostsPage,'hosts'],[/^#\/h\/([^\/?]+)$/,hostPage,'hosts'],[/^#\/instances$/,instancesPage,'hosts'],[/^#\/alerts(?:\/(rules|channels|silences|history))?$/,alertsPage,'alerts'],[/^#\/n\/([^\/?]+)$/,instancePage,'hosts'],[/^#\/users$/,usersPage,'users'],[/^#\/backups$/,backupsPage,'backups'],[/^#\/settings$/,settingsPage,'settings'],[/^#\/machines$/,machinesPage],[/^#\/account$/,accountPage]];
 async function route(){
+  if(S.me&&Date.now()-(S.alertAt||0)>30000){S.alertAt=Date.now();refreshAlertBadge()} // the menu's alert count, at most every 30 s
   if(!S.me)return;clearTimers();S.onRangeChange=null;
   const h=location.hash||'#/';
-  $$('#side nav a').forEach(a=>a.classList.toggle('on',a.dataset.h===h||(a.dataset.h!=='#/'&&h.startsWith(a.dataset.h))||(a.dataset.h==='#/dashboards'&&h.startsWith('#/d/'))||(a.dataset.h==='#/traces'&&h.startsWith('#/t/'))||(a.dataset.h==='#/hosts'&&h.startsWith('#/h/'))||(a.dataset.h==='#/instances'&&h.startsWith('#/n/'))));
+  $$('#side nav a').forEach(a=>a.classList.toggle('on',a.dataset.h===h||(a.dataset.h!=='#/'&&h.startsWith(a.dataset.h))||(a.dataset.h==='#/dashboards'&&h.startsWith('#/d/'))||(a.dataset.h==='#/traces'&&h.startsWith('#/t/'))||(a.dataset.h==='#/hosts'&&h.startsWith('#/h/'))||(a.dataset.h==='#/instances'&&h.startsWith('#/n/'))||(a.dataset.h==='#/alerts'&&h.startsWith('#/alerts'))));
   for(const[re,fn,area]of ROUTES){const m=re.exec(h);if(m){$('#view').replaceChildren();if(area&&!can(area)){setTitle('No access');$('#view').replaceChildren(el('div',{class:'card empty'},'Your account does not have access to this page. Ask an administrator to change your group.'));return}try{await fn(...m.slice(1))}catch(e){if(e.message!=='Please sign in.')$('#view').replaceChildren(el('div',{class:'msg'},e.message))}return}}
   $('#view').replaceChildren(el('div',{class:'empty'},'Page not found.'));
 }
@@ -511,7 +517,7 @@ async function homePage(){
   setTitle('Home');const view=$('#view');
   const [svcs,dash]=await Promise.all([rows('/api/v1/services',{from:new Date(Date.now()-864e5).toISOString(),to:new Date().toISOString()}).catch(()=>[]),rows('/api/v1/dashboards').catch(()=>[])]);
   const statusRow=()=>{if(!(can('hosts')||can('metrics')))return null;
-    return el('div',{},el('h2',{},'Status right now'),el('div',{class:'grid'},['nc_up','nc_down','host_up','host_down','svc_down','container_down'].map(k=>{const body=el('div',{class:'body',style:'min-height:70px'});
+    return el('div',{},el('h2',{},'Status right now'),el('div',{class:'grid'},['alerts_firing','nc_up','nc_down','host_up','host_down','svc_down','container_down'].filter(k=>k!=='alerts_firing'||can('alerts')).map(k=>{const body=el('div',{class:'body',style:'min-height:70px'});
       loadPanel({type:'stat',h:1,q:{src:'status',status:k}},body,win());return el('div',{class:'panel',style:'--w:2'},el('header',{},el('span',{class:'t'},STATUS_KINDS[k][0])),body)})))};
   view.replaceChildren(
     statusRow(),
@@ -913,6 +919,141 @@ async function backupsPage(){
     el('div',{class:'card empty'},'No days backed up yet.'),
     cmdBox('Copy the backups to another machine','docker compose -f deploy/docker-compose.yml cp lumen:/backup ./lumen-backup','Backups live on the same server as the live data, so they do not protect against losing the server. Copy this folder somewhere else regularly (cron + rsync/rclone). The files are plain gzip: zcat lumen-backup/telemetry/2026-09-30/main/otel_logs.jsonl.gz | less'));
 }
+
+// ---- alerts: active alerts, rules, channels, silences, history ----
+const SEV_ORDER=['critical','warning','info'];
+const sevBadge=s=>el('span',{class:'badge '+(s==='critical'?'down':s==='warning'?'pending':'info')},String(s||'').toUpperCase());
+const chips=l=>Object.entries(l||{}).map(([k,v])=>el('span',{class:'chip',style:'cursor:default'},k+'='+v));
+const kvText=m=>Object.entries(m||{}).map(([k,v])=>k+'='+v).join('\n');
+function parseKV(t,what){const o={};for(const ln of lines(t)){const i=ln.indexOf('=');if(i<1||i===ln.length-1)throw new Error('Each line in '+what+' must look like label=value ("'+ln+'" does not).');o[ln.slice(0,i).trim()]=ln.slice(i+1).trim()}return o}
+const STATUS_TEXT={host_down:'a host is down (its agent stopped reporting)',instance_down:'a Nextcloud instance is down',service_down:'a service is failed or not running',container_down:'a Docker container is not running'};
+function ruleText(r){
+  const win=r.window_sec?Math.round(r.window_sec/60)+' min':'';
+  if(r.kind==='status')return STATUS_TEXT[r.status]||r.status;
+  if(r.kind==='log')return 'log lines'+(r.service?' from '+r.service:'')+(r.log_severity?' ('+r.log_severity+')':'')+(r.contains?' containing "'+r.contains+'"':'')+' '+r.op+' '+r.threshold+' in '+win+(r.group_by?' per '+r.group_by:'');
+  return (r.reduce||'avg')+'('+r.metric+') '+r.op+' '+r.threshold+' over '+win+(r.group_by?' per '+r.group_by:'')+((r.filters||[]).length?' where '+r.filters.map(f=>f.k+'='+f.v).join(', '):'');
+}
+const alertTabs=[['','Active'],['rules','Rules'],['channels','Channels'],['silences','Silences'],['history','History']];
+async function alertsPage(tab){
+  tab=tab||'';setTitle('Alerts');const view=$('#view');
+  const bar=el('div',{class:'bar',style:'gap:6px'},alertTabs.map(([t,l])=>el('a',{class:'btn '+(t===tab?'':'ghost'),href:'#/alerts'+(t?'/'+t:'')},l)));
+  const body=el('div',{});view.replaceChildren(bar,body);
+  const draw={'':alertsActive,rules:alertsRules,channels:alertsChannels,silences:alertsSilences,history:alertsHistory}[tab]||alertsActive;
+  await draw(body,()=>alertsPage(tab));
+  if(S.refresh&&tab==='')S.timers.push(setInterval(()=>{if(body.isConnected)alertsActive(body,()=>alertsPage(tab))},S.refresh*1000));
+}
+function silenceDialog(prefill,again){
+  const w=[],m=el('textarea',{style:'min-height:70px'},kvText(prefill||{})),dur=el('select',{},[[30,'30 minutes'],[120,'2 hours'],[480,'8 hours'],[1440,'24 hours'],[10080,'7 days']].map(([v,t])=>el('option',{value:v,selected:v===120?'':null},t))),why=el('input',{placeholder:'for example planned reboot',size:36,maxlength:200});
+  dialog('Silence alerts',el('div',{},el('p',{class:'help'},'Alerts whose labels match all of these lines are muted: still evaluated and shown, but nothing is sent. Use * as a value to match any.'),
+    el('div',{class:'form'},el('label',{},'Matching'),m,el('label',{},'For'),dur,el('label',{},'Reason'),why)),
+    [['Cancel',()=>{},'ghost'],['Silence',async()=>{await api('/api/v1/alerts/silences',{},{method:'POST',body:{matchers:parseKV(m.value,'Matching'),minutes:+dur.value,reason:why.value.trim()}});again()}]])}
+async function alertsActive(box,again){
+  const w=can('alerts',true),r=await api('/api/v1/alerts'),list=r.data||[];
+  const act=async(fn)=>{try{await fn()}catch(e){alert(e.message)}again();refreshAlertBadge()};
+  box.replaceChildren(list.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['','Alert','Labels','State','Since','Value',''].map(x=>el('th',{},x))),list.map(a=>el('tr',{},
+    el('td',{},sevBadge(a.severity)),el('td',{},el('b',{},a.rule_name),a.annotation?el('div',{class:'mut',style:'font-size:12px'},a.annotation):null),el('td',{},chips(a.labels)),
+    el('td',{},a.state==='firing'?el('span',{class:'err'},'FIRING'):el('span',{class:'mut'},'pending'),a.acked?el('div',{class:'mut',style:'font-size:12px'},'acknowledged by '+a.acked_by):null,a.silenced?el('div',{class:'mut',style:'font-size:12px'},'silenced'):null),
+    el('td',{class:'mut'},ago2(Math.floor(Date.parse(a.since)/1000))),el('td',{class:'mono'},String(+(+a.value).toPrecision(4))),
+    el('td',{style:'white-space:nowrap;text-align:right'},w?[a.acked?el('button',{class:'btn ghost sm',onclick:()=>act(()=>api('/api/v1/alerts/ack/'+a.fingerprint,{},{method:'DELETE'}))},'Unacknowledge'):el('button',{class:'btn ghost sm',onclick:()=>act(()=>api('/api/v1/alerts/ack/'+a.fingerprint,{},{method:'POST',body:{}}))},'Acknowledge'),' ',
+      el('button',{class:'btn ghost sm',onclick:()=>silenceDialog(Object.assign({alertname:a.rule_name},a.labels),again)},'Silence…')]:null))))):
+    el('div',{class:'card empty'},'No alerts. Everything is quiet.',w?el('div',{class:'help'},'Alerts appear here when a rule fires. Add rules under ',el('a',{href:'#/alerts/rules'},'Rules'),'.'):null))}
+// ---- rules ----
+function ruleDialog(rule,again){
+  const edit=!!rule.id,R=Object.assign({kind:'metric',severity:'warning',reduce:'avg',op:'>',window_sec:300,interval_sec:60,for_sec:0,no_data:'ok',enabled:true,threshold:0,filters:[],labels:{}},rule);
+  const sel=(opts,val,on)=>el('select',{onchange:on&&(e=>on(e.target.value))},opts.map(o=>Array.isArray(o)?el('option',{value:o[0],selected:String(o[0])===String(val)?'':null},o[1]):el('option',{value:o,selected:o===val?'':null},o)));
+  const f={name:el('input',{value:R.name||'',placeholder:'for example Disk almost full',size:40,maxlength:80}),kind:sel([['metric','A metric'],['status','Up / down status'],['log','Log lines']],R.kind,()=>drawKind()),
+    sev:sel(['critical','warning','info'],R.severity),forMin:el('input',{type:'number',min:0,value:Math.round(R.for_sec/60),style:'width:80px'}),interval:sel([[15,'15 s'],[30,'30 s'],[60,'1 min'],[300,'5 min']],R.interval_sec),
+    nodata:sel([['ok','Treat as fine'],['alert','Raise an alert'],['keep','Keep the last state']],R.no_data),ann:el('textarea',{style:'min-height:54px'},R.annotation||''),labels:el('textarea',{style:'min-height:48px',placeholder:'team=ops'},kvText(R.labels)),en:el('input',{type:'checkbox',checked:R.enabled})};
+  const k=el('div',{class:'form',style:'margin-top:8px'});let mf={};
+  const drawKind=async()=>{const kind=f.kind.value;mf={};
+    if(kind==='status'){mf.status=sel(Object.entries(STATUS_TEXT),R.status||'host_down');k.replaceChildren(el('label',{},'Alert when'),mf.status);return}
+    mf.op=sel(['>','>=','<','<=','==','!='],R.op);mf.th=el('input',{type:'number',step:'any',value:R.threshold,style:'width:110px'});mf.win=sel([[1,'1 min'],[5,'5 min'],[10,'10 min'],[30,'30 min'],[60,'1 hour']],Math.round(R.window_sec/60));
+    if(kind==='metric'){
+      let names=[];try{names=await rows('/api/v1/metrics/names',{from:new Date(Date.now()-7*864e5).toISOString(),to:new Date().toISOString()})}catch{}
+      mf.metric=el('input',{list:'alertmetrics',value:R.metric||'',placeholder:names.length?'choose or type a metric name':'metric name',size:40});
+      mf.reduce=sel([['avg','average'],['max','highest'],['min','lowest'],['last','latest'],['sum','sum']],R.reduce);mf.group=el('input',{value:R.group_by||'',placeholder:'label, for example host',size:20});
+      mf.filters=el('textarea',{style:'min-height:48px',placeholder:'host=web1'},(R.filters||[]).map(x=>x.k+'='+x.v).join('\n'));
+      k.replaceChildren(el('label',{},'Metric'),el('div',{},mf.metric,el('datalist',{id:'alertmetrics'},names.map(n=>el('option',{value:n.name})))),
+        el('label',{},'Value'),el('div',{style:'display:flex;gap:8px;align-items:center;flex-wrap:wrap'},mf.reduce,' over ',mf.win,' is ',mf.op,mf.th),
+        el('label',{},'One alert per'),mf.group,el('label',{},'Only where'),mf.filters)}
+    else{mf.service=el('input',{value:R.service||'',placeholder:'any'});mf.host=el('input',{value:R.host||'',placeholder:'any'});mf.sev=sel([['','any severity'],'ERROR','WARN','INFO','DEBUG'],R.log_severity||'');mf.contains=el('input',{value:R.contains||'',placeholder:'contains text'});mf.group=sel([['','one alert'],['service','one per source'],['severity','one per severity']],R.group_by||'');
+      k.replaceChildren(el('label',{},'Log lines from'),el('div',{style:'display:flex;gap:8px;flex-wrap:wrap'},mf.service,mf.host,mf.sev,mf.contains),el('label',{},'Alert when the number of lines'),el('div',{style:'display:flex;gap:8px;align-items:center;flex-wrap:wrap'},'in',mf.win,'is',mf.op,mf.th),el('label',{},'Split'),mf.group)}};
+  const build=()=>{const kind=f.kind.value,b={name:f.name.value.trim(),kind,severity:f.sev.value,for_sec:Math.max(0,Math.round(+f.forMin.value*60)),interval_sec:+f.interval.value,no_data:f.nodata.value,annotation:f.ann.value.trim(),labels:parseKV(f.labels.value,'Labels'),enabled:f.en.checked};
+    if(kind==='status')b.status=mf.status.value;
+    else{b.op=mf.op.value;b.threshold=+mf.th.value;b.window_sec=+mf.win.value*60;
+      if(kind==='metric'){b.metric=mf.metric.value.trim();b.reduce=mf.reduce.value;b.group_by=mf.group.value.trim();b.filters=Object.entries(parseKV(mf.filters.value,'Only where')).map(([k_,v])=>({k:k_,v}))}
+      else{b.service=mf.service.value.trim();b.host=mf.host.value.trim();b.log_severity=mf.sev.value;b.contains=mf.contains.value.trim();b.group_by=mf.group.value}}
+    return b};
+  const out=el('div',{style:'margin-top:8px;min-height:20px;font-size:13px'});
+  const preview=async()=>{out.className='mut';out.textContent='Replaying the last 24 hours…';try{const b=build(),r=await api('/api/v1/alerts/backtest',{},{method:'POST',body:{rule:b,hours:24}}),d=r.data||[];
+    out.className=d.length?'warn':'ok';out.replaceChildren(d.length?el('div',{},el('b',{},'It would have fired '+d.length+' time'+(d.length>1?'s':'')+' in the last 24 hours:'),d.slice(0,8).map(x=>el('div',{},new Date(x.start).toLocaleString()+' – '+new Date(x.end).toLocaleTimeString()+'  '+Object.entries(x.labels||{}).map(([a,c])=>a+'='+c).join(', ')+'  (peak '+(+x.peak).toPrecision(4)+')')),d.length>8?'…':null):'It would not have fired in the last 24 hours.')}catch(e){out.className='err';out.textContent=e.message}};
+  const form=el('div',{class:'form'},el('label',{},'Name'),f.name,el('label',{},'Kind'),f.kind);
+  dialog(edit?'Edit rule':'Add rule',el('div',{},form,k,el('div',{class:'form',style:'margin-top:10px'},el('label',{},'Importance'),f.sev,el('label',{},'It must last'),el('div',{},f.forMin,' minutes before it fires'),el('label',{},'Check every'),f.interval,el('label',{},'If there is no data'),f.nodata,el('label',{},'Message'),f.ann,el('label',{},'Extra labels'),f.labels,el('label',{},'Active'),el('label',{style:'color:var(--fg)'},f.en,' enabled')),
+    el('div',{style:'margin-top:8px'},el('button',{class:'btn ghost sm',onclick:preview},'Preview on the last 24 hours')),out),
+    [['Cancel',()=>{},'ghost'],['Save',async()=>{const b=build();await api(edit?'/api/v1/alerts/rules/'+rule.id:'/api/v1/alerts/rules',{},{method:edit?'PUT':'POST',body:b});again()}]]);
+  drawKind();
+}
+async function alertsRules(box,again){
+  const w=can('alerts',true),r=await api('/api/v1/alerts/rules'),list=r.data||[];
+  const act=async(fn)=>{try{await fn()}catch(e){alert(e.message)}again()};
+  const templates=async()=>{const t=(await api('/api/v1/alerts/templates')).data||[],have=new Set(list.map(x=>x.name));
+    dialog('Starter rules',el('div',{},el('p',{class:'help'},'Ready-made rules. Adding one creates it as it is; you can edit it afterwards.'),el('table',{},t.map(x=>el('tr',{},el('td',{},sevBadge(x.severity)),el('td',{},el('b',{},x.name),el('div',{class:'mut',style:'font-size:12px'},ruleText(x))),
+      el('td',{style:'text-align:right'},have.has(x.name)?el('span',{class:'mut'},'added'):el('button',{class:'btn sm',onclick:async e=>{e.target.disabled=true;try{await api('/api/v1/alerts/rules',{},{method:'POST',body:x});e.target.replaceWith(el('span',{class:'ok'},'added'))}catch(er){e.target.disabled=false;alert(er.message)}}},'Add')))))),
+      [['Done',()=>{again()}]])};
+  box.replaceChildren(el('div',{class:'bar'},el('span',{class:'mut'},'A rule is a condition Lumen checks regularly. When it holds for long enough, an alert fires and the channels you set up are told.'),el('span',{class:'sp'}),
+    w?[el('button',{class:'btn ghost',onclick:templates},'Starter rules'),el('button',{class:'btn',onclick:()=>ruleDialog({},again)},'+ Add rule')]:null),
+    list.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['','Rule','Condition','Importance','Must last',''].map(x=>el('th',{},x))),list.map(x=>el('tr',{},
+      el('td',{},w?el('input',{type:'checkbox',checked:x.enabled,title:x.enabled?'Enabled':'Disabled',onchange:e=>act(()=>api('/api/v1/alerts/rules/'+x.id,{},{method:'PUT',body:Object.assign({},x,{enabled:e.target.checked})}))}):dot(x.enabled?'up':'pending')),
+      el('td',{},el('b',{},x.name),x.error?el('div',{class:'err',style:'font-size:12px'},'Cannot be checked: '+x.error):null),el('td',{class:'mut'},ruleText(x)),el('td',{},sevBadge(x.severity)),el('td',{class:'mut'},x.for_sec?Math.round(x.for_sec/60)+' min':'at once'),
+      el('td',{style:'white-space:nowrap;text-align:right'},w?[el('button',{class:'btn ghost sm',onclick:()=>ruleDialog(x,again)},'Edit'),' ',el('button',{class:'btn danger sm',onclick:()=>{if(confirm('Delete the rule “'+x.name+'”? Its alerts disappear.'))act(()=>api('/api/v1/alerts/rules/'+x.id,{},{method:'DELETE'}))}},'Delete')]:null))))):
+    el('div',{class:'card empty'},'No rules yet.',w?[' ',el('a',{href:'#',onclick:e=>{e.preventDefault();templates()}},'Start from the starter rules')]:null))}
+// ---- channels ----
+function channelDialog(ch,types,again){
+  const edit=!!ch.id,typ=el('select',{disabled:edit,onchange:()=>drawFields()},types.map(t=>el('option',{value:t.type,selected:t.type===(ch.type||'email')?'':null},t.label)));
+  const name=el('input',{value:ch.name||'',size:30,maxlength:60,placeholder:'for example Operations'}),en=el('input',{type:'checkbox',checked:ch.enabled!==false}),box=el('div',{class:'form'});
+  const sev=['critical','warning','info'].map(s=>[s,el('input',{type:'checkbox',checked:(ch.severities||[]).includes(s)})]),match=el('textarea',{style:'min-height:48px',placeholder:'host=web1'},kvText(ch.match));
+  let inputs={};
+  const drawFields=()=>{const t=types.find(x=>x.type===typ.value);inputs={};box.replaceChildren((t.fields||[]).flatMap(fd=>{
+      const v=ch.type===t.type?((ch.settings||{})[fd.key]||''):'';
+      let i;
+      if(fd.kind==='select')i=el('select',{},(fd.options||[]).map(o=>el('option',{value:o,selected:(v||fd.default)===o?'':null},o)));
+      else i=el('input',{type:fd.kind==='secret'?'password':fd.kind==='number'?'number':'text',autocomplete:'off',size:42,value:fd.kind==='secret'?'':(v||fd.default||''),placeholder:fd.kind==='secret'&&edit&&(ch.has_secret||{})[fd.key]?'(unchanged)':''});
+      inputs[fd.key]=[fd,i];
+      return [el('label',{},fd.label+(fd.required?' *':'')),el('div',{},i,fd.help?el('div',{class:'help'},fd.help):null)]}))};
+  dialog(edit?'Edit channel':'Add channel',el('div',{},el('div',{class:'form'},el('label',{},'Type'),typ,el('label',{},'Name'),name),box,
+    el('div',{class:'form',style:'margin-top:10px'},el('label',{},'Send'),el('div',{},el('div',{},'Only these importances (none ticked = all):'),sev.map(([s,i])=>el('label',{style:'color:var(--fg);margin-right:10px'},i,' '+s)),el('div',{class:'help'},'Only alerts with these labels (optional):'),match),el('label',{},'Active'),el('label',{style:'color:var(--fg)'},en,' enabled')),
+    el('p',{class:'help'},'Secrets are stored encrypted and are never shown again. After saving, use Test to send a test message.')),
+    [['Cancel',()=>{},'ghost'],['Save',async()=>{const settings={},secrets={};for(const[k,[fd,i]]of Object.entries(inputs)){if(fd.kind==='secret'){if(i.value)secrets[k]=i.value}else settings[k]=i.value}
+      await api(edit?'/api/v1/notifications/channels/'+ch.id:'/api/v1/notifications/channels',{},{method:edit?'PUT':'POST',body:{name:name.value.trim(),type:typ.value,enabled:en.checked,settings,secrets,severities:sev.filter(([,i])=>i.checked).map(([s])=>s),match:parseKV(match.value,'Only alerts with these labels')}});again()}]]);
+  drawFields()}
+async function alertsChannels(box,again){
+  const w=can('notifications',true);let r,types;
+  try{r=await api('/api/v1/notifications/channels');types=(await api('/api/v1/notifications/types')).data||[]}catch(e){box.replaceChildren(el('div',{class:'card empty'},/access|403|permission/i.test(e.message)?'Your account may not see notification channels. Ask an administrator.':e.message));return}
+  const list=r.data||[],res=el('div',{class:'mono',style:'margin:8px 0;min-height:18px'});
+  const test=async c=>{res.className='mut';res.textContent='Sending a test message through '+c.name+'…';try{const t=await api('/api/v1/notifications/channels/'+c.id+'/test',{},{method:'POST',body:{}});res.className=t.ok?'ok':'err';res.textContent=t.ok?'The test message was sent through '+c.name+'.':'Could not send through '+c.name+': '+t.error}catch(e){res.className='err';res.textContent=e.message}setTimeout(()=>{if(res.isConnected&&false)again()},0)};
+  const health=c=>c.health&&c.health.error&&(!c.health.last_ok||Date.parse(c.health.last_error)>Date.parse(c.health.last_ok))?el('span',{class:'badge down',title:c.health.error},'FAILING'):c.health&&c.health.last_ok?el('span',{class:'badge up'},'OK'):el('span',{class:'mut'},'not used yet');
+  box.replaceChildren(el('div',{class:'bar'},el('span',{class:'mut'},'Where messages go: email, a webhook, Slack, Teams'+(types.some(t=>t.type==='jira')?', Jira, PagerDuty and more':'')+'.'),el('span',{class:'sp'}),w?el('button',{class:'btn',onclick:()=>channelDialog({},types,again)},'+ Add channel'):null),res,
+    list.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['Name','Type','Sends','Status',''].map(x=>el('th',{},x))),list.map(c=>el('tr',{},
+      el('td',{},el('b',{},c.name),c.enabled?null:el('span',{class:'pill'},'disabled')),el('td',{class:'mut'},c.type_label),
+      el('td',{class:'mut'},(c.severities&&c.severities.length?c.severities.join(', '):'all importances')+(Object.keys(c.match||{}).length?' · '+kvText(c.match).replace(/\n/g,', '):'')),el('td',{},health(c)),
+      el('td',{style:'white-space:nowrap;text-align:right'},w?[el('button',{class:'btn ghost sm',onclick:()=>test(c)},'Test'),' ',el('button',{class:'btn ghost sm',onclick:()=>channelDialog(c,types,again)},'Edit'),' ',el('button',{class:'btn danger sm',onclick:async()=>{if(!confirm('Delete the channel “'+c.name+'”?'))return;try{await api('/api/v1/notifications/channels/'+c.id,{},{method:'DELETE'})}catch(e){alert(e.message)}again()}},'Delete')]:null))))):
+    el('div',{class:'card empty'},'No channels yet. Add one so that alerts can reach someone.'))}
+// ---- silences and history ----
+async function alertsSilences(box,again){
+  const w=can('alerts',true),list=(await api('/api/v1/alerts/silences')).data||[],now=Date.now();
+  box.replaceChildren(el('div',{class:'bar'},el('span',{class:'mut'},'A silence mutes matching alerts for a while, for example during planned work.'),el('span',{class:'sp'}),w?el('button',{class:'btn',onclick:()=>silenceDialog({},again)},'+ Add silence'):null),
+    list.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['Matching','Until','Reason','By','',''].map(x=>el('th',{},x))),list.map(s=>{const act=Date.parse(s.end)>now;return el('tr',{},el('td',{},chips(s.matchers)),el('td',{class:'mut'},new Date(s.end).toLocaleString()),el('td',{class:'mut'},s.reason||''),el('td',{class:'mut'},s.created_by),
+      el('td',{},act?el('span',{class:'badge up'},'ACTIVE'):el('span',{class:'mut'},'ended')),el('td',{style:'text-align:right'},w?el('button',{class:'btn ghost sm',onclick:async()=>{try{await api('/api/v1/alerts/silences/'+s.id,{},{method:'DELETE'})}catch(e){alert(e.message)}again()}},act?'End now':'Remove'):null))}))):el('div',{class:'card empty'},'No silences.'))}
+async function alertsHistory(box){
+  const h=(await api('/api/v1/alerts/history')).data||[];let dv=[];
+  if(can('notifications'))try{dv=(await api('/api/v1/alerts/deliveries')).data||[]}catch{}
+  const typeBadge=t=>el('span',{class:'badge '+(t==='firing'?'down':t==='resolved'?'up':'info')},t.toUpperCase());
+  box.replaceChildren(h.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['Time','Event','Alert','','Labels','Value','By'].map(x=>el('th',{},x))),h.map(e=>el('tr',{},el('td',{class:'mut'},new Date(e.time).toLocaleString()),el('td',{},typeBadge(e.type)),el('td',{},e.rule_name),el('td',{},sevBadge(e.severity)),el('td',{},chips(e.labels)),el('td',{class:'mono'},e.type==='firing'||e.type==='resolved'?String(+(+e.value).toPrecision(4)):''),el('td',{class:'mut'},e.by||''))))):el('div',{class:'card empty'},'Nothing has happened yet.'),
+    dv.length?el('div',{},el('h2',{},'Recent deliveries'),el('p',{class:'help',style:'margin:-4px 0 8px'},'Every attempt to send a message. A failed one is tried again a few times, then given up.'),el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['Time','Channel','Message','Result'].map(x=>el('th',{},x))),dv.slice(0,50).map(d=>el('tr',{},el('td',{class:'mut'},new Date(d.time).toLocaleString()),el('td',{},d.channel),el('td',{class:'mut'},d.status+' · '+d.alerts+' alert'+(d.alerts===1?'':'s')+(d.attempt>1?' · attempt '+d.attempt:'')),el('td',{},d.ok?el('span',{class:'ok'},'sent'):el('span',{class:'err'},(d.gave_up?'gave up: ':'failed: ')+d.error))))))):null)}
+// the red number on the menu item
+async function refreshAlertBadge(){
+  if(!can('alerts')||!S.me)return;
+  try{const r=await api('/api/v1/alerts',{},{quiet:true}),n=(r.counts&&r.counts.firing)||0,a=$('#side nav a[data-h="#/alerts"]');if(a){let b=a.querySelector('.nb');if(n>0){if(!b){b=el('span',{class:'nb'});a.append(b)}b.textContent=String(n)}else if(b)b.remove()}}catch{}}
 
 // ---- settings: site name and logo ----
 async function settingsPage(){

@@ -37,6 +37,7 @@ Traces, logs and metrics, dashboards you build yourself, host / service / Docker
 |---|---|
 | **Dashboards you build** | Line, area, stacked bar, single value, table, log and trace panels. Pick metric, aggregation, *split by* label, label filters, unit and size; drag to reorder; live preview. Starter dashboards: **Hosts**, **Nextcloud**, **Services (traces)**, **Logs**. |
 | **Up / Down at a glance** | Boxes for Nextcloud instances, hosts, systemd services and Docker containers. A *Down* box shows a green **0** when all is well and turns red, with names and reasons, when something is not. |
+| **Alerts that reach people** | Rules on metrics, up/down status and log counts; notifications by **email, webhook, Slack, Teams**, and in Enterprise **Jira, ServiceNow, PagerDuty, Opsgenie**. Grouping, retries, acknowledge, silences, a replay of the last 24 hours before you save a rule. |
 | **Hosts & Instances pages** | See every machine and Nextcloud instance. Rename hosts, remove old ones, add log paths, choose watched services, fix a mistyped Nextcloud URL, **all in the browser**: agents pick up the change within a minute. |
 | **Dropdowns of everything that comes in** | Traces, Logs and Metrics list every service, operation, log source, host and metric Lumen has received, so you pick instead of typing. |
 | **Your own logo** | Upload a logo and site name under **Settings**; they show in the menu, in the browser tab (as the tab icon) and on the login page. |
@@ -55,7 +56,8 @@ Traces, logs and metrics, dashboards you build yourself, host / service / Docker
 | <img src="docs/screenshots/instances.png" alt="Nextcloud instances with one DOWN"> **Instances**: a down instance and why. Fix a typo and the agent picks it up. | <img src="docs/screenshots/host.png" alt="Host settings and services"> **Hosts**: log paths, watched services, systemd services and Docker containers. |
 | <img src="docs/screenshots/users.png" alt="Users and groups"> **Users & groups**: Admin, User and custom groups. | <img src="docs/screenshots/backups.png" alt="Backups and archive"> **Backups & archive**: every day is backed up; load an old day and browse it. |
 | <img src="docs/screenshots/host-performance.png" alt="Host page with CPU, memory, disk and network charts"> **Host page**: CPU, load, memory, disks, disk I/O and network for one machine. | <img src="docs/screenshots/host.png" alt="Host settings and services"> Below the charts: settings and services. |
-| <img src="docs/screenshots/instance.png" alt="One Nextcloud instance: versions, usage, charts and log"> **One instance**: status, versions, usage and performance, and its log. | <img src="docs/screenshots/logs.png" alt="Logs with source and host dropdowns"> **Logs**: pick a log source and a host from what has come in. | <img src="docs/screenshots/traces.png" alt="Traces with service, operation and host dropdowns"> **Traces**: service, operation and host dropdowns. |
+| <img src="docs/screenshots/instance.png" alt="One Nextcloud instance: versions, usage, charts and log"> **One instance**: status, versions, usage and performance, and its log. | <img src="docs/screenshots/alerts.png" alt="A firing alert"> **Alerts**: what is firing, with Acknowledge and Silence. | <img src="docs/screenshots/alerts-rule.png" alt="The rule editor"> **Rule editor**, with a replay of the last 24 hours. |
+| <img src="docs/screenshots/logs.png" alt="Logs with source and host dropdowns"> **Logs**: pick a log source and a host from what has come in. | <img src="docs/screenshots/traces.png" alt="Traces with service, operation and host dropdowns"> **Traces**: service, operation and host dropdowns. |
 | <img src="docs/screenshots/settings.png" alt="Settings with logo upload"> **Settings**: your own logo and site name. | <img src="docs/screenshots/dashboard-hosts.png" alt="Hosts dashboard"> **Hosts dashboard** starter template. |
 | <img src="docs/screenshots/dashboard-nextcloud-dark.png" alt="Nextcloud dashboard, dark theme"> Light and dark theme. | |
 
@@ -223,6 +225,45 @@ On live data the lists cover the last 7 days (not just the chart range, so somet
 
 Uploads are checked by their real content (not the declared type), SVG files with scripts or event handlers are refused, and the logo is served with a locked-down content-security policy so it can never run code.
 
+## Alerting
+
+Lumen can tell people when something is wrong. **Alerts** in the menu has five tabs: *Active* (what is firing now, with Acknowledge and Silence), *Rules*, *Channels*, *Silences* and *History*.
+
+**Set it up in three steps**
+
+1. **Channels, then Add channel.** Choose where messages go (email, webhook, Slack, Teams; Enterprise adds Jira, ServiceNow, PagerDuty and Opsgenie), fill in the form, save, and press **Test**. Secrets (passwords, tokens, webhook URLs) are encrypted and never shown again.
+2. **Rules, then Starter rules.** Add the ready-made rules you want (host down, Nextcloud instance down, service failed, container down, disk almost full, high CPU, slow Nextcloud, many errors in the logs), or **+ Add rule** to make your own.
+3. Done. When a rule's condition holds for long enough, an alert fires and every channel that wants it is told.
+
+**Rules** can be of three kinds: a **metric** (for example the highest disk use over 5 minutes above 90 percent, one alert per mount point), the **up/down status** of hosts, services, containers or Nextcloud instances, or the **number of log lines** (for example more than 20 errors in 5 minutes). A rule has an importance (critical, warning, info), a time the condition must last before it fires, how often to check, what to do when there is no data, a message and extra labels. **Preview on the last 24 hours** replays a metric or log rule over history and shows when it would have fired, so you can choose a threshold before you save.
+
+**How alerts behave**
+
+- *pending* (the condition is true, not yet for long enough) then *firing*, then *resolved* once the condition has been false for two checks in a row, so a value that hovers around the threshold does not flap.
+- Alerts that belong together (one rule, several hosts) are sent as **one message** after a short wait (30 s).
+- A firing alert is announced again every 4 hours until someone **acknowledges** it. Acknowledging does not resolve it; it only stops the reminders.
+- A **silence** mutes alerts whose labels match, for a while (planned work, for example). Silenced alerts are still evaluated and shown, but nothing is sent.
+- A failed delivery is retried after 10 s, 30 s, 2 min, 10 min and 30 min, and the **History** tab shows every attempt, including the ones Lumen gave up on. A channel that keeps failing is marked FAILING.
+- A check that cannot run (for example the database is down) never resolves alerts; the rule shows why it cannot be checked.
+- State is kept, so a restart does not send everything again, and an alert that fired but was never delivered is sent after the restart.
+
+**Channels**
+
+| Channel | Edition | Notes |
+|---|---|---|
+| Email (SMTP) | Community | STARTTLS, TLS or none; login optional |
+| Webhook | Community | JSON, signed with `X-Lumen-Signature` (sha256 HMAC of `timestamp.body`) so the receiver can verify it |
+| Slack, Microsoft Teams | Community | Incoming webhooks (https) |
+| Heartbeat | Community | Lumen calls a URL regularly; an outside service tells you when the calls stop, which means Lumen itself is down |
+| PagerDuty, Opsgenie | Enterprise | One event or alert per alert; closed when it resolves |
+| Jira, ServiceNow | Enterprise | A ticket is created, commented on at each reminder and closed when the alert resolves |
+
+Each channel can be limited to some importances (for example only critical) and to alerts with certain labels (for example `host=web1`).
+
+**Security.** Channels make the server connect to addresses that users type. Lumen therefore **refuses loopback, private, link-local and cloud-metadata addresses** (checked on the real connection, so also after name resolution and redirects). To use an internal mail relay or an internal webhook receiver, an administrator sets `LUMEN_ALERT_ALLOW_PRIVATE=true`; the cloud-metadata address (169.254.x.x) stays blocked even then. Mail headers are built from validated fields only (no header injection), secrets are encrypted and never returned, errors never contain a webhook URL, and every change is audited in the server log. Permissions: **Alerts** (read or write: rules, silences, acknowledging) and **Notification channels** (read or write; kept separate because channels hold secrets and send from the server). The built-in *User* group can read alerts but not see channels.
+
+**What is not there yet:** rules on traces (error rate, latency), escalation policies and on-call schedules, recurring maintenance windows, message templates, assigning an alert to a person, and metrics about the alert engine itself. See the [design](docs/design/alerting.md). A single server runs the evaluation; there is no high-availability mode yet.
+
 ## Labels
 
 Every metric point carries labels: key=value tags such as `host`, `instance`, `mountpoint` or `core`. You find them in two places: the **Metrics** page has a *Labels* box for the chosen metric (click a name to split the chart, a value to filter), and the panel editor offers them under *Split by* and *Only where*.
@@ -290,6 +331,10 @@ Backups are kept `LUMEN_BACKUP_RETENTION_DAYS` (**365**; `0` = forever). A faile
 | `LUMEN_RETENTION_DAYS` | `30` | days of live data |
 | `LUMEN_BACKUP_DIR` | `/backup` | daily export of expiring data; empty disables backups |
 | `LUMEN_BACKUP_RETENTION_DAYS` | `365` | how long backups are kept; `0` = forever |
+| `LUMEN_ALERTS` | `true` | `false` switches alerting off |
+| `LUMEN_ALERT_ALLOW_PRIVATE` | `false` | let alert channels reach loopback and private addresses (an internal mail relay or webhook receiver) |
+| `LUMEN_ALERT_GROUP_WAIT` | `30s` | how long related alerts are collected into one message |
+| `LUMEN_ALERT_REPEAT` | `4h` | how often a firing alert is announced again until acknowledged |
 | `LUMEN_SECRET_KEY` | | encrypts stored Nextcloud credentials (falls back to the session secret with a warning) |
 | `LUMEN_ELASTICSEARCH_URL` / `_USER` / `_PASSWORD` / `_API_KEY` / `_PREFIX` | / / / / `lumen` | document store; without a URL a JSON file in `LUMEN_DATA_DIR` (`/data`) is used |
 | `LUMEN_ADMIN_USER` / `_PASSWORD` / `_TENANT` | / / `main` | first admin, created at startup |
@@ -321,6 +366,15 @@ If there are no users and no keys, nobody can log in and the server log says so.
 | GET | `/api/v1/branding`, `/branding/logo` | none (public) |
 | PUT | `/api/v1/settings/branding` | settings |
 | GET/POST/PUT/DELETE | `/api/v1/instances[/{id}]` | hosts |
+| GET | `/api/v1/alerts` | alerts (also `counts`) |
+| POST, DELETE | `/api/v1/alerts/ack/{fingerprint}` | alerts (write) |
+| GET/POST/PUT/DELETE | `/api/v1/alerts/rules[/{id}]` | alerts |
+| POST | `/api/v1/alerts/backtest` (`{rule, hours}`) | alerts, plus metrics or logs read |
+| GET | `/api/v1/alerts/templates`, `/alerts/history` | alerts |
+| GET/POST/DELETE | `/api/v1/alerts/silences[/{id}]` | alerts |
+| GET | `/api/v1/alerts/deliveries` | notification channels |
+| GET | `/api/v1/notifications/types` | notification channels (field definitions the form is built from) |
+| GET/POST/PUT/DELETE | `/api/v1/notifications/channels[/{id}]`, POST `.../{id}/test` | notification channels |
 | GET | `/api/v1/agent/config?host=` | API key (never a browser session: contains credentials) |
 | GET, POST, DELETE | `/api/v1/backups`, `/backups/run`, `/backups/{day}/load`, `/backups/{day}/{spans\|logs\|metrics}` | backups |
 | any read | `?archive=1` | backups (read): query restored data |
@@ -343,11 +397,12 @@ internal/perm         permission areas and levels
 internal/registry     host settings and Nextcloud instances (secrets encrypted)
 internal/secretbox    AES-GCM for stored credentials
 internal/status       up/down computation
+internal/alerts       alert rules, state machine, notifications (email, webhook, Slack, Teams, heartbeat), SSRF guard
 internal/backup       daily export, prune, load/unload of archive days
 internal/docstore     Elasticsearch client + JSON-file fallback (estest = fake ES, tests only)
 internal/dashboards   dashboards per tenant
 internal/edition      open-core hooks (auth, authorization)
-ee/                   enterprise features (commercial license, build tag "enterprise")
+ee/                   enterprise features (commercial license, build tag "enterprise"): Jira, ServiceNow, PagerDuty, Opsgenie
 deploy/               compose file, preflight, secrets generator, RHEL-family Docker installer
 install.sh dev.sh     server installer / local test setup
 ```
@@ -385,7 +440,7 @@ Lumen is open core: a free **Community** edition, **Enterprise** for governance 
 
 ## Roadmap
 
-1. **Alerting:** rules on any chart query and the status boxes, notifications (email, webhook, Slack) — see the [design](docs/design/alerting.md)
+1. **Alerting, next steps:** trace rules, escalation and on-call, maintenance windows, templates, self-monitoring metrics — see the [design](docs/design/alerting.md)
 2. Windows services and Windows Event Log in the agent
 3. Protobuf and gRPC OTLP ingest
 4. Dashboard variables and sharing, service map, span details, correlation across traces, logs and deploys

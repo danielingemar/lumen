@@ -4,6 +4,8 @@ Svenska · [English](alerting.md)
 
 > **Status: förslag, ingen kod än.** Det här dokumentet beskriver en design och de beslut den kräver. Storleksangivelserna är grova (S = dagar, M = några veckor, L = mer än en månad, för en utvecklare).
 
+> **Genomförandestatus (oktober 2026).** Fas 1 och 2 är byggda, plus Enterprise-notifierarna ur fas 3. Skillnader mot förslaget: *dirigeringar* är matchare på kanalen (allvarlighetsgrad och etiketter) i stället för ett eget objekt. Larmhistorik och leveransloggen ligger i dokumentlagringen (historiken beskärs till de senaste 1000 per tenant) i stället för i en ClickHouse-tabell. Meddelanden har en fast layout, inte mallar. Trace-regler, eskalering och jour, underhållsfönster, tilldelning, interaktiva chattåtgärder, SLO:er och motorns egna mätvärden är inte byggda än.
+
 ## 1. Sammanfattning
 
 Lumen visar vad som är fel men kan ännu inte **säga till någon**. Det här förslaget lägger till en larmmotor i den öppna kärnan, med e-post, webhook, Slack och Teams, och definierar den förlängningspunkt där Enterprise lägger till Jira, ServiceNow, PagerDuty, Opsgenie, eskalering och jour.

@@ -31,12 +31,12 @@ Lumen utvecklas öppet, och en del av det kommer att säljas. Den som bygger på
 | Användare, grupper, områdesbehörigheter, API-nycklar | Ja (finns) | Ja | Ja |
 | Isolering mellan tenants | Ja (finns) | Ja | Ja |
 | Sidnamn och logga | För hela installationen (finns) | För hela installationen | Per tenant (planerad) |
-| Larmregler på mätvärden, status, loggar och traces; e-post, webhook, Slack och Teams; kvittera; enkla tystningar; startregler | Ja (planerad) | Ja | Ja |
+| Larmregler på mätvärden, status, loggar och traces; e-post, webhook, Slack och Teams; kvittera; enkla tystningar; startregler | Ja (finns, utom trace-regler) | Ja | Ja |
 | OIDC-inloggning med en leverantör | Ja (planerad) | Ja | Ja |
 | Granskningslogg: vem ändrade vad, synlig för administratörer | Ja (planerad) | Ja | Ja |
 | SAML, SCIM, LDAP-gruppmappning; påtvingad MFA; policyer för API-nycklar och sessioner; maskning av personuppgifter vid insamling | | Ja (planerad) | |
 | Manipuleringsskyddad granskningslogg med lång lagringstid och SIEM-export | | Ja (planerad) | |
-| Jira, ServiceNow, PagerDuty, Opsgenie; eskaleringspolicyer och jourscheman; larmdirigering, gruppering och mallar; återkommande underhållsfönster med godkännande | | Ja (planerad) | |
+| Jira, ServiceNow, PagerDuty, Opsgenie; eskaleringspolicyer och jourscheman; larmdirigering, gruppering och mallar; återkommande underhållsfönster med godkännande | | Ja (Jira, ServiceNow, PagerDuty och Opsgenie finns, resten är planerat) | |
 | Hög tillgänglighet, ClickHouse-kluster, lagringsnivåer och nedsampling, uppgradering utan driftstopp, återställning till en tidpunkt | | Ja (planerad) | |
 | Krypterade backuper utanför servern (till exempel S3), juridisk spärr | | Ja (planerad) | |
 | Kubernetes-operator, Terraform-provider | | Ja (planerad) | |

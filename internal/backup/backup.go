@@ -231,7 +231,7 @@ func (m *Manager) prune(today time.Time) {
 	}
 }
 
-var configColls = []string{"users", "keys", "groups", "dashboards", "hosts", "instances", "meta"}
+var configColls = []string{"users", "keys", "groups", "dashboards", "hosts", "instances", "meta", "alert_rules", "alert_channels", "alert_silences"}
 
 // dumpConfig writes users (password hashes), groups, dashboards, hosts and instances (credentials stay encrypted)
 // for ALL tenants. It is for the operator: it is never served through the API. The last 30 are kept.

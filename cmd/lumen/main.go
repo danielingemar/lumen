@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/danielingemar/lumen/internal/alerts"
 	"github.com/danielingemar/lumen/internal/auth"
 	"github.com/danielingemar/lumen/internal/backup"
 	"github.com/danielingemar/lumen/internal/branding"
@@ -77,6 +78,13 @@ func main() {
 	app := server.New(ch, authn, log).WithAuth(authn).WithDashboards(dashboards.New(backend)).WithRegistry(registry.New(backend, box)).WithBranding(branding.New(backend)).WithInstall(cfg.PublicURL, cfg.DistDir)
 	bg, stopBg := context.WithCancel(context.Background())
 	defer stopBg()
+	if cfg.Alerts {
+		eng := &alerts.Engine{DB: backend, Box: box, Eval: &alerts.Evaluator{Q: ch, St: app}, Guard: alerts.Guard{AllowPrivate: cfg.AlertAllowPrivate},
+			PublicURL: cfg.PublicURL, Log: log, GroupWait: cfg.AlertGroupWait, RepeatEvery: cfg.AlertRepeat}
+		app.WithAlerts(eng)
+		go eng.Run(bg)
+		log.Info("alerting enabled", "group_wait", cfg.AlertGroupWait.String(), "repeat", cfg.AlertRepeat.String(), "allow_private", cfg.AlertAllowPrivate)
+	}
 	if cfg.BackupDir != "" {
 		bk := &backup.Manager{Dir: cfg.BackupDir, Src: ch, Docs: backend, DataDays: cfg.RetentionDays, KeepDays: cfg.BackupRetentionDays, Log: log}
 		app.WithBackups(bk, server.BackupInfo{DataDays: cfg.RetentionDays, KeepDays: cfg.BackupRetentionDays})

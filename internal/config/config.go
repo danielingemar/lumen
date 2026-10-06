@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -27,6 +28,10 @@ type Config struct {
 	BackupDir                                     string // where daily exports of expiring data go ("" disables backups)
 	BackupRetentionDays                           int    // how long backups are kept; 0 = forever
 	ESURL, ESUser, ESPassword, ESAPIKey, ESPrefix string
+	Alerts                                        bool          // LUMEN_ALERTS: alert rules and notifications (default on)
+	AlertAllowPrivate                             bool          // LUMEN_ALERT_ALLOW_PRIVATE: let channels reach internal addresses (an internal mail relay)
+	AlertGroupWait                                time.Duration // LUMEN_ALERT_GROUP_WAIT: how long related alerts are collected into one message
+	AlertRepeat                                   time.Duration // LUMEN_ALERT_REPEAT: how often a firing alert is announced again
 }
 
 func env(k, def string) string {
@@ -45,7 +50,17 @@ func Load() Config {
 	if err != nil || bdays < 0 {
 		bdays = 365
 	}
+	dur := func(k string, def time.Duration) time.Duration {
+		if d, err := time.ParseDuration(os.Getenv(k)); err == nil && d > 0 {
+			return d
+		}
+		return def
+	}
 	c := Config{
+		Alerts:              os.Getenv("LUMEN_ALERTS") != "false",
+		AlertAllowPrivate:   os.Getenv("LUMEN_ALERT_ALLOW_PRIVATE") == "true",
+		AlertGroupWait:      dur("LUMEN_ALERT_GROUP_WAIT", 30*time.Second),
+		AlertRepeat:         dur("LUMEN_ALERT_REPEAT", 4*time.Hour),
 		BackupDir:           env("LUMEN_BACKUP_DIR", "/backup"),
 		BackupRetentionDays: bdays,
 		Addr:                env("LUMEN_ADDR", ":4318"),

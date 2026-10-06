@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/danielingemar/lumen/internal/alerts"
 	"github.com/danielingemar/lumen/internal/auth"
 	"github.com/danielingemar/lumen/internal/backup"
 	"github.com/danielingemar/lumen/internal/branding"
@@ -35,6 +36,7 @@ type Server struct {
 	reg                *registry.Service
 	bk                 *backup.Manager
 	brand              *branding.Service
+	alerts             *alerts.Engine
 	bkInfo             BackupInfo
 	snaps              snapCache
 	facetCache         facetCache
@@ -80,6 +82,7 @@ func (s *Server) Handler() http.Handler {
 	s.regRoutes(mux)
 	s.backupRoutes(mux)
 	s.brandingRoutes(mux)
+	s.alertRoutes(mux)
 	mux.Handle("POST /v1/traces", s.authed("ingest", s.ingestTraces))
 	mux.Handle("POST /v1/logs", s.authed("ingest", s.ingestLogs))
 	mux.Handle("POST /v1/metrics", s.authed("ingest", s.ingestMetrics))

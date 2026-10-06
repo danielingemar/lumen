@@ -6,6 +6,7 @@ versions follow [Semantic Versioning](https://semver.org/) once a first release 
 ## [Unreleased]
 
 ### Added
+- **Alerting.** Rules on metrics, up/down status and log counts; a state machine (pending, firing, resolved, with a recovery period so values near a threshold do not flap); grouping into one message, reminders until acknowledged, silences, acknowledge, history and a delivery log with retries and back-off; a replay of the last 24 hours before a rule is saved; starter rules. Notifications by email (SMTP), signed webhook, Slack, Microsoft Teams and a heartbeat. Enterprise: Jira, ServiceNow, PagerDuty and Opsgenie (a ticket is created, commented on and closed with the alert). The Alerts page, a count in the menu and an "Alerts firing" box on Home. New permissions: Alerts and Notification channels. Channels refuse loopback, private and cloud-metadata addresses unless an administrator allows private ones (`LUMEN_ALERT_ALLOW_PRIVATE`).
 - **A page per Nextcloud instance** (click it on Instances): status and reason, Nextcloud/PHP/database versions, usage (users, files, shares, storage, database, free space, active users), performance and availability charts and the instance's own log. It also tells when only availability is monitored (no serverinfo token) or when the token is wrong.
 - **Users and groups** with Admin, User (read-only) and custom groups (none / read / write per area), enforced by the server.
 - **Hosts** and **Instances** pages: see every machine and Nextcloud instance, set log paths, watched services and fix a mistyped

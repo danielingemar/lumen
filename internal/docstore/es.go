@@ -42,13 +42,18 @@ func (e *ES) Name() string { return "elasticsearch:" + e.cfg.URL }
 
 // mappings: filter fields are keyword; large or secret-ish fields are stored but not indexed.
 var mappings = map[string]string{
-	"users":      `{"dynamic":false,"properties":{"name":{"type":"keyword"},"tenant":{"type":"keyword"},"hash":{"type":"keyword","index":false},"created":{"type":"date"}}}`,
-	"keys":       `{"dynamic":false,"properties":{"id":{"type":"keyword"},"tenant":{"type":"keyword"},"name":{"type":"keyword"},"prefix":{"type":"keyword"},"hash":{"type":"keyword","index":false},"created":{"type":"date"}}}`,
-	"dashboards": `{"dynamic":false,"properties":{"id":{"type":"keyword"},"tenant":{"type":"keyword"},"name":{"type":"keyword"},"updated":{"type":"date"},"body":{"type":"object","enabled":false}}}`,
-	"meta":       `{"dynamic":false,"properties":{"value":{"type":"keyword","index":false}}}`,
-	"groups":     `{"dynamic":false,"properties":{"id":{"type":"keyword"},"tenant":{"type":"keyword"},"name":{"type":"keyword"},"created":{"type":"date"},"perms":{"type":"object","enabled":false}}}`,
-	"hosts":      `{"dynamic":false,"properties":{"tenant":{"type":"keyword"},"host":{"type":"keyword"},"updated":{"type":"date"}}}`,
-	"instances":  `{"dynamic":false,"properties":{"id":{"type":"keyword"},"tenant":{"type":"keyword"},"name":{"type":"keyword"},"host":{"type":"keyword"},"updated":{"type":"date"}}}`,
+	"users":          `{"dynamic":false,"properties":{"name":{"type":"keyword"},"tenant":{"type":"keyword"},"hash":{"type":"keyword","index":false},"created":{"type":"date"}}}`,
+	"keys":           `{"dynamic":false,"properties":{"id":{"type":"keyword"},"tenant":{"type":"keyword"},"name":{"type":"keyword"},"prefix":{"type":"keyword"},"hash":{"type":"keyword","index":false},"created":{"type":"date"}}}`,
+	"dashboards":     `{"dynamic":false,"properties":{"id":{"type":"keyword"},"tenant":{"type":"keyword"},"name":{"type":"keyword"},"updated":{"type":"date"},"body":{"type":"object","enabled":false}}}`,
+	"meta":           `{"dynamic":false,"properties":{"value":{"type":"keyword","index":false}}}`,
+	"alert_rules":    `{"dynamic":false,"properties":{"id":{"type":"keyword"},"tenant":{"type":"keyword"}}}`,
+	"alert_state":    `{"dynamic":false,"properties":{"tenant":{"type":"keyword"},"rule_id":{"type":"keyword"}}}`,
+	"alert_events":   `{"dynamic":false,"properties":{"tenant":{"type":"keyword"},"time":{"type":"date"}}}`,
+	"alert_silences": `{"dynamic":false,"properties":{"tenant":{"type":"keyword"}}}`,
+	"alert_channels": `{"dynamic":false,"properties":{"id":{"type":"keyword"},"tenant":{"type":"keyword"}}}`,
+	"groups":         `{"dynamic":false,"properties":{"id":{"type":"keyword"},"tenant":{"type":"keyword"},"name":{"type":"keyword"},"created":{"type":"date"},"perms":{"type":"object","enabled":false}}}`,
+	"hosts":          `{"dynamic":false,"properties":{"tenant":{"type":"keyword"},"host":{"type":"keyword"},"updated":{"type":"date"}}}`,
+	"instances":      `{"dynamic":false,"properties":{"id":{"type":"keyword"},"tenant":{"type":"keyword"},"name":{"type":"keyword"},"host":{"type":"keyword"},"updated":{"type":"date"}}}`,
 }
 
 func (e *ES) index(coll string) string { return e.cfg.Prefix + "-" + coll }

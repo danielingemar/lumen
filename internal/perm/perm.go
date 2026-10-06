@@ -7,15 +7,17 @@ import (
 )
 
 const (
-	Dashboards = "dashboards"
-	Traces     = "traces"
-	Logs       = "logs"
-	Metrics    = "metrics"
-	Hosts      = "hosts" // hosts, instances and their agent configuration
-	Keys       = "keys"  // agent API keys
-	Users      = "users" // users and groups
-	Backups    = "backups"
-	Settings   = "settings" // site name and logo
+	Dashboards    = "dashboards"
+	Traces        = "traces"
+	Logs          = "logs"
+	Metrics       = "metrics"
+	Hosts         = "hosts" // hosts, instances and their agent configuration
+	Keys          = "keys"  // agent API keys
+	Users         = "users" // users and groups
+	Backups       = "backups"
+	Settings      = "settings"      // site name and logo
+	Alerts        = "alerts"        // alert rules, acknowledging and silences
+	Notifications = "notifications" // channels that send messages (they hold secrets and reach the network)
 )
 
 const (
@@ -41,6 +43,8 @@ var Areas = []Area{
 	{Keys, "Agent keys", "See agent keys. Write: create and delete them.", true},
 	{Users, "Users & groups", "See users and groups. Write: create, change and delete them.", true},
 	{Backups, "Backups & archive", "View archived data. Write: load or unload archived days and run a backup.", true},
+	{Alerts, "Alerts", "See alerts, rules and silences. Write: manage rules and silences, acknowledge alerts.", true},
+	{Notifications, "Notification channels", "See channels. Write: create channels (email, webhook, Slack...); they hold secrets and send messages from the server.", true},
 	{Settings, "Settings", "See the settings page. Write: change the site name and logo (shown to everyone, also on the login page).", true},
 }
 
@@ -66,7 +70,7 @@ func Admin() map[string]string {
 func User() map[string]string {
 	return filled(func(a Area) string {
 		switch a.ID {
-		case Dashboards, Traces, Logs, Metrics, Hosts:
+		case Dashboards, Traces, Logs, Metrics, Hosts, Alerts:
 			return Read
 		}
 		return None

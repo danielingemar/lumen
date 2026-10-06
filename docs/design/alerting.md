@@ -4,6 +4,8 @@
 
 > **Status: proposal, no code yet.** This document describes a design and the decisions it needs. Effort sizes are rough (S = days, M = a few weeks, L = more than a month, for one developer).
 
+> **Implementation status (October 2026).** Phases 1 and 2 are built, plus the Enterprise notifiers of phase 3. Differences from this proposal: *routes* are matchers on the channel (severities and labels) instead of a separate object; alert history and the delivery log live in the document store (history is pruned to the newest 1000 per tenant) instead of a ClickHouse table; messages use a fixed layout, not templates; trace rules, escalation and on-call, maintenance windows, assignment, interactive chat actions, SLOs and the engine's own metrics are not built yet.
+
 ## 1. Summary
 
 Lumen shows what is wrong but cannot yet **tell anyone**. This proposal adds an alerting engine to the open core, with email, webhook, Slack and Teams, and defines the extension point through which Enterprise adds Jira, ServiceNow, PagerDuty, Opsgenie, escalation and on-call.
