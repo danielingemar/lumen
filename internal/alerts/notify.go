@@ -82,6 +82,20 @@ type Notifier interface {
 	Send(ctx context.Context, d Deps, cfg Config, m Message) (Result, error)
 }
 
+// Edition is implemented by notifiers that need a licence ("enterprise"); all others belong to Community.
+type Edition interface{ Edition() string }
+
+// EditionOf is the edition a notifier belongs to.
+func EditionOf(n Notifier) string {
+	if e, ok := n.(Edition); ok {
+		return e.Edition()
+	}
+	return "community"
+}
+
+// Licenser says whether the features of an edition may be used now. The licence manager implements it.
+type Licenser interface{ Allows(edition string) bool }
+
 // Periodic is implemented by notifiers that also do something on a timer (the heartbeat).
 type Periodic interface {
 	Every(cfg Config) time.Duration

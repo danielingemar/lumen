@@ -760,3 +760,106 @@ func TestPruneHistoryAndTemplates(t *testing.T) {
 		t.Fatal("starter rules")
 	}
 }
+
+type entNotifier struct{ recNotifier }
+
+func (entNotifier) Type() string    { return "ent" }
+func (entNotifier) Label() string   { return "Enterprise recorder" }
+func (entNotifier) Edition() string { return "enterprise" }
+
+type fakeLic struct{ on bool }
+
+func (f *fakeLic) Allows(ed string) bool { return ed == "community" || f.on }
+
+func TestEnterpriseChannelsNeedALicence(t *testing.T) {
+	v := newEnv(t)
+	v.e.Reg.Register(entNotifier{recNotifier{v.r}})
+	lic := &fakeLic{}
+	v.e.License = lic
+	ent := ChannelIn{Name: "tickets", Type: "ent", Enabled: true, Settings: map[string]string{"target": "x"}}
+	// without a licence an Enterprise channel cannot be created, and the reason says what to do
+	if _, err := v.e.PutChannel("acme", "", ent); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "needs a Lumen Enterprise licence") || !strings.Contains(err.Error(), "Settings") {
+		t.Fatalf("%v", err)
+	}
+	if _, err := v.e.PutChannel("acme", "", ChannelIn{Name: "ok", Type: "rec", Enabled: true, Settings: map[string]string{"target": "x"}}); err != nil {
+		t.Fatalf("Community channels never need a licence: %v", err)
+	}
+	if v.e.Allowed(entNotifier{}) || !v.e.Allowed(recNotifier{}) {
+		t.Fatal("Allowed")
+	}
+	e2 := &Engine{}
+	if e2.Allowed(entNotifier{}) {
+		t.Fatal("an engine without a licence manager is Community only")
+	}
+	// with a licence both work
+	lic.on = true
+	entCh, err := v.e.PutChannel("acme", "", ent)
+	if err != nil || entCh.Edition != "enterprise" || entCh.Locked {
+		t.Fatalf("%+v %v", entCh, err)
+	}
+	v.rule(t, "acme", diskRule())
+	v.q.set("acme", map[string]float64{"web1": 95})
+	v.step(0)
+	v.step(31 * time.Second)
+	if v.r.count() != 2 {
+		t.Fatalf("both channels get the alert: %d", v.r.count())
+	}
+	// the licence ends: a new alert reaches the Community channel only, and the Enterprise channel says why
+	lic.on = false
+	v.q.set("acme", map[string]float64{"web1": 95, "web2": 96})
+	v.step(16 * time.Second)
+	v.step(31 * time.Second)
+	got := map[string]int{}
+	v.r.mu.Lock()
+	for _, m := range v.r.msgs {
+		got[m.Channel]++
+	}
+	v.r.mu.Unlock()
+	if got["ok"] != 2 || got["tickets"] != 1 {
+		t.Fatalf("the Enterprise channel stops while the Community one keeps working: %v", got)
+	}
+	var tickets ChannelOut
+	for _, c := range v.e.ListChannels("acme") {
+		if c.Name == "tickets" {
+			tickets = c
+		}
+	}
+	if !tickets.Locked || !strings.Contains(tickets.Health.Error, "needs a Lumen Enterprise licence") {
+		t.Fatalf("the channel is marked and says why: %+v", tickets)
+	}
+	if err := v.e.TestChannel(context.Background(), "acme", entCh.ID); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a locked channel cannot be tested: %v", err)
+	}
+	if _, err := v.e.PutChannel("acme", entCh.ID, ent); !errors.Is(err, ErrInvalid) {
+		t.Fatal("nor edited")
+	}
+	if err := v.e.DeleteChannel("acme", entCh.ID); err != nil {
+		t.Fatal("but it can always be deleted")
+	}
+	// a message that was already waiting when the licence ended is not sent, and is not retried either
+	lic.on = true
+	ch2, _ := v.e.PutChannel("globex", "", ChannelIn{Name: "late", Type: "ent", Enabled: true, Settings: map[string]string{"target": "x"}})
+	v.rule(t, "globex", diskRule())
+	v.q.set("globex", map[string]float64{"web1": 99})
+	v.step(0) // fires, waits in the group
+	lic.on = false
+	n := v.r.count()
+	v.step(31 * time.Second)
+	d := v.e.Deliveries("globex")
+	if v.r.count() != n || len(d) != 1 || !d[0].GaveUp || !strings.Contains(d[0].Error, "licence") {
+		t.Fatalf("a delivery that is refused for lack of a licence is not retried: %+v", d)
+	}
+	// renewed: it works again without anyone recreating the channel, and it is told about what is firing right now
+	lic.on = true
+	v.step(16 * time.Second)
+	v.step(31 * time.Second)
+	if v.r.count() != n+1 || v.r.last().Channel != "late" || v.r.last().Status != "firing" {
+		t.Fatalf("after a renewal the channel hears about the alerts that fired while it was shut out, at once and not at the next reminder hours later: %d %+v", v.r.count(), v.r.last().Channel)
+	}
+	if c := v.e.ListChannels("globex")[0]; c.Locked || c.ID != ch2.ID {
+		t.Fatalf("%+v", c)
+	}
+	if err := v.e.TestChannel(context.Background(), "globex", ch2.ID); err != nil {
+		t.Fatalf("after renewal: %v", err)
+	}
+}

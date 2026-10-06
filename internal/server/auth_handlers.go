@@ -127,7 +127,11 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, id edition.Identity)
 	} else if !id.Session {
 		groupName = "Administrator (dev mode)"
 	}
-	writeJSON(w, map[string]any{"user": id.User, "tenant": id.Tenant, "session": id.Session, "via_key": id.ViaKey, "group": group, "group_name": groupName, "perms": id.Perms, "archive_enabled": id.Can(perm.Backups, false), "version": buildinfo.Version})
+	me := map[string]any{"user": id.User, "tenant": id.Tenant, "session": id.Session, "via_key": id.ViaKey, "group": group, "group_name": groupName, "perms": id.Perms, "archive_enabled": id.Can(perm.Backups, false), "version": buildinfo.Version}
+	if s.lic != nil && s.isOwner(id) && id.Can(perm.Settings, false) {
+		me["license"] = s.lic.Info()
+	}
+	writeJSON(w, me)
 }
 
 func (s *Server) listKeys(w http.ResponseWriter, r *http.Request, id edition.Identity) {

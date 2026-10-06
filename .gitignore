@@ -6,3 +6,9 @@ lumen-agent.json
 *.exe
 *.test
 .DS_Store
+
+# licensing: the private signing key and issued licences never go in git (internal/license/keys/*.pub is public and does)
+/keys/
+*.key
+*.license
+issued.jsonl

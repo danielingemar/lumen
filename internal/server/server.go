@@ -21,6 +21,7 @@ import (
 	"github.com/danielingemar/lumen/internal/dashboards"
 	"github.com/danielingemar/lumen/internal/edition"
 	"github.com/danielingemar/lumen/internal/install"
+	"github.com/danielingemar/lumen/internal/license"
 	"github.com/danielingemar/lumen/internal/model"
 	"github.com/danielingemar/lumen/internal/otlp"
 	"github.com/danielingemar/lumen/internal/perm"
@@ -37,6 +38,8 @@ type Server struct {
 	bk                 *backup.Manager
 	brand              *branding.Service
 	alerts             *alerts.Engine
+	lic                *license.Manager
+	owner              string
 	bkInfo             BackupInfo
 	snaps              snapCache
 	facetCache         facetCache
@@ -83,6 +86,7 @@ func (s *Server) Handler() http.Handler {
 	s.backupRoutes(mux)
 	s.brandingRoutes(mux)
 	s.alertRoutes(mux)
+	s.licenseRoutes(mux)
 	mux.Handle("POST /v1/traces", s.authed("ingest", s.ingestTraces))
 	mux.Handle("POST /v1/logs", s.authed("ingest", s.ingestLogs))
 	mux.Handle("POST /v1/metrics", s.authed("ingest", s.ingestMetrics))

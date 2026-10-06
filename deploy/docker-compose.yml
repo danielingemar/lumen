@@ -32,7 +32,10 @@ services:
       retries: 20
 
   lumen:
-    build: ..
+    build:
+      context: ..
+      args:
+        TAGS: ${LUMEN_BUILD_TAGS:-}   # "enterprise" builds the Enterprise edition (see docs/LICENSING.md)
     depends_on:
       clickhouse: { condition: service_healthy }
       elasticsearch: { condition: service_healthy }

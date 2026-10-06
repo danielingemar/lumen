@@ -63,6 +63,8 @@ Agenter; API:t och dataexport; isolering mellan tenants och varje behörighetsko
 
 ## 6. Hur licensen fungerar
 
+*Status: det här avsnittet är genomfört (se [LICENSING.sv.md](LICENSING.sv.md)); varningen vid 90 procent och fristen fungerar som beskrivet.*
+
 - En Enterprise- eller Operator-licens är en **signerad fil som verifieras offline**. Den anger organisationen, utgåvorna, utgångsdatum och, för Operator-tillägget, eventuella gränser.
 - Gränser i en licens är **mjuka**: Lumen visar varningar vid 90 procent och när en gräns överskrids. Lumen vägrar inte ta emot data på grund av en licens. (Kvoter som en operatör sätter för sina egna kunder är något annat; de är operatörens egen konfiguration.)
 - **När en licens går ut** gäller en frist på 30 dagar med en banner. Därefter slutar Enterprise-funktionerna att fungera. Community-funktionerna och all data påverkas inte, och ingenting raderas. Ett lokalt administratörskonto fungerar alltid, även om single sign-on inte längre är tillgängligt.

@@ -75,6 +75,8 @@ type ChannelOut struct {
 	Severities []string          `json:"severities"`
 	Match      map[string]string `json:"match"`
 	Health     Health            `json:"health"`
+	Edition    string            `json:"edition"`
+	Locked     bool              `json:"locked"` // the channel type needs a licence that is not in force
 }
 
 // ChannelIn is a create or update request. An empty secret keeps the stored one; ClearSecrets removes secrets.
@@ -140,6 +142,7 @@ type Engine struct {
 	RepeatEvery  time.Duration   // how often a firing alert is announced again (default 4 h)
 	RecoverAfter int             // calm evaluations before an alert resolves (default 2)
 	Backoff      []time.Duration // waits before each retry of a failed delivery
+	License      Licenser        // decides whether Enterprise channels may be used; nil means Community only
 
 	mu         sync.Mutex
 	loaded     bool
@@ -156,6 +159,7 @@ type Engine struct {
 	deliveries []Delivery
 	hbNext     map[string]time.Time
 	refreshed  time.Time
+	lockedCh   map[string]bool // channels that skipped alerts because their type needed a licence that was not in force
 }
 
 func (e *Engine) now() time.Time {
@@ -194,6 +198,20 @@ func (e *Engine) backoff() []time.Duration {
 	}
 	return []time.Duration{10 * time.Second, 30 * time.Second, 2 * time.Minute, 10 * time.Minute, 30 * time.Minute}
 }
+
+// Allowed tells whether a channel type may be used: Community types always, others only with a licence in force.
+func (e *Engine) Allowed(n Notifier) bool {
+	ed := EditionOf(n)
+	if ed == "community" {
+		return true
+	}
+	return e.License != nil && e.License.Allows(ed)
+}
+
+func needsLicence(n Notifier) string {
+	return fmt.Sprintf("%s needs a Lumen %s licence. Add or renew it under Settings.", n.Label(), strings.Title(EditionOf(n))) //nolint:staticcheck
+}
+
 func (e *Engine) deps() Deps {
 	return Deps{HTTP: e.Guard.Client(15 * time.Second), Dial: e.Guard.Dial, Now: e.now}
 }
@@ -442,6 +460,7 @@ func (e *Engine) applyLocked(r Rule, samples []Sample, noData bool, now time.Tim
 // repeatsLocked announces firing alerts that nobody has been told about (not yet notified, or a delivery gave up)
 // and repeats the announcement of long-running ones.
 func (e *Engine) repeatsLocked(now time.Time) {
+	e.catchUpLocked(now)
 	for k, a := range e.alerts {
 		if a.State != "firing" || a.Acked {
 			continue
@@ -506,19 +525,65 @@ func (e *Engine) enqueueLocked(typ string, a Alert, now time.Time) {
 		e.queued[k] = now
 	}
 	for _, ch := range e.channels {
-		if ch.Tenant != a.Tenant || !ch.Enabled || !ch.accepts(a) {
+		e.routeLocked(ch, a, status, now)
+	}
+}
+
+// routeLocked puts one alert into the group of one channel, if the channel wants it.
+func (e *Engine) routeLocked(ch Channel, a Alert, status string, now time.Time) {
+	if ch.Tenant != a.Tenant || !ch.Enabled || !ch.accepts(a) {
+		return
+	}
+	n, known := e.reg().Get(ch.Type)
+	if !known || n.Type() == "heartbeat" {
+		return
+	}
+	if !e.Allowed(n) { // the licence has ended: say so on the channel instead of failing silently, and catch up after a renewal
+		h := e.health[ch.ID]
+		h.LastError, h.Error = now, needsLicence(n)
+		e.health[ch.ID] = h
+		if status == "firing" {
+			e.markLockedLocked(ch.ID)
+		}
+		return
+	}
+	gk := ch.ID + "|" + a.RuleID + "|" + status
+	g := e.groups[gk]
+	if g == nil {
+		g = &group{ch: ch, ruleID: a.RuleID, status: status, alerts: map[string]Alert{}, readyAt: now.Add(e.groupWait())}
+		e.groups[gk] = g
+	}
+	g.alerts[a.Fingerprint] = a
+}
+
+func (e *Engine) markLockedLocked(id string) {
+	if e.lockedCh == nil {
+		e.lockedCh = map[string]bool{}
+	}
+	e.lockedCh[id] = true
+}
+
+// catchUpLocked tells channels that were shut out by a missing licence, and are allowed again, about the alerts that
+// are firing now: otherwise they would hear about them only at the next reminder, hours later.
+func (e *Engine) catchUpLocked(now time.Time) {
+	for id := range e.lockedCh {
+		ch, ok := e.channels[id]
+		if !ok {
+			delete(e.lockedCh, id)
 			continue
 		}
-		if n, ok := e.reg().Get(ch.Type); !ok || n.Type() == "heartbeat" {
+		n, known := e.reg().Get(ch.Type)
+		if !known || !e.Allowed(n) {
 			continue
 		}
-		gk := ch.ID + "|" + a.RuleID + "|" + status
-		g := e.groups[gk]
-		if g == nil {
-			g = &group{ch: ch, ruleID: a.RuleID, status: status, alerts: map[string]Alert{}, readyAt: now.Add(e.groupWait())}
-			e.groups[gk] = g
+		delete(e.lockedCh, id)
+		for _, a := range e.alerts {
+			if a.Tenant == ch.Tenant && a.State == "firing" && !a.Acked {
+				if _, silenced := e.silencedBy(a, now); !silenced {
+					e.routeLocked(ch, a, "firing", now)
+				}
+			}
 		}
-		g.alerts[a.Fingerprint] = a
 	}
 }
 
@@ -591,8 +656,16 @@ func (e *Engine) deliver(ctx context.Context, d *delivery, now time.Time) {
 	n, ok := e.reg().Get(d.ch.Type)
 	var res Result
 	var err error
+	noRetry := false
 	if !ok {
 		err = fmt.Errorf("this channel type is not available in this edition")
+		noRetry = true
+	} else if !e.Allowed(n) {
+		err = fmt.Errorf("%s", needsLicence(n))
+		noRetry = true
+		e.mu.Lock()
+		e.markLockedLocked(d.ch.ID)
+		e.mu.Unlock()
 	} else {
 		var cfg Config
 		if cfg, err = e.config(d.ch); err == nil {
@@ -629,7 +702,7 @@ func (e *Engine) deliver(ctx context.Context, d *delivery, now time.Time) {
 		h.LastError, h.Error = now, err.Error()
 		e.health[d.ch.ID] = h
 		bo := e.backoff()
-		if d.attempt <= len(bo) {
+		if !noRetry && d.attempt <= len(bo) {
 			d.due = now.Add(bo[d.attempt-1])
 			e.retry = append(e.retry, d)
 		} else {
@@ -998,7 +1071,7 @@ func (e *Engine) out(c Channel) ChannelOut {
 		o.HasSecret[k] = true
 	}
 	if n, ok := e.reg().Get(c.Type); ok {
-		o.TypeLabel = n.Label()
+		o.TypeLabel, o.Edition, o.Locked = n.Label(), EditionOf(n), !e.Allowed(n)
 	} else {
 		o.TypeLabel = c.Type + " (not available in this edition)"
 	}
@@ -1037,6 +1110,9 @@ func (e *Engine) PutChannel(tenant, id string, in ChannelIn) (ChannelOut, error)
 	}
 	if err := ValidLabels(in.Match, "label matchers"); err != nil {
 		return ChannelOut{}, invalid("%v", err)
+	}
+	if !e.Allowed(n) {
+		return ChannelOut{}, invalid("%s", needsLicence(n))
 	}
 	setKeys, secKeys := fieldKinds(n)
 	e.mu.Lock()
@@ -1144,6 +1220,9 @@ func (e *Engine) TestChannel(ctx context.Context, tenant, id string) error {
 	n, ok := e.reg().Get(ch.Type)
 	if !ok {
 		return invalid("this channel type is not available in this edition")
+	}
+	if !e.Allowed(n) {
+		return invalid("%s", needsLicence(n))
 	}
 	cfg, err := e.config(ch)
 	if err != nil {

@@ -297,7 +297,7 @@ func TestEngineKeepsTheJiraTicketForTheAlert(t *testing.T) {
 	now := t0
 	reg := alerts.NewRegistry()
 	RegisterEnterprise(reg)
-	e := &alerts.Engine{DB: db, Box: box, Eval: &alerts.Evaluator{Q: q, St: noStatus{}}, Reg: reg, Guard: alerts.Guard{AllowPrivate: true}, Now: func() time.Time { return now }, GroupWait: time.Second, RepeatEvery: time.Hour, PublicURL: "https://lumen.example.com"}
+	e := &alerts.Engine{License: allowAll{}, DB: db, Box: box, Eval: &alerts.Evaluator{Q: q, St: noStatus{}}, Reg: reg, Guard: alerts.Guard{AllowPrivate: true}, Now: func() time.Time { return now }, GroupWait: time.Second, RepeatEvery: time.Hour, PublicURL: "https://lumen.example.com"}
 	if _, err := e.PutChannel("acme", "", alerts.ChannelIn{Name: "tickets", Type: "jira", Enabled: true, Settings: cfg.Settings, Secrets: map[string]string{"api_token": "TOKEN"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -336,5 +336,35 @@ func TestEngineKeepsTheJiraTicketForTheAlert(t *testing.T) {
 	last := f.calls[len(f.calls)-1]
 	if last.Method != "POST" || !strings.HasSuffix(last.Path, "/transitions") || !strings.Contains(last.Path, "OPS-web1") {
 		t.Fatalf("the ticket the engine remembered is closed: %+v", f.calls)
+	}
+}
+
+type allowAll struct{}
+
+func (allowAll) Allows(string) bool { return true }
+
+type denyAll struct{}
+
+func (denyAll) Allows(ed string) bool { return ed == "community" }
+
+func TestEveryEnterpriseNotifierNeedsALicence(t *testing.T) {
+	db, _ := docstore.OpenFile(t.TempDir())
+	box, _ := secretbox.New("k")
+	reg := alerts.NewRegistry()
+	alerts.RegisterCore(reg)
+	RegisterEnterprise(reg)
+	e := &alerts.Engine{License: denyAll{}, DB: db, Box: box, Eval: &alerts.Evaluator{}, Reg: reg}
+	for _, n := range reg.Types() {
+		want := "community"
+		if strings.Contains("pagerduty opsgenie jira servicenow", n.Type()) {
+			want = "enterprise"
+		}
+		if alerts.EditionOf(n) != want || e.Allowed(n) != (want == "community") {
+			t.Errorf("%s: edition %s allowed %v", n.Type(), alerts.EditionOf(n), e.Allowed(n))
+		}
+	}
+	_, err := e.PutChannel("acme", "", alerts.ChannelIn{Name: "p", Type: "pagerduty", Enabled: true, Secrets: map[string]string{"routing_key": "k"}})
+	if err == nil || !strings.Contains(err.Error(), "licence") {
+		t.Fatalf("PagerDuty cannot be set up without a licence: %v", err)
 	}
 }

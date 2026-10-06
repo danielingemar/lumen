@@ -489,8 +489,9 @@ function shell(){
       sel('rfr',[[0,'Refresh: off'],[10,'10 s'],[30,'30 s'],[60,'1 min']],S.refresh,v=>{S.refresh=+v;store.set('lumen.refresh',v);route(true)}),
       el('button',{class:'btn ghost',onclick:()=>route(true)},'↻')),
       el('div',{id:'arcbar',style:'display:none'},el('b',{},'Archive'),' – showing data restored from backups, not live data. Only days you have loaded contain anything. ',el('a',{href:'#/backups'},'Choose days'),el('span',{class:'sp'}),el('button',{class:'btn ghost sm',onclick:()=>setArchive(false)},'Back to live data')),
-      el('div',{id:'view'}))));
+      el('div',{id:'lbanner'}),el('div',{id:'view'}))));
   syncTop();
+  drawLicenseBanner();
   refreshAlertBadge();
 }
 
@@ -1009,7 +1010,7 @@ async function alertsRules(box,again){
     el('div',{class:'card empty'},'No rules yet.',w?[' ',el('a',{href:'#',onclick:e=>{e.preventDefault();templates()}},'Start from the starter rules')]:null))}
 // ---- channels ----
 function channelDialog(ch,types,again){
-  const edit=!!ch.id,typ=el('select',{disabled:edit,onchange:()=>drawFields()},types.map(t=>el('option',{value:t.type,selected:t.type===(ch.type||'email')?'':null},t.label)));
+  const edit=!!ch.id,typ=el('select',{disabled:edit,onchange:()=>drawFields()},types.map(t=>el('option',{value:t.type,disabled:t.locked&&!edit?'':null,selected:t.type===(ch.type||'email')?'':null},t.label+(t.locked?' (needs an Enterprise licence)':''))));
   const name=el('input',{value:ch.name||'',size:30,maxlength:60,placeholder:'for example Operations'}),en=el('input',{type:'checkbox',checked:ch.enabled!==false}),box=el('div',{class:'form'});
   const sev=['critical','warning','info'].map(s=>[s,el('input',{type:'checkbox',checked:(ch.severities||[]).includes(s)})]),match=el('textarea',{style:'min-height:48px',placeholder:'host=web1'},kvText(ch.match));
   let inputs={};
@@ -1031,7 +1032,7 @@ async function alertsChannels(box,again){
   try{r=await api('/api/v1/notifications/channels');types=(await api('/api/v1/notifications/types')).data||[]}catch(e){box.replaceChildren(el('div',{class:'card empty'},/access|403|permission/i.test(e.message)?'Your account may not see notification channels. Ask an administrator.':e.message));return}
   const list=r.data||[],res=el('div',{class:'mono',style:'margin:8px 0;min-height:18px'});
   const test=async c=>{res.className='mut';res.textContent='Sending a test message through '+c.name+'…';try{const t=await api('/api/v1/notifications/channels/'+c.id+'/test',{},{method:'POST',body:{}});res.className=t.ok?'ok':'err';res.textContent=t.ok?'The test message was sent through '+c.name+'.':'Could not send through '+c.name+': '+t.error}catch(e){res.className='err';res.textContent=e.message}setTimeout(()=>{if(res.isConnected&&false)again()},0)};
-  const health=c=>c.health&&c.health.error&&(!c.health.last_ok||Date.parse(c.health.last_error)>Date.parse(c.health.last_ok))?el('span',{class:'badge down',title:c.health.error},'FAILING'):c.health&&c.health.last_ok?el('span',{class:'badge up'},'OK'):el('span',{class:'mut'},'not used yet');
+  const health=c=>c.locked?el('span',{class:'badge down',title:(c.health&&c.health.error)||'This channel type needs an Enterprise licence'},'LICENCE NEEDED'):c.health&&c.health.error&&(!c.health.last_ok||Date.parse(c.health.last_error)>Date.parse(c.health.last_ok))?el('span',{class:'badge down',title:c.health.error},'FAILING'):c.health&&c.health.last_ok?el('span',{class:'badge up'},'OK'):el('span',{class:'mut'},'not used yet');
   box.replaceChildren(el('div',{class:'bar'},el('span',{class:'mut'},'Where messages go: email, a webhook, Slack, Teams'+(types.some(t=>t.type==='jira')?', Jira, PagerDuty and more':'')+'.'),el('span',{class:'sp'}),w?el('button',{class:'btn',onclick:()=>channelDialog({},types,again)},'+ Add channel'):null),res,
     list.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['Name','Type','Sends','Status',''].map(x=>el('th',{},x))),list.map(c=>el('tr',{},
       el('td',{},el('b',{},c.name),c.enabled?null:el('span',{class:'pill'},'disabled')),el('td',{class:'mut'},c.type_label),
@@ -1056,6 +1057,36 @@ async function refreshAlertBadge(){
   try{const r=await api('/api/v1/alerts',{},{quiet:true}),n=(r.counts&&r.counts.firing)||0,a=$('#side nav a[data-h="#/alerts"]');if(a){let b=a.querySelector('.nb');if(n>0){if(!b){b=el('span',{class:'nb'});a.append(b)}b.textContent=String(n)}else if(b)b.remove()}}catch{}}
 
 // ---- settings: site name and logo ----
+// ---- licence: a banner when it is about to end or has ended, and the card under Settings ----
+const fmtDate=t=>t?new Date(t).toLocaleDateString():'';
+function drawLicenseBanner(){
+  const box=$('#lbanner');if(!box)return;box.replaceChildren();
+  const l=S.me&&S.me.license;if(!l||!['expiring','grace','expired','invalid'].includes(l.state))return;
+  const t={expiring:'Your Lumen licence ends in '+l.days_left+' day'+(l.days_left===1?'':'s')+' ('+fmtDate(l.expires)+'). Renew it to keep the Enterprise features.',
+    grace:'Your Lumen licence ended on '+fmtDate(l.expires)+'. The Enterprise features keep working until '+fmtDate(l.grace_ends)+'; renew the licence before then.',
+    expired:'Your Lumen licence has ended, so the Enterprise features (for example Jira and PagerDuty notifications) are switched off. Everything else keeps working and no data is lost.',
+    invalid:'The licence on this server cannot be used: '+(l.problem||'it does not verify')+'.'}[l.state];
+  box.append(el('div',{class:l.state==='expiring'?'warnbox':'errbox',style:'margin:0 0 12px'},t+' ',el('a',{href:'#/settings'},'Open the licence')))}
+async function licenseCard(view,w){
+  let r;try{r=await api('/api/v1/settings/license')}catch(e){if(/belongs to the installation/.test(e.message))view.append(el('div',{class:'card',style:'max-width:620px;margin-top:14px'},el('h2',{style:'margin-top:0'},'Licence'),el('p',{class:'help'},e.message)));return}
+  const card=el('div',{class:'card',style:'max-width:620px;margin-top:14px'}),msg=el('div',{style:'min-height:20px;margin-top:8px'});view.append(card);
+  const draw=r=>{const l=r.license,badge={none:['COMMUNITY','info'],valid:['ENTERPRISE','up'],expiring:['ENDS IN '+l.days_left+' DAYS','pending'],grace:['ENDED, STILL WORKS','pending'],expired:['ENDED','down'],invalid:['CANNOT BE USED','down']}[l.state]||['','info'];
+    S.me.license=l;drawLicenseBanner();
+    const ta=el('textarea',{style:'min-height:90px;font-family:monospace;font-size:12px',placeholder:'or paste the contents of the .license file here'}),file=el('input',{type:'file',accept:'.license,.json,application/json,text/plain'});
+    file.onchange=async()=>{const f=file.files[0];if(!f)return;if(f.size>16384){msg.className='err';msg.textContent='That file is too large to be a licence.';return}ta.value=await f.text()};
+    const install=async()=>{msg.className='mut';msg.textContent='';try{const x=await api('/api/v1/settings/license',{},{method:'PUT',body:{license:ta.value}});msg.className='ok';msg.textContent='Licence installed.';draw(x)}catch(er){msg.className='err';msg.textContent=er.message}};
+    const rows=[];const row=(k,v)=>v?rows.push(el('tr',{},el('td',{class:'mut',style:'padding:2px 14px 2px 0'},k),el('td',{},v))):0;
+    if(l.state!=='none'&&l.state!=='invalid'){row('Customer',l.customer);row('Editions',(l.editions||[]).join(', '));row('Valid until',fmtDate(l.expires)+(l.days_left>=0?' ('+l.days_left+' days left)':''));if(l.state==='grace')row('Enterprise works until',fmtDate(l.grace_ends));row('Licence id',l.id);
+      row('Hosts',(l.limits&&l.limits.hosts)?r.usage.hosts+' of '+l.limits.hosts+' (in your tenant)':'');row('Tenants',(l.limits&&l.limits.tenants)?'up to '+l.limits.tenants:'');row('Read from',l.source==='file'?'a file on the server (LUMEN_LICENSE_FILE)':'saved in Lumen')}
+    card.replaceChildren(el('h2',{style:'margin-top:0'},'Licence ',el('span',{class:'badge '+badge[1],style:'vertical-align:middle'},badge[0])),
+      l.state==='none'?el('p',{},'No licence: you are using the Community edition, which is free and complete for monitoring. A licence unlocks Enterprise features such as Jira, ServiceNow, PagerDuty and Opsgenie notifications.'):null,
+      l.state==='invalid'?el('div',{class:'errbox'},l.problem):null,
+      rows.length?el('table',{},rows):null,(r.warnings||[]).map(x=>el('div',{class:'warnbox',style:'margin-top:8px'},x)),
+      w?el('div',{style:'margin-top:12px'},el('div',{class:'help'},l.state==='none'?'Install a licence':'Install a renewal or a new licence'),el('div',{style:'margin:6px 0'},file),ta,
+        el('div',{class:'bar',style:'margin:8px 0 0'},el('button',{class:'btn',onclick:install},'Install licence'),
+          l.state!=='none'&&l.source!=='file'?el('button',{class:'btn ghost',onclick:async()=>{if(!confirm('Remove the licence? Enterprise features stop; Community features and all data stay.'))return;try{draw(await api('/api/v1/settings/license',{},{method:'DELETE'}))}catch(er){msg.className='err';msg.textContent=er.message}}},'Remove licence'):null)):null,msg,
+      el('p',{class:'help'},'The licence is checked inside Lumen against keys that are built in. Nothing is sent anywhere, and nothing is ever deleted when a licence ends. Enterprise features keep working for 30 days after the end date.'))};
+  draw(r)}
 async function settingsPage(){
   setTitle('Settings');const view=$('#view'),w=can('settings',true);
   await loadBrand();
@@ -1085,6 +1116,7 @@ async function settingsPage(){
       rmBtn):el('p',{class:'help'},'You have read-only access.'),msg,
     el('p',{class:'help'},'The name and logo are the same for everyone who uses this server, and are visible before signing in. In a multi-tenant installation only give the Settings permission to the operator.')));
   drawPrev();
+  await licenseCard(view,w);
 }
 boot();
 </script></body></html>

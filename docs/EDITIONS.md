@@ -63,6 +63,8 @@ Agents; the API and data export; tenant isolation and every authorisation check;
 
 ## 6. Licence mechanics
 
+*Status: this section is implemented (see [LICENSING.md](LICENSING.md)); the 90 percent warning and the grace period work as described.*
+
 - An Enterprise or Operator licence is a **signed file that is verified offline**. It names the organisation, the editions, the expiry date and, for the Operator add-on, any limits.
 - Limits in a licence are **soft**: Lumen shows warnings at 90 per cent and when a limit is exceeded. Lumen does not refuse data because of a licence. (Quotas that an operator sets for their own customers are a different thing; they are the operator's own configuration.)
 - **When a licence expires** there is a 30-day grace period with a banner. After that the Enterprise features stop. Community features and all data are untouched, and nothing is deleted. A local administrator account always works, even if single sign-on is no longer available.

@@ -32,6 +32,7 @@ type Config struct {
 	AlertAllowPrivate                             bool          // LUMEN_ALERT_ALLOW_PRIVATE: let channels reach internal addresses (an internal mail relay)
 	AlertGroupWait                                time.Duration // LUMEN_ALERT_GROUP_WAIT: how long related alerts are collected into one message
 	AlertRepeat                                   time.Duration // LUMEN_ALERT_REPEAT: how often a firing alert is announced again
+	LicenseFile                                   string        // LUMEN_LICENSE_FILE: a licence file to use (a renewal can be dropped in as a file)
 }
 
 func env(k, def string) string {
@@ -57,6 +58,7 @@ func Load() Config {
 		return def
 	}
 	c := Config{
+		LicenseFile:         os.Getenv("LUMEN_LICENSE_FILE"),
 		Alerts:              os.Getenv("LUMEN_ALERTS") != "false",
 		AlertAllowPrivate:   os.Getenv("LUMEN_ALERT_ALLOW_PRIVATE") == "true",
 		AlertGroupWait:      dur("LUMEN_ALERT_GROUP_WAIT", 30*time.Second),

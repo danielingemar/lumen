@@ -56,7 +56,8 @@ Traces, logs and metrics, dashboards you build yourself, host / service / Docker
 | <img src="docs/screenshots/instances.png" alt="Nextcloud instances with one DOWN"> **Instances**: a down instance and why. Fix a typo and the agent picks it up. | <img src="docs/screenshots/host.png" alt="Host settings and services"> **Hosts**: log paths, watched services, systemd services and Docker containers. |
 | <img src="docs/screenshots/users.png" alt="Users and groups"> **Users & groups**: Admin, User and custom groups. | <img src="docs/screenshots/backups.png" alt="Backups and archive"> **Backups & archive**: every day is backed up; load an old day and browse it. |
 | <img src="docs/screenshots/host-performance.png" alt="Host page with CPU, memory, disk and network charts"> **Host page**: CPU, load, memory, disks, disk I/O and network for one machine. | <img src="docs/screenshots/host.png" alt="Host settings and services"> Below the charts: settings and services. |
-| <img src="docs/screenshots/instance.png" alt="One Nextcloud instance: versions, usage, charts and log"> **One instance**: status, versions, usage and performance, and its log. | <img src="docs/screenshots/alerts.png" alt="A firing alert"> **Alerts**: what is firing, with Acknowledge and Silence. | <img src="docs/screenshots/alerts-rule.png" alt="The rule editor"> **Rule editor**, with a replay of the last 24 hours. |
+| <img src="docs/screenshots/instance.png" alt="One Nextcloud instance: versions, usage, charts and log"> **One instance**: status, versions, usage and performance, and its log. | <img src="docs/screenshots/licence.png" alt="The licence card under Settings"> **Licence** under Settings. | <img src="docs/screenshots/licence-ended.png" alt="The banner when a licence has ended"> When a licence has ended: a banner, and Enterprise channels marked. |
+| <img src="docs/screenshots/alerts.png" alt="A firing alert"> **Alerts**: what is firing, with Acknowledge and Silence. | <img src="docs/screenshots/alerts-rule.png" alt="The rule editor"> **Rule editor**, with a replay of the last 24 hours. |
 | <img src="docs/screenshots/logs.png" alt="Logs with source and host dropdowns"> **Logs**: pick a log source and a host from what has come in. | <img src="docs/screenshots/traces.png" alt="Traces with service, operation and host dropdowns"> **Traces**: service, operation and host dropdowns. |
 | <img src="docs/screenshots/settings.png" alt="Settings with logo upload"> **Settings**: your own logo and site name. | <img src="docs/screenshots/dashboard-hosts.png" alt="Hosts dashboard"> **Hosts dashboard** starter template. |
 | <img src="docs/screenshots/dashboard-nextcloud-dark.png" alt="Nextcloud dashboard, dark theme"> Light and dark theme. | |
@@ -335,6 +336,8 @@ Backups are kept `LUMEN_BACKUP_RETENTION_DAYS` (**365**; `0` = forever). A faile
 | `LUMEN_ALERT_ALLOW_PRIVATE` | `false` | let alert channels reach loopback and private addresses (an internal mail relay or webhook receiver) |
 | `LUMEN_ALERT_GROUP_WAIT` | `30s` | how long related alerts are collected into one message |
 | `LUMEN_ALERT_REPEAT` | `4h` | how often a firing alert is announced again until acknowledged |
+| `LUMEN_LICENSE_FILE` | | path of a licence file (read at start and every minute, so a renewal can be dropped in); otherwise the licence saved under Settings is used |
+| `LUMEN_BUILD_TAGS` | | in `deploy/.env`, for the build: `enterprise` builds the Enterprise edition |
 | `LUMEN_SECRET_KEY` | | encrypts stored Nextcloud credentials (falls back to the session secret with a warning) |
 | `LUMEN_ELASTICSEARCH_URL` / `_USER` / `_PASSWORD` / `_API_KEY` / `_PREFIX` | / / / / `lumen` | document store; without a URL a JSON file in `LUMEN_DATA_DIR` (`/data`) is used |
 | `LUMEN_ADMIN_USER` / `_PASSWORD` / `_TENANT` | / / `main` | first admin, created at startup |
@@ -375,6 +378,7 @@ If there are no users and no keys, nobody can log in and the server log says so.
 | GET | `/api/v1/alerts/deliveries` | notification channels |
 | GET | `/api/v1/notifications/types` | notification channels (field definitions the form is built from) |
 | GET/POST/PUT/DELETE | `/api/v1/notifications/channels[/{id}]`, POST `.../{id}/test` | notification channels |
+| GET, PUT, DELETE | `/api/v1/settings/license` (`{"license": "<file contents>"}`) | settings (write to change), tenant that owns the installation |
 | GET | `/api/v1/agent/config?host=` | API key (never a browser session: contains credentials) |
 | GET, POST, DELETE | `/api/v1/backups`, `/backups/run`, `/backups/{day}/load`, `/backups/{day}/{spans\|logs\|metrics}` | backups |
 | any read | `?archive=1` | backups (read): query restored data |
@@ -398,6 +402,8 @@ internal/registry     host settings and Nextcloud instances (secrets encrypted)
 internal/secretbox    AES-GCM for stored credentials
 internal/status       up/down computation
 internal/alerts       alert rules, state machine, notifications (email, webhook, Slack, Teams, heartbeat), SSRF guard
+internal/license      signed licence files, offline verification, states and grace period, soft limits
+cmd/lumen-license     the publisher's tool: make signing keys, issue and inspect licences
 internal/backup       daily export, prune, load/unload of archive days
 internal/docstore     Elasticsearch client + JSON-file fallback (estest = fake ES, tests only)
 internal/dashboards   dashboards per tenant
@@ -430,11 +436,12 @@ Before you fork this into a product of your own: pick the final name and check i
 
 ## Editions and design documents
 
-Lumen is open core: a free **Community** edition, **Enterprise** for governance and scale, and an **Operator** add-on for running Lumen for customers or business units. The line between them is written down as a public charter, with promises such as "a released Community feature is never moved to a paid edition". These are **drafts** for discussion; nothing in them is implemented yet unless the text says *exists*.
+Lumen is open core: a free **Community** edition, **Enterprise** for governance and scale, and an **Operator** add-on for running Lumen for customers or business units. The line between them is written down as a public charter, with promises such as "a released Community feature is never moved to a paid edition". These are **drafts** for discussion; nothing in them is implemented yet unless the text says *exists*. The licence mechanism itself exists: Enterprise features (today the Jira, ServiceNow, PagerDuty and Opsgenie channels) need a signed licence file that is checked **offline** inside Lumen, with a 30-day grace period and no data ever deleted. Without a licence Lumen is the Community edition. Install a licence under **Settings → Licence**, or point `LUMEN_LICENSE_FILE` at it. The Enterprise code is built with `LUMEN_BUILD_TAGS=enterprise`; the publisher's tool `lumen-license` makes keys and licences (see the licensing guide).
 
 | Document | English | Svenska |
 |---|---|---|
 | Edition charter | [docs/EDITIONS.md](docs/EDITIONS.md) | [docs/EDITIONS.sv.md](docs/EDITIONS.sv.md) |
+| **Licensing** (how a licence is issued, installed and what happens when it ends) | [docs/LICENSING.md](docs/LICENSING.md) | [docs/LICENSING.sv.md](docs/LICENSING.sv.md) |
 | Design: tenancy (operator layer, quotas, metering, per-tenant retention and branding) | [docs/design/tenancy.md](docs/design/tenancy.md) | [docs/design/tenancy.sv.md](docs/design/tenancy.sv.md) |
 | Design: alerting (rules, notifications, Jira and email, on-call) | [docs/design/alerting.md](docs/design/alerting.md) | [docs/design/alerting.sv.md](docs/design/alerting.sv.md) |
 

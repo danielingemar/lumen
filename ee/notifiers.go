@@ -109,8 +109,9 @@ func checkHTTPS(raw, what string) error {
 
 type pagerDuty struct{}
 
-func (pagerDuty) Type() string  { return "pagerduty" }
-func (pagerDuty) Label() string { return "PagerDuty" }
+func (pagerDuty) Type() string    { return "pagerduty" }
+func (pagerDuty) Edition() string { return "enterprise" }
+func (pagerDuty) Label() string   { return "PagerDuty" }
 func (pagerDuty) Fields() []alerts.Field {
 	return []alerts.Field{
 		{Key: "routing_key", Label: "Integration (routing) key", Kind: "secret", Required: true, Help: "From the PagerDuty service: Integrations, Events API v2."},
@@ -158,8 +159,9 @@ func (pagerDuty) Send(ctx context.Context, d alerts.Deps, c alerts.Config, m ale
 
 type opsgenie struct{}
 
-func (opsgenie) Type() string  { return "opsgenie" }
-func (opsgenie) Label() string { return "Opsgenie" }
+func (opsgenie) Type() string    { return "opsgenie" }
+func (opsgenie) Edition() string { return "enterprise" }
+func (opsgenie) Label() string   { return "Opsgenie" }
 func (opsgenie) Fields() []alerts.Field {
 	return []alerts.Field{
 		{Key: "api_key", Label: "API key", Kind: "secret", Required: true, Help: "From Opsgenie: Settings, Integrations, API."},
@@ -213,8 +215,9 @@ func (opsgenie) Send(ctx context.Context, d alerts.Deps, c alerts.Config, m aler
 
 type jira struct{}
 
-func (jira) Type() string  { return "jira" }
-func (jira) Label() string { return "Jira" }
+func (jira) Type() string    { return "jira" }
+func (jira) Edition() string { return "enterprise" }
+func (jira) Label() string   { return "Jira" }
 func (jira) Fields() []alerts.Field {
 	return []alerts.Field{
 		{Key: "base_url", Label: "Jira address", Kind: "text", Required: true, Help: "For example https://yourcompany.atlassian.net"},
@@ -314,8 +317,9 @@ func (jira) Send(ctx context.Context, d alerts.Deps, c alerts.Config, m alerts.M
 
 type serviceNow struct{}
 
-func (serviceNow) Type() string  { return "servicenow" }
-func (serviceNow) Label() string { return "ServiceNow" }
+func (serviceNow) Type() string    { return "servicenow" }
+func (serviceNow) Edition() string { return "enterprise" }
+func (serviceNow) Label() string   { return "ServiceNow" }
 func (serviceNow) Fields() []alerts.Field {
 	return []alerts.Field{
 		{Key: "instance_url", Label: "Instance address", Kind: "text", Required: true, Help: "For example https://yourcompany.service-now.com"},

@@ -18,6 +18,9 @@ func (s *Server) WithAlerts(e *alerts.Engine) *Server { s.alerts = e; return s }
 
 // Summary gives the engine the up/down picture of a tenant (shared with the status boxes, cached for a few seconds).
 func (s *Server) Summary(ctx context.Context, tenant string) (status.Summary, error) {
+	if s.reg == nil { // a server without a host registry has nothing to report
+		return status.Summary{}, nil
+	}
 	sn, err := s.snapshot(ctx, tenant)
 	return sn.sum, err
 }
@@ -181,13 +184,15 @@ func (s *Server) createSilence(w http.ResponseWriter, r *http.Request, id editio
 
 func (s *Server) notifierTypes(w http.ResponseWriter, r *http.Request, id edition.Identity) {
 	type typ struct {
-		Type   string         `json:"type"`
-		Label  string         `json:"label"`
-		Fields []alerts.Field `json:"fields"`
+		Type    string         `json:"type"`
+		Label   string         `json:"label"`
+		Fields  []alerts.Field `json:"fields"`
+		Edition string         `json:"edition"`
+		Locked  bool           `json:"locked"` // needs a licence that is not in force
 	}
 	out := []typ{}
 	for _, n := range alerts.Default.Types() {
-		out = append(out, typ{n.Type(), n.Label(), n.Fields()})
+		out = append(out, typ{n.Type(), n.Label(), n.Fields(), alerts.EditionOf(n), !s.alerts.Allowed(n)})
 	}
 	writeJSON(w, map[string]any{"data": out})
 }

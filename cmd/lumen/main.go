@@ -18,6 +18,7 @@ import (
 	"github.com/danielingemar/lumen/internal/dashboards"
 	"github.com/danielingemar/lumen/internal/edition"
 	"github.com/danielingemar/lumen/internal/install"
+	"github.com/danielingemar/lumen/internal/license"
 	"github.com/danielingemar/lumen/internal/registry"
 	"github.com/danielingemar/lumen/internal/secretbox"
 	"github.com/danielingemar/lumen/internal/server"
@@ -78,8 +79,22 @@ func main() {
 	app := server.New(ch, authn, log).WithAuth(authn).WithDashboards(dashboards.New(backend)).WithRegistry(registry.New(backend, box)).WithBranding(branding.New(backend)).WithInstall(cfg.PublicURL, cfg.DistDir)
 	bg, stopBg := context.WithCancel(context.Background())
 	defer stopBg()
+	lic := license.NewManager(backend, license.EmbeddedKeys(), cfg.LicenseFile)
+	lic.Load()
+	app.WithLicense(lic).WithOwnerTenant(cfg.AdminTenant)
+	go func() { // a renewal that is dropped in as a file is picked up within a minute
+		for t := time.NewTicker(time.Minute); ; {
+			select {
+			case <-bg.Done():
+				return
+			case <-t.C:
+				lic.Load()
+			}
+		}
+	}()
+	log.Info("licence", "state", string(lic.State()), "trusted_keys", len(license.EmbeddedKeys()))
 	if cfg.Alerts {
-		eng := &alerts.Engine{DB: backend, Box: box, Eval: &alerts.Evaluator{Q: ch, St: app}, Guard: alerts.Guard{AllowPrivate: cfg.AlertAllowPrivate},
+		eng := &alerts.Engine{License: lic, DB: backend, Box: box, Eval: &alerts.Evaluator{Q: ch, St: app}, Guard: alerts.Guard{AllowPrivate: cfg.AlertAllowPrivate},
 			PublicURL: cfg.PublicURL, Log: log, GroupWait: cfg.AlertGroupWait, RepeatEvery: cfg.AlertRepeat}
 		app.WithAlerts(eng)
 		go eng.Run(bg)
