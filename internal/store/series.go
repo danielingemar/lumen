@@ -71,6 +71,7 @@ func metricPlan(q model.SeriesQuery, p map[string]string) (seriesPlan, error) {
 		where += fmt.Sprintf(" AND attrs[{fk%d:String}] = {fv%d:String}", i, i)
 		p[fmt.Sprintf("fk%d", i)], p[fmt.Sprintf("fv%d", i)] = k, q.Filters[k]
 	}
+	where += hostsIn("attrs['host']", q.Hosts, p)
 	gexpr, label := "''", ""
 	switch {
 	case q.GroupBy == "":
@@ -139,6 +140,7 @@ func tracesPlan(q model.SeriesQuery, p map[string]string) (seriesPlan, error) {
 		where += " AND resource_attrs['host.name'] = {host:String}"
 		p["host"] = q.Host
 	}
+	where += hostsIn("resource_attrs['host.name']", q.Hosts, p)
 	gexpr, label := "''", ""
 	switch q.GroupBy {
 	case "":
@@ -162,6 +164,7 @@ func logsPlan(q model.SeriesQuery, p map[string]string) (seriesPlan, error) {
 		where += " AND resource_attrs['host.name'] = {host:String}"
 		p["host"] = q.Host
 	}
+	where += hostsIn("resource_attrs['host.name']", q.Hosts, p)
 	if q.Severity != "" {
 		where += " AND severity = {severity:String}"
 		p["severity"] = q.Severity

@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/danielingemar/lumen/internal/registry"
 	"math"
 	"regexp"
 	"sort"
@@ -43,7 +44,8 @@ type Rule struct {
 	Severity    string            `json:"severity"`     // critical | warning | info
 	Labels      map[string]string `json:"labels"`
 	Annotation  string            `json:"annotation"`
-	NoData      string            `json:"no_data"` // ok | alert | keep: what to do when the query returns nothing
+	NoData      string            `json:"no_data"`         // ok | alert | keep: what to do when the query returns nothing
+	Group       string            `json:"group,omitempty"` // only the hosts of this host group (empty: all hosts)
 
 	// metric
 	Metric    string   `json:"metric,omitempty"`
@@ -100,6 +102,13 @@ func (r *Rule) Normalize() error {
 	r.Name = strings.TrimSpace(r.Name)
 	if r.Name == "" || !clean(r.Name, 80) {
 		return fmt.Errorf("the name must be 1-80 characters on one line")
+	}
+	if r.Group != "" {
+		g, err := registry.NormalizeGroup(r.Group)
+		if err != nil {
+			return fmt.Errorf("the host group: %v", strings.TrimPrefix(err.Error(), "invalid: "))
+		}
+		r.Group = g
 	}
 	if r.Severity == "" {
 		r.Severity = "warning"

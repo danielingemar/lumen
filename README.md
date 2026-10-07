@@ -278,6 +278,17 @@ Each channel can be limited to some importances (for example only critical) and 
 
 **What is not there yet:** rules on traces (error rate, latency), escalation policies and on-call schedules, recurring maintenance windows, message templates, assigning an alert to a person, and metrics about the alert engine itself. See the [design](docs/design/alerting.md). A single server runs the evaluation; there is no high-availability mode yet.
 
+## Host groups
+
+A **host group** is a name you put on hosts, so that you can look at, and alert on, some of your machines together: all the web servers, everything that belongs to one customer, production against test. A host can be in **several** groups. There is no separate list of groups to keep in step: a group exists as long as a host is in it.
+
+- **On the Hosts page:** the groups are chips at the top (with the number of hosts); click one to show only its hosts. *Group by* shows the hosts in a section per group. Tick several hosts and choose **Add to group…** (an existing name or a new one), or **Remove from “group”** when one group is shown. *Manage groups* renames a group (a name that exists merges the two) or deletes it; the hosts themselves stay.
+- **On a host's page:** the *Groups* field, separated by commas.
+- **In Logs, Traces and Metrics:** a group select next to the host select limits the page, and its charts, to the hosts of the group; the host list narrows to them.
+- **In alert rules:** *Hosts* limits a rule to a group, for metric rules, log rules and the status rules (*a host is down*, *a service or container is failed*). For *a Nextcloud instance is down* the group is the one of the host that checks the instance. A rule follows its group when the group is renamed; if a group is deleted, the rules that name it see no hosts (they never turn into “all hosts”).
+- **Names:** 1-40 characters, letters, digits, spaces and `. _ - : & + ( )`, matched without regard to case; a host can be in at most 20 groups. A group has the tenant's hosts only: tenants have groups of their own.
+- **Permissions:** changing groups needs the same permission as changing hosts; anyone who can see hosts can use a group as a filter.
+
 ## Tenants and the operator console
 
 A **tenant** is one customer (or team) of an installation: its users, keys, dashboards, hosts and data are invisible to every other tenant. Isolation is always on and free. The people who run the installation can manage all tenants from the **Tenants** page, which is part of the **Operator add-on** (it needs an Operator licence; without one Lumen still counts what each tenant sends, but enforces nothing and never cuts anyone off).
@@ -405,6 +416,9 @@ Two agent settings decide how an agent is listed: `LUMEN_AGENT_ROLE` (`host` or 
 | PUT | `/api/v1/settings/branding` | settings |
 | GET/POST/PUT/DELETE | `/api/v1/instances[/{id}]` | hosts |
 | POST | `/api/v1/hosts/{host}/update`, `/api/v1/hosts-update-all` | hosts (write): ask the agent on one host, or on every outdated host, to update itself |
+| GET | `/api/v1/host-groups` | hosts: the groups with their hosts |
+| POST | `/api/v1/host-groups/members` (`{group, add, remove}`), `/rename` (`{from, to}`), `/delete` (`{group}`) | hosts (write) |
+| GET | `/api/v1/traces`, `/api/v1/logs`, `/api/v1/series` with `group=NAME` | limit the answer to the hosts of a host group |
 | POST | `/api/v1/instance-keys/{address}/remove` | hosts (write): remove an instance nobody registered here, once its agent has stopped reporting it |
 | GET | `/api/v1/alerts` | alerts (also `counts`) |
 | POST, DELETE | `/api/v1/alerts/ack/{fingerprint}` | alerts (write) |

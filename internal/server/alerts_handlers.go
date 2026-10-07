@@ -17,6 +17,14 @@ import (
 func (s *Server) WithAlerts(e *alerts.Engine) *Server { s.alerts = e; return s }
 
 // Summary gives the engine the up/down picture of a tenant (shared with the status boxes, cached for a few seconds).
+// GroupHosts lets alert rules be limited to a host group.
+func (s *Server) GroupHosts(tenant, group string) []string {
+	if s.reg == nil {
+		return nil
+	}
+	return s.reg.GroupHosts(tenant, group)
+}
+
 func (s *Server) Summary(ctx context.Context, tenant string) (status.Summary, error) {
 	if s.reg == nil { // a server without a host registry has nothing to report
 		return status.Summary{}, nil
@@ -117,13 +125,27 @@ func (s *Server) listRules(w http.ResponseWriter, r *http.Request, id edition.Id
 
 func (s *Server) putRule(pathID string) handler {
 	return func(w http.ResponseWriter, r *http.Request, id edition.Identity) {
-		var in alerts.Rule
-		if !readJSON(w, r, &in) {
+		var body struct {
+			alerts.Rule
+			EnabledSet *bool `json:"enabled"` // outer field: wins over the embedded one, so that "not given" can be told from "false"
+		}
+		if !readJSON(w, r, &body) {
 			return
 		}
+		in := body.Rule
 		rid := ""
 		if pathID != "" {
 			rid = r.PathValue(pathID)
+		}
+		switch {
+		case body.EnabledSet != nil:
+			in.Enabled = *body.EnabledSet
+		case rid == "": // a rule that is made is on, unless it is said not to be (the API used to make it silently off)
+			in.Enabled = true
+		default: // an update that does not mention it leaves it as it is
+			if cur, ok := s.alerts.GetRule(id.Tenant, rid); ok {
+				in.Enabled = cur.Enabled
+			}
 		}
 		out, err := s.alerts.PutRule(id.Tenant, rid, in)
 		if err == nil {

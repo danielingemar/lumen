@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -259,4 +260,104 @@ func TestRemovedInstancesAreRemembered(t *testing.T) {
 	}
 	s.ClearGone("acme", "ks.example.com")
 	s.ClearGone("acme", "")
+}
+
+func TestGroupNames(t *testing.T) {
+	for in, want := range map[string]string{"web": "web", "  Web  servers ": "Web servers", "kund-acme (prod)": "kund-acme (prod)", "Å&Ö 2": "Å&Ö 2", "a\nb\tc": "a b c"} {
+		if got, err := NormalizeGroup(in); err != nil || got != want {
+			t.Errorf("%q: %q %v", in, got, err)
+		}
+	}
+	for _, bad := range []string{"", "   ", "-web", "a,b", "a/b", "a<script>", strings.Repeat("a", 41), ".hidden"} {
+		if _, err := NormalizeGroup(bad); err == nil {
+			t.Errorf("%q must be refused", bad)
+		}
+	}
+}
+
+func TestHostGroups(t *testing.T) {
+	s, _ := newReg(t)
+	// adding hosts to a group makes their configuration if they have none, and leaves everything else in it alone
+	s.PutHost("acme", HostConfig{Host: "web1", LogPaths: []string{"/var/log/nginx/*.log"}, DockerLogs: true, Systemd: true, Containers: true, DisplayName: "Primary web"})
+	if n, err := s.ChangeMembers("acme", "Web", []string{"web1", "web2", "web3"}, nil); err != nil || n != 3 {
+		t.Fatalf("%d %v", n, err)
+	}
+	c := s.GetHost("acme", "web1")
+	if len(c.Groups) != 1 || c.Groups[0] != "Web" || len(c.LogPaths) != 1 || !c.DockerLogs || c.DisplayName != "Primary web" {
+		t.Fatalf("its other settings are kept: %+v", c)
+	}
+	if c := s.GetHost("acme", "web2"); c.Host != "web2" || !c.Systemd || !c.Containers || c.Tenant != "acme" || len(c.Groups) != 1 {
+		t.Fatalf("a host without settings gets the defaults and the group: %+v", c)
+	}
+	// the same host in two groups, names matched without regard to case, nothing counted twice
+	if n, _ := s.ChangeMembers("acme", "web", []string{"web1"}, nil); n != 0 {
+		t.Fatalf("already in it (case does not matter): %d", n)
+	}
+	s.ChangeMembers("acme", "kund-acme", []string{"web1", "web2"}, nil)
+	s.ChangeMembers("globex", "Web", []string{"web1"}, nil)
+	got := s.Groups("acme")
+	if len(got) != 2 || got[0].Name != "kund-acme" || got[1].Name != "Web" || strings.Join(got[1].Hosts, ",") != "web1,web2,web3" || strings.Join(got[0].Hosts, ",") != "web1,web2" {
+		t.Fatalf("%+v", got)
+	}
+	if len(s.Groups("globex")) != 1 || strings.Join(s.GroupHosts("globex", "WEB"), ",") != "web1" {
+		t.Fatal("tenants have groups of their own")
+	}
+	if strings.Join(s.GroupHosts("acme", "WEB"), ",") != "web1,web2,web3" || len(s.GroupHosts("acme", "nope")) != 0 {
+		t.Fatal("GroupHosts")
+	}
+	// removing from a group
+	if n, err := s.ChangeMembers("acme", "web", nil, []string{"web3", "web9"}); err != nil || n != 1 {
+		t.Fatalf("web9 was never in it: %d %v", n, err)
+	}
+	if strings.Join(s.GroupHosts("acme", "Web"), ",") != "web1,web2" {
+		t.Fatal("removed")
+	}
+	// rename, also into a group that exists (they merge)
+	if n, err := s.RenameGroup("acme", "kund-acme", "Customer ACME"); err != nil || n != 2 {
+		t.Fatalf("%d %v", n, err)
+	}
+	if n, _ := s.RenameGroup("acme", "Customer ACME", "web"); n != 2 {
+		t.Fatalf("merge: %d", n)
+	}
+	if g := s.Groups("acme"); len(g) != 1 || g[0].Name != "Web" && g[0].Name != "web" || len(g[0].Hosts) != 2 {
+		t.Fatalf("merged into one group: %+v", g)
+	}
+	// delete: the hosts stay, with the rest of their settings
+	if n, err := s.DeleteGroup("acme", "WEB"); err != nil || n != 2 {
+		t.Fatalf("%d %v", n, err)
+	}
+	if len(s.Groups("acme")) != 0 || s.GetHost("acme", "web1").DisplayName != "Primary web" {
+		t.Fatal("the group is gone, the host is not")
+	}
+	// a removed host is in no group, and cannot be added
+	s.ChangeMembers("acme", "old", []string{"web1"}, nil)
+	s.RemoveHost("acme", "web1")
+	if len(s.GroupHosts("acme", "old")) != 0 {
+		t.Fatal("a removed host is not in a group")
+	}
+	if n, _ := s.ChangeMembers("acme", "old", []string{"web1"}, nil); n != 0 {
+		t.Fatal("and is not added to one")
+	}
+	// refusals
+	if _, err := s.ChangeMembers("acme", "bad,name", []string{"web1"}, nil); err == nil {
+		t.Fatal("a bad name")
+	}
+	if _, err := s.ChangeMembers("acme", "ok", []string{"../etc"}, nil); err == nil {
+		t.Fatal("a bad host name")
+	}
+	var many []string
+	for i := 0; i < 21; i++ {
+		many = append(many, fmt.Sprintf("g%d", i))
+	}
+	if _, err := s.PutHost("acme", HostConfig{Host: "web5", Groups: many}); err == nil || !strings.Contains(err.Error(), "at most 20 groups") {
+		t.Fatalf("%v", err)
+	}
+	// saving host settings tidies the groups
+	c5, err := s.PutHost("acme", HostConfig{Host: "web5", Groups: []string{" b  group ", "A", "a", "b group"}})
+	if err != nil || strings.Join(c5.Groups, "|") != "A|b group" {
+		t.Fatalf("trimmed, without duplicates (case ignored), sorted: %v %v", c5.Groups, err)
+	}
+	if _, err := s.PutHost("acme", HostConfig{Host: "web5", Groups: []string{"a,b"}}); err == nil {
+		t.Fatal("a bad name in the settings")
+	}
 }

@@ -12,5 +12,3 @@ lumen-agent.json
 *.key
 *.license
 issued.jsonl
-*.tar.gz
-*.zip

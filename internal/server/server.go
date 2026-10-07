@@ -256,7 +256,7 @@ func (s *Server) listTraces(w http.ResponseWriter, r *http.Request, id edition.I
 	minMs, _ := strconv.ParseUint(q.Get("min_duration_ms"), 10, 64)
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	rows, err := s.store.QueryTraces(r.Context(), id.Tenant, model.TraceQuery{
-		Service: q.Get("service"), Host: q.Get("host"), Operation: q.Get("operation"), MinDurationMs: minMs, ErrorsOnly: q.Get("errors") == "true",
+		Service: q.Get("service"), Host: q.Get("host"), Hosts: s.groupHosts(id.Tenant, q.Get("group")), Operation: q.Get("operation"), MinDurationMs: minMs, ErrorsOnly: q.Get("errors") == "true",
 		From: parseTime(q.Get("from")), To: parseTime(q.Get("to")), Limit: limit,
 	})
 	s.respond(w, rows, err)
@@ -271,7 +271,7 @@ func (s *Server) listLogs(w http.ResponseWriter, r *http.Request, id edition.Ide
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	rows, err := s.store.QueryLogs(r.Context(), id.Tenant, model.LogQuery{
-		Service: q.Get("service"), Host: q.Get("host"), Severity: q.Get("severity"), Contains: q.Get("q"),
+		Service: q.Get("service"), Host: q.Get("host"), Hosts: s.groupHosts(id.Tenant, q.Get("group")), Severity: q.Get("severity"), Contains: q.Get("q"),
 		TraceID: q.Get("trace_id"), From: parseTime(q.Get("from")), To: parseTime(q.Get("to")), Limit: limit,
 	})
 	s.respond(w, rows, err)

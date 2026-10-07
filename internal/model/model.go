@@ -50,8 +50,9 @@ type MetricPoint struct {
 // Query parameter structs shared by the API and the store.
 type TraceQuery struct {
 	Service       string
-	Host          string // resource attribute host.name
-	Operation     string // root span name
+	Host          string   // resource attribute host.name
+	Hosts         []string // any of these hosts (a host group); combined with Host by AND
+	Operation     string   // root span name
 	MinDurationMs uint64
 	ErrorsOnly    bool
 	From, To      time.Time
@@ -60,7 +61,8 @@ type TraceQuery struct {
 
 type LogQuery struct {
 	Service  string
-	Host     string // resource attribute host.name
+	Host     string   // resource attribute host.name
+	Hosts    []string // any of these hosts (a host group); combined with Host by AND
 	Severity string
 	Contains string
 	TraceID  string
@@ -81,8 +83,9 @@ type SeriesQuery struct {
 	Agg      string // metric: avg|sum|min|max|last|rate
 	Metric   string // traces: requests|errors|error_rate|rps|avg|p50|p95|p99
 	Service  string
-	Host     string // traces and logs: resource attribute host.name
-	GroupBy  string // metric: "", "service" or a label key; traces: "", "service", "name"; logs: "", "severity", "service"
+	Host     string   // traces and logs: resource attribute host.name
+	Hosts    []string // any of these hosts (a host group): traces and logs by host.name, metrics by the host label
+	GroupBy  string   // metric: "", "service" or a label key; traces: "", "service", "name"; logs: "", "severity", "service"
 	Filters  map[string]string
 	Severity string
 	Contains string

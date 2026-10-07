@@ -69,3 +69,24 @@ func (c *ClickHouse) TenantRows(ctx context.Context, tenant string) (int64, erro
 	}
 	return n, nil
 }
+
+// maxGroupHosts is how many hosts one query can be limited to (a host group). More than that is not a group of machines
+// someone looks at together; the rest are ignored rather than making the query enormous.
+const maxGroupHosts = 500
+
+// hostsIn limits a query to a set of hosts. Each name is its own parameter, so nothing is ever put in the SQL text. An empty
+// set adds nothing (no group was asked for); the caller makes "a group with no hosts" a set with a name nothing has.
+func hostsIn(col string, hosts []string, p map[string]string) string {
+	if len(hosts) == 0 {
+		return ""
+	}
+	if len(hosts) > maxGroupHosts {
+		hosts = hosts[:maxGroupHosts]
+	}
+	ph := make([]string, len(hosts))
+	for i, h := range hosts {
+		k := fmt.Sprintf("hg%d", i)
+		ph[i], p[k] = "{"+k+":String}", h
+	}
+	return " AND " + col + " IN (" + strings.Join(ph, ",") + ")"
+}

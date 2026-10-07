@@ -182,6 +182,7 @@ func buildTracesQuery(tenant string, q model.TraceQuery) (string, map[string]str
 		where += " AND resource_attrs['host.name'] = {host:String}"
 		p["host"] = q.Host
 	}
+	where += hostsIn("resource_attrs['host.name']", q.Hosts, p)
 	having := "t_dur >= {minDur:UInt64}"
 	if q.Operation != "" {
 		having += " AND root_name = {op:String}"
@@ -247,6 +248,7 @@ func buildLogsQuery(tenant string, q model.LogQuery) (string, map[string]string)
 			p[f.name] = f.val
 		}
 	}
+	where += hostsIn("resource_attrs['host.name']", q.Hosts, p)
 	sql := `SELECT ts, severity, service, body, trace_id, span_id, attrs
 FROM otel_logs WHERE ` + where + ` ORDER BY ts DESC LIMIT {limit:UInt32} FORMAT JSONEachRow`
 	return sql, p

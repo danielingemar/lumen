@@ -463,3 +463,121 @@ func TestAgentsThatOnlyCheckInstancesAreNotHosts(t *testing.T) {
 		t.Fatalf("update all covers both kinds of agent: %s", b)
 	}
 }
+
+func TestHostGroupsApi(t *testing.T) {
+	ts, _, fs := regServer(t)
+	ad, rd, ot := client(), client(), client()
+	login(t, ad, ts, "admin", "admins-long-password")
+	login(t, rd, ts, "reader", "readers-long-password")
+	login(t, ot, ts, "other", "others-long-password")
+	post := func(c *http.Client, path, body string) (int, string) {
+		r, b := do(c, "POST", ts.URL+path, body)
+		return r.StatusCode, string(b)
+	}
+	groups := func(c *http.Client) map[string][]string {
+		_, b := do(c, "GET", ts.URL+"/api/v1/host-groups", "")
+		var out struct {
+			Data []struct {
+				Name  string
+				Hosts []string
+			}
+		}
+		json.Unmarshal(b, &out)
+		m := map[string][]string{}
+		for _, g := range out.Data {
+			m[g.Name] = g.Hosts
+		}
+		return m
+	}
+	// who may
+	if c, _ := post(rd, "/api/v1/host-groups/members", `{"group":"web","add":["web1"]}`); c != 403 {
+		t.Fatalf("a read-only user cannot change groups: %d", c)
+	}
+	if r, _ := do(rd, "GET", ts.URL+"/api/v1/host-groups", ""); r.StatusCode != 200 {
+		t.Fatal("but can see them")
+	}
+	// add hosts, several at a time, also hosts that have no settings yet
+	if c, b := post(ad, "/api/v1/host-groups/members", `{"group":"  Web servers ","add":["web1","web2","web3"]}`); c != 200 || !strings.Contains(b, `"changed":3`) {
+		t.Fatalf("%d %s", c, b)
+	}
+	post(ad, "/api/v1/host-groups/members", `{"group":"Customer ACME","add":["web1","web2"]}`)
+	if g := groups(ad); strings.Join(g["Web servers"], ",") != "web1,web2,web3" || strings.Join(g["Customer ACME"], ",") != "web1,web2" {
+		t.Fatalf("%v", g)
+	}
+	if len(groups(ot)) != 0 {
+		t.Fatal("another tenant sees none of them")
+	}
+	if c, _ := post(ot, "/api/v1/host-groups/delete", `{"group":"Web servers"}`); c != 200 || len(groups(ad)) != 2 {
+		t.Fatal("and cannot delete them")
+	}
+	// the host list carries the groups of each host
+	_, b := do(ad, "GET", ts.URL+"/api/v1/hosts", "")
+	if !strings.Contains(string(b), `"groups":["Customer ACME","Web servers"]`) {
+		t.Fatalf("every host says which groups it is in: %s", b)
+	}
+	// refusals
+	for name, body := range map[string]string{"bad name": `{"group":"a,b","add":["web1"]}`, "no name": `{"group":"","add":["web1"]}`, "bad host": `{"group":"x","add":["../etc"]}`} {
+		if c, _ := post(ad, "/api/v1/host-groups/members", body); c != 400 {
+			t.Errorf("%s: %d", name, c)
+		}
+	}
+	// saving a host's settings keeps its groups when the request does not mention them (an old script, an older page) ...
+	if r, _ := do(ad, "PUT", ts.URL+"/api/v1/hosts/web1", `{"display_name":"Primary web","log_paths":["/var/log/x.log"],"systemd":true,"containers":true}`); r.StatusCode != 200 {
+		t.Fatal(r.StatusCode)
+	}
+	if g := groups(ad); strings.Join(g["Web servers"], ",") != "web1,web2,web3" {
+		t.Fatalf("settings saved without a groups field must not drop the groups: %v", g)
+	}
+	// ... changes them when it does, and clears them with an empty list
+	do(ad, "PUT", ts.URL+"/api/v1/hosts/web1", `{"display_name":"Primary web","systemd":true,"containers":true,"groups":["Only here"]}`)
+	if g := groups(ad); strings.Join(g["Only here"], ",") != "web1" || strings.Join(g["Web servers"], ",") != "web2,web3" {
+		t.Fatalf("%v", g)
+	}
+	do(ad, "PUT", ts.URL+"/api/v1/hosts/web1", `{"systemd":true,"containers":true,"groups":[]}`)
+	if g := groups(ad); len(g["Only here"]) != 0 {
+		t.Fatalf("%v", g)
+	}
+	if r, _ := do(ad, "PUT", ts.URL+"/api/v1/hosts/web1", `{"groups":"not a list"}`); r.StatusCode != 400 {
+		t.Fatal("groups must be a list")
+	}
+	// rename and delete
+	if c, b := post(ad, "/api/v1/host-groups/rename", `{"from":"web servers","to":"Frontend"}`); c != 200 || !strings.Contains(b, `"changed":2`) {
+		t.Fatalf("a group is found without regard to case: %d %s", c, b)
+	}
+	if c, _ := post(ad, "/api/v1/host-groups/rename", `{"from":"Frontend","to":"bad,name"}`); c != 400 {
+		t.Fatal("a bad new name")
+	}
+	if c, b := post(ad, "/api/v1/host-groups/delete", `{"group":"Frontend"}`); c != 200 || !strings.Contains(b, `"changed":2`) {
+		t.Fatalf("%d %s", c, b)
+	}
+	// a group is a filter in traces, logs and series: the server turns its name into the hosts
+	if g := groups(ad); strings.Join(g["Customer ACME"], ",") != "web2" {
+		t.Fatalf("%v", g)
+	}
+	post(ad, "/api/v1/host-groups/members", `{"group":"Customer ACME","add":["web4"]}`)
+	do(ad, "GET", ts.URL+"/api/v1/traces?group=customer+acme&service=checkout", "")
+	do(ad, "GET", ts.URL+"/api/v1/logs?group=Customer+ACME&host=web2", "")
+	do(ad, "GET", ts.URL+"/api/v1/series?source=logs&metric=count&group=Customer+ACME", "")
+	if strings.Join(fs.lastTraceQ.Hosts, ",") != "web2,web4" || fs.lastTraceQ.Service != "checkout" {
+		t.Fatalf("traces: %+v", fs.lastTraceQ)
+	}
+	if strings.Join(fs.lastLogQ.Hosts, ",") != "web2,web4" || fs.lastLogQ.Host != "web2" {
+		t.Fatalf("logs: %+v", fs.lastLogQ)
+	}
+	if strings.Join(fs.lastSeries.Hosts, ",") != "web2,web4" {
+		t.Fatalf("series: %+v", fs.lastSeries)
+	}
+	do(ad, "GET", ts.URL+"/api/v1/logs?group=No+such+group", "")
+	if len(fs.lastLogQ.Hosts) != 1 || fs.lastLogQ.Hosts[0] != noHost {
+		t.Fatalf("a group that has no hosts shows nothing, it does not show everything: %+v", fs.lastLogQ.Hosts)
+	}
+	do(ad, "GET", ts.URL+"/api/v1/logs", "")
+	if len(fs.lastLogQ.Hosts) != 0 {
+		t.Fatal("without a group there is no limit")
+	}
+	// another tenant's group of the same name is its own
+	do(ot, "GET", ts.URL+"/api/v1/logs?group=Customer+ACME", "")
+	if len(fs.lastLogQ.Hosts) != 1 || fs.lastLogQ.Hosts[0] != noHost {
+		t.Fatalf("another tenant has no such group: %+v", fs.lastLogQ.Hosts)
+	}
+}

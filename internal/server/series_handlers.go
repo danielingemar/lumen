@@ -98,7 +98,7 @@ func (s *Server) series(w http.ResponseWriter, r *http.Request, id edition.Ident
 	reqStep, _ := strconv.Atoi(q.Get("step"))
 	sq := model.SeriesQuery{
 		Source: q.Get("source"), Name: q.Get("name"), Agg: q.Get("agg"), Metric: q.Get("metric"),
-		Service: q.Get("service"), Host: q.Get("host"), GroupBy: q.Get("group_by"), Severity: q.Get("severity"), Contains: q.Get("q"),
+		Service: q.Get("service"), Host: q.Get("host"), Hosts: s.groupHosts(id.Tenant, q.Get("group")), GroupBy: q.Get("group_by"), Severity: q.Get("severity"), Contains: q.Get("q"),
 		From: from, To: to, StepSec: pickStep(to.Sub(from), reqStep),
 	}
 	if fl := q["filter"]; len(fl) > 0 {

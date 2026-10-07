@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/danielingemar/lumen/internal/buildinfo"
 	"net/http"
@@ -68,6 +69,7 @@ func (s *Server) regRoutes(mux *http.ServeMux) {
 	}
 	mux.Handle("GET /api/v1/status", s.needAny([]string{perm.Hosts, perm.Metrics}, s.statusSummary))
 	mux.Handle("GET /api/v1/hosts", s.need(perm.Hosts, false, s.listHosts))
+	s.hostGroupRoutes(mux)
 	mux.Handle("GET /api/v1/hosts/{host}", s.need(perm.Hosts, false, s.getHost))
 	mux.Handle("POST /api/v1/hosts/{host}/update", s.need(perm.Hosts, true, s.updateAgent))
 	mux.Handle("POST /api/v1/hosts-update-all", s.need(perm.Hosts, true, s.updateAllAgents))
@@ -166,11 +168,21 @@ func (s *Server) getHost(w http.ResponseWriter, r *http.Request, id edition.Iden
 }
 
 func (s *Server) putHost(w http.ResponseWriter, r *http.Request, id edition.Identity) {
-	var in registry.HostConfig
-	if !readJSON(w, r, &in) {
+	var body struct {
+		registry.HostConfig
+		GroupsRaw *json.RawMessage `json:"groups"` // outer field: wins over the embedded one, so that "absent" can be told from "empty"
+	}
+	if !readJSON(w, r, &body) {
 		return
 	}
+	in := body.HostConfig
 	in.Host = r.PathValue("host")
+	if body.GroupsRaw == nil { // a client that does not know about groups (an old script, an older page) keeps what is there
+		in.Groups = s.reg.GetHost(id.Tenant, in.Host).Groups
+	} else if err := json.Unmarshal(*body.GroupsRaw, &in.Groups); err != nil {
+		writeErr(w, http.StatusBadRequest, "groups must be a list of names")
+		return
+	}
 	c, err := s.reg.PutHost(id.Tenant, in)
 	if err != nil {
 		s.regErr(w, err)

@@ -24,10 +24,35 @@ type StatusSource interface {
 type Evaluator struct {
 	Q  Querier
 	St StatusSource
+	G  GroupSource // resolves a host group to its hosts; without it a rule that names a group sees no hosts
 }
 
-func metricQuery(r Rule, from, to time.Time) model.SeriesQuery {
-	q := model.SeriesQuery{Source: "metric", Name: r.Metric, Agg: r.Reduce, GroupBy: r.GroupBy, From: from, To: to, StepSec: 60}
+// GroupSource says which hosts are in a host group.
+type GroupSource interface {
+	GroupHosts(tenant, group string) []string
+}
+
+// noHost is what a query is limited to when a rule's group has no hosts: a name no host can have, so the rule sees
+// nothing (not everything).
+const noHost = "?no host in this group"
+
+// hosts are the hosts a rule is limited to: nil for a rule without a group.
+func (e *Evaluator) hosts(r Rule) []string {
+	if r.Group == "" {
+		return nil
+	}
+	var h []string
+	if e.G != nil {
+		h = e.G.GroupHosts(r.Tenant, r.Group)
+	}
+	if len(h) == 0 {
+		return []string{noHost}
+	}
+	return h
+}
+
+func metricQuery(r Rule, from, to time.Time, hosts []string) model.SeriesQuery {
+	q := model.SeriesQuery{Source: "metric", Name: r.Metric, Agg: r.Reduce, GroupBy: r.GroupBy, Hosts: hosts, From: from, To: to, StepSec: 60}
 	if len(r.Filters) > 0 {
 		q.Filters = map[string]string{}
 		for _, f := range r.Filters {
@@ -37,8 +62,8 @@ func metricQuery(r Rule, from, to time.Time) model.SeriesQuery {
 	return q
 }
 
-func logQuery(r Rule, from, to time.Time) model.SeriesQuery {
-	return model.SeriesQuery{Source: "logs", Service: r.Service, Host: r.Host, Severity: r.LogSeverity, Contains: r.Contains, GroupBy: r.GroupBy, From: from, To: to, StepSec: 60}
+func logQuery(r Rule, from, to time.Time, hosts []string) model.SeriesQuery {
+	return model.SeriesQuery{Source: "logs", Service: r.Service, Host: r.Host, Hosts: hosts, Severity: r.LogSeverity, Contains: r.Contains, GroupBy: r.GroupBy, From: from, To: to, StepSec: 60}
 }
 
 // Eval evaluates one rule at time now. noData is true when a metric query returned no series at all.
@@ -49,9 +74,9 @@ func (e *Evaluator) Eval(ctx context.Context, rule Rule, now time.Time) (samples
 		if err != nil {
 			return nil, false, err
 		}
-		return statusSamples(rule.Status, sum), false, nil
+		return statusSamples(rule.Status, sum, e.hosts(rule)), false, nil
 	case KindMetric:
-		series, err := e.Q.Series(ctx, rule.Tenant, metricQuery(rule, now.Add(-time.Duration(rule.WindowSec)*time.Second), now))
+		series, err := e.Q.Series(ctx, rule.Tenant, metricQuery(rule, now.Add(-time.Duration(rule.WindowSec)*time.Second), now, e.hosts(rule)))
 		if err != nil {
 			return nil, false, err
 		}
@@ -64,7 +89,7 @@ func (e *Evaluator) Eval(ctx context.Context, rule Rule, now time.Time) (samples
 		}
 		return samples, len(samples) == 0, nil
 	case KindLog:
-		series, err := e.Q.Series(ctx, rule.Tenant, logQuery(rule, now.Add(-time.Duration(rule.WindowSec)*time.Second), now))
+		series, err := e.Q.Series(ctx, rule.Tenant, logQuery(rule, now.Add(-time.Duration(rule.WindowSec)*time.Second), now, e.hosts(rule)))
 		if err != nil {
 			return nil, false, err
 		}
@@ -81,19 +106,30 @@ func (e *Evaluator) Eval(ctx context.Context, rule Rule, now time.Time) (samples
 }
 
 // statusSamples lists what is down right now. Things that are not listed count as "condition false", which resolves them.
-func statusSamples(kind string, s status.Summary) []Sample {
+func statusSamples(kind string, s status.Summary, hosts []string) []Sample {
 	var out []Sample
+	in := func(h string) bool { // a rule without a group sees every host
+		if hosts == nil {
+			return true
+		}
+		for _, x := range hosts {
+			if x == h {
+				return true
+			}
+		}
+		return false
+	}
 	add := func(l map[string]string) { out = append(out, Sample{Labels: l, Value: 1, Firing: true}) }
 	switch kind {
 	case "host_down":
 		for _, h := range s.HostList {
-			if h.Status == "down" {
+			if h.Status == "down" && in(h.Name) {
 				add(map[string]string{"host": h.Name})
 			}
 		}
 	case "instance_down":
-		for _, i := range s.Instances {
-			if i.Status == "down" {
+		for _, i := range s.Instances { // an instance belongs to a group through the host that checks it
+			if i.Status == "down" && in(i.Host) {
 				add(map[string]string{"instance": i.Name})
 			}
 		}
@@ -103,7 +139,7 @@ func statusSamples(kind string, s status.Summary) []Sample {
 			want = "container"
 		}
 		for _, d := range s.Down {
-			if d.Kind == want {
+			if d.Kind == want && in(d.Host) {
 				add(map[string]string{"host": d.Host, want: d.Name})
 			}
 		}
@@ -129,9 +165,9 @@ func (e *Evaluator) Backtest(ctx context.Context, rule Rule, from, to time.Time)
 	win := time.Duration(rule.WindowSec) * time.Second
 	var q model.SeriesQuery
 	if rule.Kind == KindMetric {
-		q = metricQuery(rule, from.Add(-win), to)
+		q = metricQuery(rule, from.Add(-win), to, e.hosts(rule))
 	} else {
-		q = logQuery(rule, from.Add(-win), to)
+		q = logQuery(rule, from.Add(-win), to, e.hosts(rule))
 	}
 	series, err := e.Q.Series(ctx, rule.Tenant, q)
 	if err != nil {

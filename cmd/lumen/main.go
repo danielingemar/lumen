@@ -118,7 +118,7 @@ func main() {
 	}()
 	log.Info("licence", "state", string(lic.State()), "trusted_keys", len(license.EmbeddedKeys()))
 	if cfg.Alerts {
-		eng := &alerts.Engine{License: lic, DB: backend, Box: box, Eval: &alerts.Evaluator{Q: ch, St: app}, Guard: alerts.Guard{AllowPrivate: cfg.AlertAllowPrivate},
+		eng := &alerts.Engine{License: lic, DB: backend, Box: box, Eval: &alerts.Evaluator{Q: ch, St: app, G: app}, Guard: alerts.Guard{AllowPrivate: cfg.AlertAllowPrivate},
 			PublicURL: cfg.PublicURL, Log: log, GroupWait: cfg.AlertGroupWait, RepeatEvery: cfg.AlertRepeat}
 		app.WithAlerts(eng)
 		go eng.Run(bg)

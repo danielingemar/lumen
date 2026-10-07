@@ -40,12 +40,13 @@ func invalid(f string, a ...any) error { return fmt.Errorf("%w: %s", ErrInvalid,
 type HostConfig struct {
 	Tenant        string    `json:"tenant,omitempty"`
 	Host          string    `json:"host"`
-	DisplayName   string    `json:"display_name"`   // what the UI shows instead of the machine's own name; empty = the real name
-	LogPaths      []string  `json:"log_paths"`      // files or globs to ship, e.g. /var/log/nginx/*.log
-	DockerLogs    bool      `json:"docker_logs"`    // ship the logs of all Docker containers
-	Systemd       bool      `json:"systemd"`        // report systemd services
-	Containers    bool      `json:"containers"`     // report Docker containers
-	WatchServices []string  `json:"watch_services"` // services that must run: reported as down even when stopped
+	DisplayName   string    `json:"display_name"`     // what the UI shows instead of the machine's own name; empty = the real name
+	LogPaths      []string  `json:"log_paths"`        // files or globs to ship, e.g. /var/log/nginx/*.log
+	DockerLogs    bool      `json:"docker_logs"`      // ship the logs of all Docker containers
+	Systemd       bool      `json:"systemd"`          // report systemd services
+	Containers    bool      `json:"containers"`       // report Docker containers
+	WatchServices []string  `json:"watch_services"`   // services that must run: reported as down even when stopped
+	Groups        []string  `json:"groups,omitempty"` // host groups this host belongs to (labels; one host can be in several)
 	Updated       time.Time `json:"updated,omitempty"`
 	// Removed hides the host from lists until it reports again after RemovedAt (a removed machine whose agent still
 	// runs would otherwise just come back; stop the agent first).
@@ -205,6 +206,9 @@ func (s *Service) PutHost(tenant string, in HostConfig) (HostConfig, error) {
 		return HostConfig{}, err
 	}
 	if in.WatchServices, err = cleanList(in.WatchServices, 100, 100, "service"); err != nil {
+		return HostConfig{}, err
+	}
+	if in.Groups, err = normalizeGroups(in.Groups); err != nil {
 		return HostConfig{}, err
 	}
 	in.DisplayName = strings.TrimSpace(in.DisplayName)
@@ -517,4 +521,190 @@ func (s *Service) ClearUpdate(tenant, host string) {
 	c, cancel := ctx()
 	defer cancel()
 	_ = s.b.Delete(c, collUpd, hostID(tenant, host))
+}
+
+// ---- host groups ----
+//
+// A group is a name on hosts, kept in each host's own configuration: there is no separate list of groups to keep in step,
+// a group exists as long as a host is in it. A host can be in several groups.
+
+var groupRe = regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N} ._:&+()\-]{0,39}$`)
+
+const maxGroupsPerHost = 20
+
+// NormalizeGroup tidies a group name (spaces trimmed and collapsed) and refuses what cannot be a name.
+func NormalizeGroup(name string) (string, error) {
+	name = strings.Join(strings.Fields(name), " ")
+	if !groupRe.MatchString(name) {
+		return "", invalid("a group name is 1-40 characters: letters, digits, spaces and . _ - : & + ( ), starting with a letter or digit")
+	}
+	return name, nil
+}
+
+func normalizeGroups(in []string) ([]string, error) {
+	out, seen := []string{}, map[string]bool{}
+	for _, g := range in {
+		n, err := NormalizeGroup(g)
+		if err != nil {
+			return nil, err
+		}
+		if k := strings.ToLower(n); !seen[k] {
+			seen[k] = true
+			out = append(out, n)
+		}
+	}
+	if len(out) > maxGroupsPerHost {
+		return nil, invalid("a host can be in at most %d groups", maxGroupsPerHost)
+	}
+	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i]) < strings.ToLower(out[j]) })
+	return out, nil
+}
+
+func hasGroup(groups []string, name string) bool {
+	for _, g := range groups {
+		if strings.EqualFold(g, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// GroupInfo is a group and the hosts in it.
+type GroupInfo struct {
+	Name  string   `json:"name"`
+	Hosts []string `json:"hosts"`
+}
+
+// Groups lists the groups of a tenant with their hosts. Removed hosts are not in them.
+func (s *Service) Groups(tenant string) []GroupInfo {
+	byKey, names := map[string]*GroupInfo{}, map[string]string{}
+	for host, c := range s.ListHosts(tenant) {
+		if c.Removed {
+			continue
+		}
+		for _, g := range c.Groups {
+			k := strings.ToLower(g)
+			if byKey[k] == nil {
+				byKey[k] = &GroupInfo{Name: g, Hosts: []string{}}
+				names[k] = g
+			}
+			byKey[k].Hosts = append(byKey[k].Hosts, host)
+		}
+	}
+	out := make([]GroupInfo, 0, len(byKey))
+	for _, g := range byKey {
+		sort.Strings(g.Hosts)
+		out = append(out, *g)
+	}
+	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
+	return out
+}
+
+// GroupHosts are the hosts in a group (the name is matched without regard to case).
+func (s *Service) GroupHosts(tenant, group string) []string {
+	var out []string
+	for host, c := range s.ListHosts(tenant) {
+		if !c.Removed && hasGroup(c.Groups, group) {
+			out = append(out, host)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// changeGroups applies a change to the groups of one host, making the host's configuration if it has none yet.
+func (s *Service) changeGroups(tenant, host string, change func([]string) []string) (bool, error) {
+	if !hostRe.MatchString(host) {
+		return false, invalid("host name must be letters, digits, . _ - (max 128)")
+	}
+	c := s.GetHost(tenant, host)
+	if c.Removed {
+		return false, nil
+	}
+	next, err := normalizeGroups(change(append([]string{}, c.Groups...)))
+	if err != nil {
+		return false, err
+	}
+	if strings.Join(next, "\x00") == strings.Join(c.Groups, "\x00") {
+		return false, nil
+	}
+	c.Tenant, c.Host, c.Groups = tenant, host, next
+	cc, cancel := ctx()
+	defer cancel()
+	return true, s.b.Put(cc, collHosts, hostID(tenant, host), c, "")
+}
+
+// ChangeMembers adds hosts to a group and removes others from it. It returns how many hosts changed.
+func (s *Service) ChangeMembers(tenant, group string, add, remove []string) (int, error) {
+	group, err := NormalizeGroup(group)
+	if err != nil {
+		return 0, err
+	}
+	if len(add)+len(remove) > 1000 {
+		return 0, invalid("at most 1000 hosts at a time")
+	}
+	n := 0
+	for _, h := range add {
+		ch, err := s.changeGroups(tenant, h, func(g []string) []string { return append(g, group) })
+		if err != nil {
+			return n, err
+		}
+		if ch {
+			n++
+		}
+	}
+	for _, h := range remove {
+		ch, err := s.changeGroups(tenant, h, func(g []string) []string { return without(g, group) })
+		if err != nil {
+			return n, err
+		}
+		if ch {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func without(groups []string, name string) []string {
+	out := groups[:0]
+	for _, g := range groups {
+		if !strings.EqualFold(g, name) {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+// RenameGroup gives a group another name on every host that is in it. If a group with the new name exists the two merge.
+func (s *Service) RenameGroup(tenant, from, to string) (int, error) {
+	to, err := NormalizeGroup(to)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, h := range s.GroupHosts(tenant, from) {
+		ch, err := s.changeGroups(tenant, h, func(g []string) []string { return append(without(g, from), to) })
+		if err != nil {
+			return n, err
+		}
+		if ch {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// DeleteGroup takes a group off every host. The hosts themselves are untouched.
+func (s *Service) DeleteGroup(tenant, group string) (int, error) {
+	n := 0
+	for _, h := range s.GroupHosts(tenant, group) {
+		ch, err := s.changeGroups(tenant, h, func(g []string) []string { return without(g, group) })
+		if err != nil {
+			return n, err
+		}
+		if ch {
+			n++
+		}
+	}
+	return n, nil
 }

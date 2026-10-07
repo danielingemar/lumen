@@ -900,6 +900,21 @@ func (e *Engine) ListRules(tenant string) []Rule {
 	return out
 }
 
+// RenameRuleGroup makes the rules that are limited to a host group follow the group when it gets another name (or when two
+// groups are merged), so that they do not silently end up looking at no hosts. It returns how many rules changed.
+func (e *Engine) RenameRuleGroup(tenant, from, to string) int {
+	n := 0
+	for _, r := range e.ListRules(tenant) {
+		if r.Group != "" && strings.EqualFold(r.Group, from) {
+			r.Group = to
+			if _, err := e.PutRule(tenant, r.ID, r); err == nil {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 func (e *Engine) GetRule(tenant, id string) (Rule, bool) {
 	e.ensureLoaded()
 	e.mu.Lock()

@@ -250,7 +250,7 @@ const newPanel=(title,type,w,h,q,unit)=>({id:uid(),title,type,w,h,q,unit:unit||'
 const isSeriesType=t=>['line','area','bar','stat','table'].includes(t);
 
 function seriesParams(q,w,stepHint){
-  const p={from:w.from,to:w.to,service:q.service||'',host:q.host||'',group_by:q.groupBy||'',step:stepHint||''};
+  const p={from:w.from,to:w.to,service:q.service||'',host:q.host||'',group:q.group||'',group_by:q.groupBy||'',step:stepHint||''};
   if(q.src==='metric'){p.source='metric';p.name=q.name;p.agg=q.agg||'avg';p.filter=(q.filters||[]).filter(f=>f.k&&f.v!=='').map(f=>f.k+':'+f.v)}
   else if(q.src==='traces'){p.source='traces';p.metric=q.metric||'requests'}
   else{p.source='logs';p.severity=q.severity||'';p.q=q.text||''}
@@ -569,13 +569,21 @@ const wfRow=(s,d,t0,tot)=>{const l=(tsMs(s.start_time)-t0)/tot*100,w=Math.max(s.
   return el('div',{class:'sr',title:s.service+': '+s.name},el('div',{class:'sn',style:'padding-left:'+(10+d*14)+'px'},el('span',{class:e?'err':''},s.name),' ',el('span',{class:'mut'},s.service)),
     el('div',{class:'tk'},el('div',{class:'sb'+(e?' e':''),style:`left:${l}%;width:${w}%`}),el('span',{class:'mut',style:`position:absolute;left:${Math.min(l+w+1,84)}%;top:4px;font-size:11px`},fmtD(s.duration_ns))))};
 
+// ---- host groups: names on hosts; one host can be in several ----
+async function loadGroups(){try{S.groups=(await api('/api/v1/host-groups')).data||[]}catch{S.groups=S.groups||[]}return S.groups}
+const groupMembers=n=>((S.groups||[]).find(g=>g.name.toLowerCase()===String(n).toLowerCase())||{hosts:[]}).hosts;
+// a select that limits a page to the hosts of one group; null when there are no groups
+function groupSelect(onchange){const gs=S.groups||[];if(!gs.length)return null;
+  const sl=el('select',{title:'Show only the hosts of one group'},el('option',{value:''},'All groups'),gs.map(g=>el('option',{value:g.name},g.name+' ('+g.hosts.length+')')));sl.onchange=onchange;return sl}
+const inGroupFacets=(list,sl)=>sl&&sl.value?list.filter(x=>groupMembers(sl.value).includes(x.name)):list;
+
 async function tracesPage(){
   setTitle('Traces');const view=$('#view');
   const out=el('div',{});
-  let fx=await getFacets('traces','');await hostAliases();
+  let fx=await getFacets('traces','');await hostAliases();await loadGroups();
   const f={svc:el('select',{}),op:el('select',{}),host:el('select',{}),min:el('input',{type:'number',placeholder:'min ms',style:'width:90px'}),err:el('input',{type:'checkbox'})};
-  const fill=()=>{fillSel(f.svc,'All services ('+fx.services.length+')',fx.services);fillSel(f.op,'All operations ('+fx.operations.length+')',fx.operations);fillSel(f.host,'All hosts ('+fx.hosts.length+')',fx.hosts,hostLabel)};
-  const run=async()=>{const w=win();try{const r=await rows('/api/v1/traces',{from:w.from,to:w.to,service:f.svc.value,host:f.host.value,operation:f.op.value,min_duration_ms:f.min.value,errors:f.err.checked?'true':''});
+  const fill=()=>{fillSel(f.svc,'All services ('+fx.services.length+')',fx.services);fillSel(f.op,'All operations ('+fx.operations.length+')',fx.operations);if(!f.group)f.group=groupSelect(()=>{f.host.value='';fill();run()});const hl=inGroupFacets(fx.hosts,f.group);fillSel(f.host,'All hosts ('+hl.length+')',hl,hostLabel)};
+  const run=async()=>{const w=win();try{const r=await rows('/api/v1/traces',{from:w.from,to:w.to,service:f.svc.value,host:f.host.value,group:f.group?f.group.value:'',operation:f.op.value,min_duration_ms:f.min.value,errors:f.err.checked?'true':''});
     out.replaceChildren(r.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['Start','Root span','Service','Duration','Spans','Trace'].map(x=>el('th',{},x))),
       r.map(t=>el('tr',{class:'row',onclick:()=>location.hash='#/t/'+t.trace_id},el('td',{class:'mut'},String(t.start_time).slice(0,19)),el('td',{class:t.has_error?'err':''},t.has_error?'● ':'',t.root_name),el('td',{},t.root_service),el('td',{},fmtD(t.duration_ns)),el('td',{},t.span_count),el('td',{class:'mono mut'},t.trace_id.slice(0,12)+'…'))))):el('div',{class:'card empty'},fx.services.length?'No traces match in this range.':'No traces have been received yet. Send OTLP traces to this server (see the README).'))}
     catch(e){out.replaceChildren(el('div',{class:'msg'},e.message))}};
@@ -583,7 +591,7 @@ async function tracesPage(){
   f.svc.onchange=async()=>{const x=await getFacets('traces',f.svc.value);fx=Object.assign({},fx,{operations:x.operations});f.op.value='';fill();run()};
   f.op.onchange=f.host.onchange=f.err.onchange=run;
   fill();
-  view.replaceChildren(el('div',{class:'bar'},f.svc,f.op,f.host,f.min,el('label',{},f.err,' errors only'),el('button',{class:'btn',onclick:run},'Search')),out);
+  view.replaceChildren(el('div',{class:'bar'},f.svc,f.op,f.group,f.host,f.min,el('label',{},f.err,' errors only'),el('button',{class:'btn',onclick:run},'Search')),out);
   S.onRangeChange=run;run();
 }
 
@@ -600,17 +608,18 @@ async function tracePage(id){
 async function logsPage(){
   setTitle('Logs');const view=$('#view');
   const traceFilter=(location.hash.split('trace=')[1]||'').replace(/[^\w-]/g,'');
-  let fx=await getFacets('logs','');await hostAliases();
+  let fx=await getFacets('logs','');await hostAliases();await loadGroups();
   const f={svc:el('select',{}),host:el('select',{}),sev:el('select',{},['','ERROR','WARN','INFO','DEBUG'].map(x=>el('option',{value:x},x||'any severity'))),q:el('input',{placeholder:'contains text',size:24})};
-  fillSel(f.svc,'All log sources ('+fx.services.length+')',fx.services);fillSel(f.host,'All hosts ('+fx.hosts.length+')',fx.hosts,hostLabel);
+  fillSel(f.svc,'All log sources ('+fx.services.length+')',fx.services);
+  f.group=groupSelect(()=>{f.host.value='';fillHosts();run()});const fillHosts=()=>{const hl=inGroupFacets(fx.hosts,f.group);fillSel(f.host,'All hosts ('+hl.length+')',hl,hostLabel)};fillHosts();
   const vol=el('div',{class:'card',style:'margin-bottom:14px'}),out=el('div',{});
   const run=async()=>{const w=win();
-    loadPanel({type:'bar',unit:'none',h:1,title:'Log volume',q:{src:'logs',groupBy:'severity',service:f.svc.value,host:f.host.value,text:f.q.value}},vol,w);
-    try{const r=await rows('/api/v1/logs',{from:w.from,to:w.to,service:f.svc.value,host:f.host.value,severity:f.sev.value,q:f.q.value,trace_id:traceFilter,limit:300});
+    loadPanel({type:'bar',unit:'none',h:1,title:'Log volume',q:{src:'logs',groupBy:'severity',service:f.svc.value,host:f.host.value,group:f.group?f.group.value:'',text:f.q.value}},vol,w);
+    try{const r=await rows('/api/v1/logs',{from:w.from,to:w.to,service:f.svc.value,host:f.host.value,group:f.group?f.group.value:'',severity:f.sev.value,q:f.q.value,trace_id:traceFilter,limit:300});
       out.replaceChildren(r.length?el('div',{class:'card',style:'padding:6px 12px'},el('div',{class:'loglines'},r.map(l=>el('div',{},el('span',{class:'mut'},String(l.ts).slice(0,23)+' '),el('span',{class:'lvl '+l.severity},l.severity),' ',el('span',{class:'mut'},l.service+' '),l.body)))):el('div',{class:'card empty'},fx.services.length?'No log lines match.':'No logs have been received yet. Add log paths on the Hosts page, or send OTLP logs.'))}
     catch(e){out.replaceChildren(el('div',{class:'msg'},e.message))}};
   f.svc.onchange=f.host.onchange=f.sev.onchange=run;
-  view.replaceChildren(el('div',{class:'bar'},f.svc,f.host,f.sev,f.q,el('button',{class:'btn',onclick:run},'Search'),traceFilter?el('span',{class:'pill'},'trace '+traceFilter.slice(0,10)+'…'):null),vol,out);
+  view.replaceChildren(el('div',{class:'bar'},f.svc,f.group,f.host,f.sev,f.q,el('button',{class:'btn',onclick:run},'Search'),traceFilter?el('span',{class:'pill'},'trace '+traceFilter.slice(0,10)+'…'):null),vol,out);
   S.onRangeChange=run;run();
 }
 
@@ -625,6 +634,7 @@ async function metricsPage(){
   const nameSel=el('select',{style:'min-width:300px',onchange:e=>pick(e.target.value)}),nameFilter=el('input',{placeholder:'filter '+names.length+' metrics…',size:22,oninput:()=>fillNames()});
   const fillNames=()=>{const f=nameFilter.value.toLowerCase(),cur=q.name;nameSel.replaceChildren(opt('',names.length?'Choose a metric… ('+names.length+')':'No metrics received yet'),names.filter(n=>!f||n.name.toLowerCase().includes(f)||n.name===cur).map(n=>opt(n.name,n.name+'  ·  '+n.mtype)));nameSel.value=cur||''};
   const aggSel=el('select',{onchange:e=>{q.agg=e.target.value;draw()}},[['avg','Average'],['sum','Sum'],['min','Min'],['max','Max'],['last','Latest'],['rate','Rate/s']].map(([v,t])=>el('option',{value:v},t)));
+  await loadGroups();const gsel=groupSelect(e=>{q.group=e.target.value;draw()});
   const grp=el('input',{placeholder:'split by label (e.g. host)',size:20,onchange:e=>{q.groupBy=e.target.value.trim();draw();drawLabels()}});
   const unit=el('select',{onchange:e=>{p.unit=e.target.value;draw()}},Object.entries(UNITS).map(([v,t])=>el('option',{value:v},t)));
   const dsel=el('select',{},el('option',{value:''},'Add to dashboard…'),(await rows('/api/v1/dashboards').catch(()=>[])).map(d=>el('option',{value:d.id},d.name)));
@@ -643,7 +653,7 @@ async function metricsPage(){
   const msg=el('span',{class:'mut'});
   dsel.onchange=async()=>{if(!dsel.value||!q.name)return;try{const d=await api('/api/v1/dashboards/'+dsel.value);const panels=(d.body&&d.body.panels)||[];panels.push(Object.assign(JSON.parse(JSON.stringify(p)),{id:uid(),title:q.name,w:6,h:2}));
     await api('/api/v1/dashboards/'+dsel.value,{},{method:'PUT',body:{name:d.name,description:d.description,body:{panels},version:d.version}});msg.textContent='Added to “'+d.name+'”.'}catch(e){msg.textContent=e.message}dsel.value=''};
-  view.replaceChildren(el('div',{class:'bar'},nameFilter,nameSel,aggSel,grp,unit,el('span',{class:'sp'}),can('dashboards',true)?dsel:null,msg),chart,labelBox);fillNames();drawLabels();
+  view.replaceChildren(el('div',{class:'bar'},nameFilter,nameSel,aggSel,gsel,grp,unit,el('span',{class:'sp'}),can('dashboards',true)?dsel:null,msg),chart,labelBox);fillNames();drawLabels();
   S.onRangeChange=()=>{draw();drawLabels()};
 }
 
@@ -726,16 +736,42 @@ async function hostsPage(){
     try{const r=await api('/api/v1/hosts-update-all',{},{method:'POST',body:{}});
       if((r.manual||[]).length)alert('Asked '+r.requested.length+' agent'+(r.requested.length===1?'':'s')+' to update.\n\nThese cannot update themselves and need the install command (click their update label): '+r.manual.join(', '));
       hostsPage()}catch(e){alert(e.message)}};
+  // host groups: names on hosts. Filter by one, show them as sections, select several and add them to a group
+  const gmap={};hs.forEach(h=>(h.config.groups||[]).forEach(g=>{const k=g.toLowerCase();(gmap[k]=gmap[k]||{name:g,hosts:[]}).hosts.push(h.name)}));
+  const glist=Object.values(gmap).sort((a,b)=>a.name.toLowerCase()<b.name.toLowerCase()?-1:1);S.groups=glist;
+  if(S.hostGroup&&!gmap[S.hostGroup.toLowerCase()])S.hostGroup='';
+  const sel=new Set(),has=(h,g)=>(h.config.groups||[]).some(x=>x.toLowerCase()===g.toLowerCase());
+  const changeMembers=async(group,add,remove)=>{try{await api('/api/v1/host-groups/members',{},{method:'POST',body:{group,add:add||[],remove:remove||[]}});hostsPage()}catch(e){alert(e.message)}};
+  const addDialog=()=>{const names=[...sel],inp=el('input',{list:'grouplist',placeholder:'group name',size:30,maxlength:40});
+    dialog('Add '+names.length+' host'+(names.length===1?'':'s')+' to a group',el('div',{},el('p',{},'A host can be in several groups. Pick one, or type a new name.'),inp,el('datalist',{id:'grouplist'},glist.map(g=>el('option',{value:g.name})))),
+      [['Cancel',()=>{},'ghost'],['Add',async()=>{await api('/api/v1/host-groups/members',{},{method:'POST',body:{group:inp.value,add:names}});hostsPage()}]])};
+  let closeManage=()=>{};
+  const manage=()=>{closeManage=dialog('Host groups',el('div',{},glist.length?el('table',{},glist.map(g=>el('tr',{},el('td',{},el('b',{},g.name)),el('td',{class:'mut'},g.hosts.length+' host'+(g.hosts.length===1?'':'s')),
+      el('td',{style:'text-align:right;white-space:nowrap'},el('button',{class:'btn ghost sm',onclick:async()=>{const n=prompt('New name for “'+g.name+'” (an existing name merges the two groups):',g.name);if(!n||n===g.name)return;try{await api('/api/v1/host-groups/rename',{},{method:'POST',body:{from:g.name,to:n}});S.hostGroup='';closeManage();hostsPage()}catch(e){alert(e.message)}}},'Rename'),' ',
+        el('button',{class:'btn danger sm',onclick:async()=>{if(!confirm('Delete the group “'+g.name+'”?\n\nThe '+g.hosts.length+' host'+(g.hosts.length===1?'':'s')+' stay; they just are not in the group any more. Alert rules limited to it will see no hosts.'))return;try{await api('/api/v1/host-groups/delete',{},{method:'POST',body:{group:g.name}});S.hostGroup='';closeManage();hostsPage()}catch(e){alert(e.message)}}},'Delete'))))):el('p',{class:'mut'},'No groups yet. Select hosts in the list and choose “Add to group”.')),[['Close',()=>{},'ghost']])};
+  const groupBar=()=>{const gf=S.hostGroup||'',n=sel.size;
+    return glist.length||n?el('div',{class:'bar',style:'gap:6px;flex-wrap:wrap'},
+      el('span',{class:'chip'+(gf?'':' on'),onclick:()=>{S.hostGroup='';render()}},'All hosts ('+hs.length+')'),glist.map(g=>el('span',{class:'chip'+(gf.toLowerCase()===g.name.toLowerCase()?' on':''),onclick:()=>{S.hostGroup=g.name;render()}},g.name+' ('+g.hosts.length+')')),
+      el('span',{class:'sp'}),glist.length?el('label',{style:'color:var(--fg)'},el('input',{type:'checkbox',checked:!!S.hostBy,onchange:ev=>{S.hostBy=ev.target.checked;render()}}),' Group by'):null,
+      w&&n?[el('span',{class:'mut'},n+' selected'),el('button',{class:'btn sm',onclick:addDialog},'Add to group…'),gf?el('button',{class:'btn ghost sm',onclick:()=>changeMembers(gf,[],[...sel])},'Remove from “'+gf+'”'):null,el('button',{class:'btn ghost sm',onclick:()=>{sel.clear();render()}},'Clear')]:null,
+      w&&glist.length?el('button',{class:'btn ghost sm',onclick:manage},'Manage groups'):null):null};
+  const rowsOf=(list,rowFn)=>{if(!S.hostBy||!glist.length)return list.map(rowFn);
+    const sections=glist.filter(g=>!S.hostGroup||g.name.toLowerCase()===S.hostGroup.toLowerCase()).map(g=>[g.name,list.filter(h=>has(h,g.name))]);
+    if(!S.hostGroup)sections.push(['No group',list.filter(h=>!(h.config.groups||[]).length)]);
+    return sections.filter(x=>x[1].length).flatMap(([name,hl])=>[el('tr',{class:'grouphead'},el('td',{colSpan:10,style:'background:var(--acc2);font-weight:600;padding:6px 12px'},name,el('span',{class:'mut',style:'font-weight:400'},'  '+hl.length+' host'+(hl.length===1?'':'s')))),...hl.map(rowFn)])};
+  const render=()=>{const shown=S.hostGroup?hs.filter(h=>has(h,S.hostGroup)):hs;
   view.replaceChildren(
+    groupBar(),
     el('div',{class:'bar'},el('span',{class:'mut'},'A machine appears here as soon as its agent reports. Open one to see its services and containers, or to choose which log files its agent ships.'),el('span',{class:'sp'}),w&&oneClick.length?el('button',{class:'btn ghost',title:'Update every agent that has another version than this server',onclick:updateAll},'Update '+oneClick.length+' agent'+(oneClick.length===1?'':'s')):null,(can('keys')||can('hosts',true))?el('a',{class:'btn',href:'#/machines'},'+ Add a machine'):null),
-    hs.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['','Host','IP address','Agent','System','Last seen','Services','Containers','Log paths',''].map(x=>el('th',{},x))),hs.map(h=>
-      el('tr',{class:'row',onclick:()=>{location.hash='#/h/'+encodeURIComponent(h.name)}},el('td',{},dot(h.status)),
-        el('td',{},h.display_name||h.name,h.display_name?el('div',{class:'mut',style:'font-size:11px'},h.name):null,h.rejected_log_paths?el('span',{class:'pill err',title:'This machine refused some of the log paths you configured'},'⚠ '+h.rejected_log_paths+' path(s) refused'):null),
+    shown.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['','Host','IP address','Agent','System','Last seen','Services','Containers','Log paths',''].map(x=>el('th',{},x))),rowsOf(shown,h=>
+      el('tr',{class:'row',onclick:()=>{location.hash='#/h/'+encodeURIComponent(h.name)}},el('td',{onclick:ev=>ev.stopPropagation(),style:'white-space:nowrap'},w?el('input',{type:'checkbox',title:'Select this host',checked:sel.has(h.name),onchange:ev=>{ev.target.checked?sel.add(h.name):sel.delete(h.name);render()}}):null,w?' ':null,dot(h.status)),
+        el('td',{},h.display_name||h.name,h.display_name?el('div',{class:'mut',style:'font-size:11px'},h.name):null,(h.config.groups||[]).map(g=>el('span',{class:'chip',style:'margin:2px 4px 0 0;font-size:11px',title:'Show only this group',onclick:ev=>{ev.stopPropagation();S.hostGroup=g;render()}},g)),h.rejected_log_paths?el('span',{class:'pill err',title:'This machine refused some of the log paths you configured'},'⚠ '+h.rejected_log_paths+' path(s) refused'):null),
         el('td',{class:'mono',title:(h.ips&&h.ips.length>1?'All addresses: '+h.ips.join(', '):(h.ip?'':'Not reported yet: the agent on this machine must be updated (run the install command again).'))},h.ip||el('span',{class:'mut'},'–'),h.ips&&h.ips.length>1?el('span',{class:'mut',style:'font-size:11px'},' +'+(h.ips.length-1)):null),
         el('td',{class:'mut'},h.version||'–',' ',updateChip(h,hostsPage)),el('td',{class:'mut'},h.os||'–'),el('td',{class:'mut'},ago2(h.last_seen)),el('td',{},cnt(h.services)),el('td',{},cnt(h.containers)),
         el('td',{class:'mut'},((h.config.log_paths||[]).length+(h.config.docker_logs?' + Docker':''))||'none'),
         el('td',{style:'text-align:right'},w&&h.status!=='up'?el('button',{class:'btn danger sm',title:'Remove this host from the list',onclick:ev=>{ev.stopPropagation();removeHost(h.name,h.display_name||h.name,hostsPage)}},'Remove'):null))))):
-    el('div',{class:'card empty'},'No machine has reported yet. ',el('a',{href:'#/machines'},'Add a machine'),' to start collecting data.'));
+    S.hostGroup&&hs.length?el('div',{class:'card empty'},'No host is in this group.'):el('div',{class:'card empty'},'No machine has reported yet. ',el('a',{href:'#/machines'},'Add a machine'),' to start collecting data.'))};
+  render();
 }
 
 async function removeHost(name,label,after){
@@ -779,12 +815,13 @@ async function hostPage(raw){
   const r=await api('/api/v1/hosts/'+enc),h=r.host,c=h.config||{},w=can('hosts',true);
   setTitle(c.display_name||name);if(c.display_name)S.hn[name]=c.display_name;
   const nick=el('input',{value:c.display_name||'',placeholder:name,maxlength:60,size:34,disabled:!w});
+  await loadGroups();const grpIn=el('input',{value:(c.groups||[]).join(', '),list:'grouplist',placeholder:'for example Web servers, Customer ACME',maxlength:400,size:34,disabled:!w}),grpList=el('datalist',{id:'grouplist'},(S.groups||[]).map(g=>el('option',{value:g.name})));
   const logs=el('textarea',{placeholder:'/var/log/nginx/*.log\n/var/lib/docker/volumes/nextcloud_data/_data/data/nextcloud.log',disabled:!w},(c.log_paths||[]).join('\n'));
   const watch=el('textarea',{placeholder:'nginx\nmariadb\nredis-server',disabled:!w,style:'min-height:60px'},(c.watch_services||[]).join('\n'));
   const cb=(v,l)=>{const i=el('input',{type:'checkbox',checked:v,disabled:!w});return[i,el('label',{style:'color:var(--fg);display:block;margin:6px 0'},i,' '+l)]};
   const [dl,dlL]=cb(c.docker_logs,'Ship the logs of all Docker containers'),[sy,syL]=cb(c.systemd!==false,'Report systemd services'),[co,coL]=cb(c.containers!==false,'Report Docker containers');
   const msg=el('div',{style:'margin-top:8px;min-height:18px'});
-  const save=async()=>{try{await api('/api/v1/hosts/'+enc,{},{method:'PUT',body:{display_name:nick.value.trim(),log_paths:lines(logs.value),docker_logs:dl.checked,systemd:sy.checked,containers:co.checked,watch_services:lines(watch.value)}});
+  const save=async()=>{try{await api('/api/v1/hosts/'+enc,{},{method:'PUT',body:{display_name:nick.value.trim(),groups:grpIn.value.split(',').map(x=>x.trim()).filter(Boolean),log_paths:lines(logs.value),docker_logs:dl.checked,systemd:sy.checked,containers:co.checked,watch_services:lines(watch.value)}});
     msg.className='ok';msg.textContent='Saved. The agent on '+name+' picks this up within a minute.'}catch(e){msg.className='err';msg.textContent=e.message}};
   const reset=async()=>{if(!confirm('Reset this machine to the defaults (no extra log files, services and containers reported)?'))return;try{await api('/api/v1/hosts/'+enc,{},{method:'DELETE'});hostPage(raw)}catch(e){msg.className='err';msg.textContent=e.message}};
   const table=(items,empty,kind)=>{
@@ -800,7 +837,7 @@ async function hostPage(raw){
     hostPerformance(name),
     el('h2',{},'Settings and services'),
     el('div',{class:'two'},
-      el('div',{class:'card'},el('h2',{},'This machine'),el('label',{},'Name shown in Lumen'),nick,el('p',{class:'help'},'Only changes what Lumen shows. The machine keeps its real name ('+name+'), which agents and Nextcloud instances still use.'),el('h2',{style:'margin-top:18px'},'What this machine reports'),
+      el('div',{class:'card'},el('h2',{},'This machine'),el('label',{},'Groups'),grpIn,grpList,el('div',{class:'help',style:'margin-bottom:12px'},'A host can be in several groups, separated by commas. Groups limit Logs, Traces, Metrics and alert rules to some of your hosts.'),el('label',{},'Name shown in Lumen'),nick,el('p',{class:'help'},'Only changes what Lumen shows. The machine keeps its real name ('+name+'), which agents and Nextcloud instances still use.'),el('h2',{style:'margin-top:18px'},'What this machine reports'),
         el('label',{},'Log files to ship (one path or pattern per line)'),logs,el('p',{class:'help'},'Example: /var/log/nginx/*.log. Only files under /var/log, /var/lib/docker, /var/www, /srv, /mnt and /opt are allowed. Changes apply within a minute, nothing to do on the machine.'),
         dlL,syL,coL,el('p',{class:'help'},'Docker containers need the agent installed with --docker (or the Docker socket mounted into the agent container).'),
         el('label',{style:'margin-top:8px;display:block'},'Services that must be running (one per line)'),watch,el('p',{class:'help'},'These show as DOWN when stopped or missing. All other running or failed services are shown anyway.'),
@@ -998,10 +1035,10 @@ const kvText=m=>Object.entries(m||{}).map(([k,v])=>k+'='+v).join('\n');
 function parseKV(t,what){const o={};for(const ln of lines(t)){const i=ln.indexOf('=');if(i<1||i===ln.length-1)throw new Error('Each line in '+what+' must look like label=value ("'+ln+'" does not).');o[ln.slice(0,i).trim()]=ln.slice(i+1).trim()}return o}
 const STATUS_TEXT={host_down:'a host is down (its agent stopped reporting)',instance_down:'a Nextcloud instance is down',service_down:'a service is failed or not running',container_down:'a Docker container is not running'};
 function ruleText(r){
-  const win=r.window_sec?Math.round(r.window_sec/60)+' min':'';
-  if(r.kind==='status')return STATUS_TEXT[r.status]||r.status;
+  const win=r.window_sec?Math.round(r.window_sec/60)+' min':'',inG=r.group?' (hosts in “'+r.group+'”)':'';
+  if(r.kind==='status')return (STATUS_TEXT[r.status]||r.status)+inG;
   if(r.kind==='log')return 'log lines'+(r.service?' from '+r.service:'')+(r.log_severity?' ('+r.log_severity+')':'')+(r.contains?' containing "'+r.contains+'"':'')+' '+r.op+' '+r.threshold+' in '+win+(r.group_by?' per '+r.group_by:'');
-  return (r.reduce||'avg')+'('+r.metric+') '+r.op+' '+r.threshold+' over '+win+(r.group_by?' per '+r.group_by:'')+((r.filters||[]).length?' where '+r.filters.map(f=>f.k+'='+f.v).join(', '):'');
+  return (r.reduce||'avg')+'('+r.metric+') '+r.op+' '+r.threshold+' over '+win+(r.group_by?' per '+r.group_by:'')+((r.filters||[]).length?' where '+r.filters.map(f=>f.k+'='+f.v).join(', '):'')+inG;
 }
 const alertTabs=[['','Active'],['rules','Rules'],['channels','Channels'],['silences','Silences'],['history','History']];
 async function alertsPage(tab){
@@ -1048,7 +1085,7 @@ function ruleDialog(rule,again){
         el('label',{},'One alert per'),mf.group,el('label',{},'Only where'),mf.filters)}
     else{mf.service=el('input',{value:R.service||'',placeholder:'any'});mf.host=el('input',{value:R.host||'',placeholder:'any'});mf.sev=sel([['','any severity'],'ERROR','WARN','INFO','DEBUG'],R.log_severity||'');mf.contains=el('input',{value:R.contains||'',placeholder:'contains text'});mf.group=sel([['','one alert'],['service','one per source'],['severity','one per severity']],R.group_by||'');
       k.replaceChildren(el('label',{},'Log lines from'),el('div',{style:'display:flex;gap:8px;flex-wrap:wrap'},mf.service,mf.host,mf.sev,mf.contains),el('label',{},'Alert when the number of lines'),el('div',{style:'display:flex;gap:8px;align-items:center;flex-wrap:wrap'},'in',mf.win,'is',mf.op,mf.th),el('label',{},'Split'),mf.group)}};
-  const build=()=>{const kind=f.kind.value,b={name:f.name.value.trim(),kind,severity:f.sev.value,for_sec:Math.max(0,Math.round(+f.forMin.value*60)),interval_sec:+f.interval.value,no_data:f.nodata.value,annotation:f.ann.value.trim(),labels:parseKV(f.labels.value,'Labels'),enabled:f.en.checked};
+  const build=()=>{const kind=f.kind.value,b={name:f.name.value.trim(),kind,group:f.hostgroup.value,severity:f.sev.value,for_sec:Math.max(0,Math.round(+f.forMin.value*60)),interval_sec:+f.interval.value,no_data:f.nodata.value,annotation:f.ann.value.trim(),labels:parseKV(f.labels.value,'Labels'),enabled:f.en.checked};
     if(kind==='status')b.status=mf.status.value;
     else{b.op=mf.op.value;b.threshold=+mf.th.value;b.window_sec=+mf.win.value*60;
       if(kind==='metric'){b.metric=mf.metric.value.trim();b.reduce=mf.reduce.value;b.group_by=mf.group.value.trim();b.filters=Object.entries(parseKV(mf.filters.value,'Only where')).map(([k_,v])=>({k:k_,v}))}
@@ -1057,7 +1094,9 @@ function ruleDialog(rule,again){
   const out=el('div',{style:'margin-top:8px;min-height:20px;font-size:13px'});
   const preview=async()=>{out.className='mut';out.textContent='Replaying the last 24 hours…';try{const b=build(),r=await api('/api/v1/alerts/backtest',{},{method:'POST',body:{rule:b,hours:24}}),d=r.data||[];
     out.className=d.length?'warn':'ok';out.replaceChildren(d.length?el('div',{},el('b',{},'It would have fired '+d.length+' time'+(d.length>1?'s':'')+' in the last 24 hours:'),d.slice(0,8).map(x=>el('div',{},new Date(x.start).toLocaleString()+' – '+new Date(x.end).toLocaleTimeString()+'  '+Object.entries(x.labels||{}).map(([a,c])=>a+'='+c).join(', ')+'  (peak '+(+x.peak).toPrecision(4)+')')),d.length>8?'…':null):'It would not have fired in the last 24 hours.')}catch(e){out.className='err';out.textContent=e.message}};
-  const form=el('div',{class:'form'},el('label',{},'Name'),f.name,el('label',{},'Kind'),f.kind);
+  f.hostgroup=el('select',{},el('option',{value:''},'All hosts'),R.group?el('option',{value:R.group,selected:''},R.group):null);
+  loadGroups().then(gs=>{const have=new Set([...f.hostgroup.options].map(o=>o.value));gs.forEach(g=>{if(!have.has(g.name))f.hostgroup.append(el('option',{value:g.name},g.name+' ('+g.hosts.length+')'))});f.hostgroup.value=R.group||''});
+  const form=el('div',{class:'form'},el('label',{},'Name'),f.name,el('label',{},'Kind'),f.kind,el('label',{},'Hosts'),el('div',{},f.hostgroup,el('div',{class:'help'},'Limit the rule to the hosts of a host group. For “a Nextcloud instance is down” the group is that of the host that checks the instance.')));
   dialog(edit?'Edit rule':'Add rule',el('div',{},form,k,el('div',{class:'form',style:'margin-top:10px'},el('label',{},'Importance'),f.sev,el('label',{},'It must last'),el('div',{},f.forMin,' minutes before it fires'),el('label',{},'Check every'),f.interval,el('label',{},'If there is no data'),f.nodata,el('label',{},'Message'),f.ann,el('label',{},'Extra labels'),f.labels,el('label',{},'Active'),el('label',{style:'color:var(--fg)'},f.en,' enabled')),
     el('div',{style:'margin-top:8px'},el('button',{class:'btn ghost sm',onclick:preview},'Preview on the last 24 hours')),out),
     [['Cancel',()=>{},'ghost'],['Save',async()=>{const b=build();await api(edit?'/api/v1/alerts/rules/'+rule.id:'/api/v1/alerts/rules',{},{method:edit?'PUT':'POST',body:b});again()}]]);

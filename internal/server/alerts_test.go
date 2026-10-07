@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"github.com/danielingemar/lumen/internal/registry"
 	"io"
 	"log/slog"
 	"net/http"
@@ -324,4 +326,110 @@ func TestAlertLifecycleThroughTheAPI(t *testing.T) {
 	// the status boxes tell how many alerts fire
 	_, b = do(rd, "GET", v.ts.URL+"/api/v1/status", "")
 	_ = b
+}
+
+func TestRulesFollowAHostGroupThatIsRenamed(t *testing.T) {
+	f, _ := docstore.OpenFile(t.TempDir())
+	st, _ := auth.Open(f, 0)
+	st.CreateUser("admin", "acme", "admins-long-password")
+	st.CreateUser("globexadmin", "globex", "globex-long-password")
+	a := auth.New(st, nil, false)
+	box, _ := secretbox.New("k")
+	reg := registry.New(f, box)
+	eng := &alerts.Engine{DB: f, Box: box, Eval: &alerts.Evaluator{Q: &alertQ{vals: map[string]float64{}}, St: noStatus{}, G: &Server{reg: reg}}, Guard: alerts.Guard{AllowPrivate: true}, GroupWait: time.Second}
+	ts := httptest.NewServer(New(&fakeStore{}, a, slog.New(slog.NewTextHandler(io.Discard, nil))).WithAuth(a).WithDashboards(dashboards.New(f)).WithRegistry(reg).WithAlerts(eng).Handler())
+	defer ts.Close()
+	ad := client()
+	login(t, ad, ts, "admin", "admins-long-password")
+	gx := client()
+	login(t, gx, ts, "globexadmin", "globex-long-password")
+	do(ad, "POST", ts.URL+"/api/v1/host-groups/members", `{"group":"Web servers","add":["web1"]}`)
+	do(gx, "POST", ts.URL+"/api/v1/host-groups/members", `{"group":"Web servers","add":["g1"]}`)
+	mk := func(c *http.Client, name, group string) string {
+		r, b := do(c, "POST", ts.URL+"/api/v1/alerts/rules", `{"name":"`+name+`","kind":"status","status":"host_down","group":"`+group+`"}`)
+		if r.StatusCode != 200 {
+			t.Fatalf("%d %s", r.StatusCode, b)
+		}
+		var out struct{ ID string }
+		json.Unmarshal(b, &out)
+		return out.ID
+	}
+	own, other, plain := mk(ad, "Web down", "web servers"), mk(gx, "Their web down", "Web servers"), mk(ad, "Any down", "")
+	groupOf := func(c *http.Client, id string) string {
+		_, b := do(c, "GET", ts.URL+"/api/v1/alerts/rules", "")
+		var l struct{ Data []struct{ ID, Group string } }
+		json.Unmarshal(b, &l)
+		for _, r := range l.Data {
+			if r.ID == id {
+				return r.Group
+			}
+		}
+		return "(no such rule)"
+	}
+	if !strings.EqualFold(groupOf(ad, own), "Web servers") {
+		t.Fatalf("a rule keeps the group it was given (names match without regard to case): %q", groupOf(ad, own))
+	}
+	r, b := do(ad, "POST", ts.URL+"/api/v1/host-groups/rename", `{"from":"Web servers","to":"Frontend"}`)
+	if r.StatusCode != 200 || !strings.Contains(string(b), `"rules":1`) {
+		t.Fatalf("%d %s", r.StatusCode, b)
+	}
+	if groupOf(ad, own) != "Frontend" {
+		t.Fatalf("the rule follows the group: %q", groupOf(ad, own))
+	}
+	if groupOf(gx, other) != "Web servers" {
+		t.Fatal("another tenant's rule that names a group of the same name is not touched")
+	}
+	if groupOf(ad, plain) != "" {
+		t.Fatal("and a rule without a group stays without")
+	}
+	if c := code(ad, "POST", ts.URL+"/api/v1/alerts/rules", `{"name":"x","kind":"status","status":"host_down","group":"a,b"}`); c != 400 {
+		t.Fatalf("a bad group name in a rule is refused: %d", c)
+	}
+}
+
+func TestARuleMadeThroughTheApiIsOnUnlessSaidOtherwise(t *testing.T) {
+	v := alertServer(t)
+	ad := v.client(t, "admin", "admins-long-password")
+	enabledOf := func(id string) bool {
+		_, b := do(ad, "GET", v.ts.URL+"/api/v1/alerts/rules", "")
+		var l struct {
+			Data []struct {
+				ID      string
+				Enabled bool
+			}
+		}
+		json.Unmarshal(b, &l)
+		for _, r := range l.Data {
+			if r.ID == id {
+				return r.Enabled
+			}
+		}
+		t.Fatal("no such rule")
+		return false
+	}
+	n := 0
+	mk := func(extra string) string {
+		n++
+		r, b := do(ad, "POST", v.ts.URL+"/api/v1/alerts/rules", fmt.Sprintf(`{"name":"Rule %d","kind":"status","status":"host_down"%s}`, n, extra))
+		if r.StatusCode != 200 {
+			t.Fatalf("%d %s", r.StatusCode, b)
+		}
+		var out struct{ ID string }
+		json.Unmarshal(b, &out)
+		return out.ID
+	}
+	on, explicitOn, off := mk(""), mk(`,"enabled":true`), mk(`,"enabled":false`)
+	if !enabledOf(on) || !enabledOf(explicitOn) || enabledOf(off) {
+		t.Fatalf("a new rule is on unless it says enabled:false: %v %v %v", enabledOf(on), enabledOf(explicitOn), enabledOf(off))
+	}
+	// an update that does not mention it leaves it as it was; one that does, changes it
+	do(ad, "PUT", v.ts.URL+"/api/v1/alerts/rules/"+off, `{"name":"R2","kind":"status","status":"host_down"}`)
+	do(ad, "PUT", v.ts.URL+"/api/v1/alerts/rules/"+on, `{"name":"R3","kind":"status","status":"host_down"}`)
+	if enabledOf(off) || !enabledOf(on) {
+		t.Fatal("an update without the field keeps the state")
+	}
+	do(ad, "PUT", v.ts.URL+"/api/v1/alerts/rules/"+on, `{"name":"R3","kind":"status","status":"host_down","enabled":false}`)
+	if enabledOf(on) {
+		t.Fatal("and can switch it off")
+	}
 }

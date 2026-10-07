@@ -45,6 +45,9 @@ func TestDumpForEngine(t *testing.T) {
 	}
 	addSeries("series gauge avg", model.SeriesQuery{Source: "metric", Name: "cpu", Agg: "avg", StepSec: 86400})
 	addSeries("series gauge sum by host", model.SeriesQuery{Source: "metric", Name: "cpu", Agg: "sum", GroupBy: "host", StepSec: 86400})
+	addSeries("series gauge hosts both", model.SeriesQuery{Source: "metric", Name: "cpu", Agg: "sum", Hosts: []string{"h1", "h2"}, StepSec: 86400})
+	addSeries("series gauge hosts one and a stranger", model.SeriesQuery{Source: "metric", Name: "cpu", Agg: "sum", Hosts: []string{"h1", "h9"}, StepSec: 86400})
+	addSeries("series gauge hosts none", model.SeriesQuery{Source: "metric", Name: "cpu", Agg: "sum", Hosts: []string{"no-host-in-this-group"}, StepSec: 86400})
 	addSeries("series gauge filtered", model.SeriesQuery{Source: "metric", Name: "cpu", Agg: "max", Filters: map[string]string{"host": "h2"}, StepSec: 86400})
 	addSeries("series gauge last", model.SeriesQuery{Source: "metric", Name: "cpu", Agg: "last", GroupBy: "service", StepSec: 86400})
 	addSeries("series rate", model.SeriesQuery{Source: "metric", Name: "reqs_total", Agg: "rate", StepSec: 60})
@@ -72,6 +75,14 @@ func TestDumpForEngine(t *testing.T) {
 	add("logs host filter", s, p)
 	s, p = buildTracesQuery("facets", model.TraceQuery{Host: "web1", From: f0, To: f1})
 	add("traces host filter", s, p)
+	for name, hs := range map[string][]string{"web1": {"web1"}, "db1": {"db1"}, "both": {"web1", "db1"}, "none": {"no-host-in-this-group"}, "mixed": {"web1", "no-such"}} {
+		s, p = buildLogsQuery("facets", model.LogQuery{Hosts: hs, From: f0, To: f1})
+		add("logs group "+name, s, p)
+		s, p = buildTracesQuery("facets", model.TraceQuery{Hosts: hs, From: f0, To: f1})
+		add("traces group "+name, s, p)
+	}
+	s, p = buildLogsQuery("facets", model.LogQuery{Host: "web1", Hosts: []string{"db1"}, From: f0, To: f1})
+	add("logs host and group disagree", s, p)
 	s, p = buildTracesQuery("facets", model.TraceQuery{Operation: "GET /pay", From: f0, To: f1})
 	add("traces operation filter", s, p)
 	s, p = buildTracesQuery("facets", model.TraceQuery{Service: "checkout", Operation: "GET /home", From: f0, To: f1})
@@ -82,6 +93,11 @@ func TestDumpForEngine(t *testing.T) {
 			t.Fatal(err)
 		}
 		add("series "+src+" host filter", sp.SQL, sp.Params)
+		sp, err = buildSeriesQuery("facets", model.SeriesQuery{Source: src, Metric: "requests", Hosts: []string{"web1", "db1"}, From: f0, To: f1, StepSec: 3600})
+		if err != nil {
+			t.Fatal(err)
+		}
+		add("series "+src+" group", sp.SQL, sp.Params)
 	}
 	// backup, archive, retention and up/down queries
 	day := time.Now().UTC()
