@@ -49,6 +49,7 @@ type Host struct {
 	Services         Counts   `json:"services"`
 	Containers       Counts   `json:"containers"`
 	RejectedLogPaths int      `json:"rejected_log_paths,omitempty"` // log paths this machine refused to read (agent allow-list)
+	Role             string   `json:"role,omitempty"`               // "checker": an agent that only checks Nextcloud instances; it is not a machine
 }
 
 type Instance struct {
@@ -93,6 +94,7 @@ type Summary struct {
 	Services   Counts     `json:"services"`
 	Containers Counts     `json:"containers"`
 	HostList   []Host     `json:"host_list"`
+	Checkers   []Host     `json:"checkers"` // agents that only check instances: they are not machines, and are listed with the instances
 	Instances  []Instance `json:"instances"`
 	Down       []Item     `json:"down"` // services and containers that are down, for the "what is broken" list
 }
@@ -130,7 +132,7 @@ func ComputeWith(now time.Time, rows []model.Latest, configured map[string]regis
 		if r.Name == "lumen_agent_info" && r.Attrs["host"] != "" {
 			h := host(r.Attrs["host"])
 			if r.T >= h.LastSeen {
-				h.LastSeen, h.Version, h.OS, h.SelfUpdate = r.T, r.Attrs["version"], r.Attrs["os"], r.Attrs["self_update"]
+				h.LastSeen, h.Version, h.OS, h.SelfUpdate, h.Role = r.T, r.Attrs["version"], r.Attrs["os"], r.Attrs["self_update"], r.Attrs["role"]
 				h.IP, h.IPs = r.Attrs["ip"], nil
 				for _, a := range strings.Split(r.Attrs["ips"], ",") {
 					if a = strings.TrimSpace(a); a != "" && len(a) <= 45 {
@@ -192,6 +194,10 @@ func ComputeWith(now time.Time, rows []model.Latest, configured map[string]regis
 		}
 	}
 	for _, h := range hosts {
+		if h.Role == "checker" { // not a machine: not listed, not counted
+			s.Checkers = append(s.Checkers, *h)
+			continue
+		}
 		switch h.Status {
 		case "up":
 			s.Hosts.Up++
@@ -201,6 +207,7 @@ func ComputeWith(now time.Time, rows []model.Latest, configured map[string]regis
 		s.HostList = append(s.HostList, *h)
 	}
 	sort.Slice(s.HostList, func(i, j int) bool { return s.HostList[i].Name < s.HostList[j].Name })
+	sort.Slice(s.Checkers, func(i, j int) bool { return s.Checkers[i].Name < s.Checkers[j].Name })
 	sort.Slice(s.Down, func(i, j int) bool { return s.Down[i].Host+s.Down[i].Name < s.Down[j].Host+s.Down[j].Name })
 
 	// Nextcloud: match what is registered against what reports

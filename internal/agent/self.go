@@ -22,6 +22,7 @@ const SelfService = "lumen-agent"
 // Prometheus format for external scrapers.
 type Self struct {
 	selfUpdate  string // what this agent can do about updating itself ("systemd", "exec" or "")
+	role        string // "host" or "checker"
 	mu          sync.Mutex
 	start       time.Time
 	host        string
@@ -99,6 +100,9 @@ func (s *Self) Collect(service string, now int64) []Point {
 	if s.selfUpdate != "" {
 		info["self_update"] = s.selfUpdate
 	}
+	if s.role != "" {
+		info["role"] = s.role
+	}
 	if s.ip != "" {
 		info["ip"] = s.ip
 		info["ips"] = strings.Join(s.ips, ",")
@@ -173,5 +177,12 @@ func (s *Self) Handler() http.Handler {
 func (s *Self) SetSelfUpdate(mode string) {
 	s.mu.Lock()
 	s.selfUpdate = mode
+	s.mu.Unlock()
+}
+
+// SetRole says whether this agent reports on a machine ("host") or only checks instances ("checker").
+func (s *Self) SetRole(role string) {
+	s.mu.Lock()
+	s.role = role
 	s.mu.Unlock()
 }

@@ -400,3 +400,66 @@ func TestOneClickAgentUpdate(t *testing.T) {
 		t.Fatal("a current agent is not asked")
 	}
 }
+
+func TestAgentsThatOnlyCheckInstancesAreNotHosts(t *testing.T) {
+	ts, _, fs := regServer(t)
+	ad := client()
+	login(t, ad, ts, "admin", "admins-long-password")
+	old := buildinfo.Version
+	buildinfo.Version = "src-new"
+	defer func() { buildinfo.Version = old }()
+	now := time.Now().Unix()
+	info := func(host, role, self string) model.Latest {
+		at := map[string]string{"host": host, "version": "src-old", "os": "linux/amd64", "self_update": self}
+		if role != "" {
+			at["role"] = role
+		}
+		return model.Latest{Name: "lumen_agent_info", Attrs: at, Value: 1, T: now - 3}
+	}
+	fs.latestFor = "acme"
+	fs.latest = []model.Latest{info("web1", "host", "systemd"), info("nc-checker", "checker", "exec"),
+		{Name: "nextcloud_up", Service: "ks", Attrs: map[string]string{"instance": "cloud.example.com", "host": "nc-checker"}, Value: 1, T: now - 3}}
+	_, b := do(ad, "GET", ts.URL+"/api/v1/hosts", "")
+	var hl struct{ Data []struct{ Name, Role string } }
+	json.Unmarshal(b, &hl)
+	if len(hl.Data) != 1 || hl.Data[0].Name != "web1" {
+		t.Fatalf("the host list has machines only: %s", b)
+	}
+	_, b = do(ad, "GET", ts.URL+"/api/v1/status", "")
+	if !strings.Contains(string(b), `"hosts":{"up":1,"down":0}`) {
+		t.Fatalf("and the count of hosts too: %s", b)
+	}
+	// the instance list carries the checkers, and they can be chosen as the one that checks an instance
+	_, b = do(ad, "GET", ts.URL+"/api/v1/instances", "")
+	var il struct {
+		Hosts    []string
+		Checkers []struct {
+			Name       string
+			SelfUpdate string `json:"self_update"`
+			Role       string
+		}
+	}
+	json.Unmarshal(b, &il)
+	sort.Strings(il.Hosts)
+	if len(il.Checkers) != 1 || il.Checkers[0].Name != "nc-checker" || il.Checkers[0].SelfUpdate != "exec" || il.Checkers[0].Role != "checker" || strings.Join(il.Hosts, ",") != "nc-checker,web1" {
+		t.Fatalf("%s", b)
+	}
+	// it still has a page of its own (instances link to the one that checks them) and it can be updated like a host
+	if r, b := do(ad, "GET", ts.URL+"/api/v1/hosts/nc-checker", ""); r.StatusCode != 200 || !strings.Contains(string(b), `"role":"checker"`) {
+		t.Fatalf("%d %s", r.StatusCode, b)
+	}
+	if c := code(ad, "POST", ts.URL+"/api/v1/hosts/nc-checker/update", ""); c != 200 {
+		t.Fatalf("a checker can be updated with one click: %d", c)
+	}
+	_, b = do(ad, "GET", ts.URL+"/api/v1/instances", "")
+	if !strings.Contains(string(b), `"update_requested"`) {
+		t.Fatalf("and the list says it is being updated: %s", b)
+	}
+	r, b := do(ad, "POST", ts.URL+"/api/v1/hosts-update-all", "")
+	var all struct{ Requested []string }
+	json.Unmarshal(b, &all)
+	sort.Strings(all.Requested)
+	if r.StatusCode != 200 || strings.Join(all.Requested, ",") != "nc-checker,web1" {
+		t.Fatalf("update all covers both kinds of agent: %s", b)
+	}
+}

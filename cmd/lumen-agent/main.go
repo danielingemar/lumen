@@ -41,6 +41,9 @@ func main() {
 		log.Warn("no API key configured; this only works against a Lumen running in dev mode")
 	}
 	hostname, _ := os.Hostname()
+	if cfg.Hostname != "" {
+		hostname = cfg.Hostname // LUMEN_AGENT_HOSTNAME: for example a name for an agent that only checks instances
+	}
 	snd := &agent.Sender{URL: cfg.URL, APIKey: cfg.APIKey}
 	self := agent.NewSelf(hostname)
 	self.SetLumenURL(cfg.URL)
@@ -142,6 +145,7 @@ func main() {
 
 // start launches the collectors for one configuration and returns the number of log sources.
 func start(ctx context.Context, wg *sync.WaitGroup, cfg agent.Config, snd *agent.Sender, self *agent.Self, hostname string, log *slog.Logger) int {
+	self.SetRole(cfg.Role())
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

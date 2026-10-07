@@ -47,13 +47,28 @@ type Config struct {
 	Containers      *bool             `json:"containers"`     // report Docker containers (default true)
 	WatchServices   []string          `json:"watch_services"` // services that must be running
 	NoRemote        bool              `json:"no_remote"`      // ignore the server's configuration
+	RoleSetting     string            `json:"role"`           // "host" or "checker"; empty = decided from what the agent does
+	Hostname        string            `json:"hostname"`       // the name this agent reports under; empty = the machine's own
 	// AllowedLogDirs limits which log paths the SERVER may tell this agent to read (paths in the local config file are
 	// always trusted). Default: /var/log, Docker's data dirs, /var/www, /srv, /mnt, /opt. Use ["*"] to allow everything.
 	AllowedLogDirs   []string `json:"allowed_log_dirs"`
 	RejectedLogPaths []string `json:"-"` // remote paths that were refused, for the agent's log and the UI warning
 }
 
-func (c Config) HostOn() bool       { return c.HostMetrics == nil || *c.HostMetrics }
+func (c Config) HostOn() bool { return c.HostMetrics == nil || *c.HostMetrics }
+
+// Role is what this agent is for. A "host" reports on its machine. A "checker" only checks Nextcloud instances from
+// somewhere (no host metrics, nothing of its own to report): it is not a machine and is not listed or counted as one.
+func (c Config) Role() string {
+	switch c.RoleSetting {
+	case "host", "checker":
+		return c.RoleSetting
+	}
+	if !c.HostOn() && len(c.Nextcloud) > 0 && len(c.WatchServices) == 0 {
+		return "checker"
+	}
+	return "host"
+}
 func (c Config) SelfOn() bool       { return c.SelfMetrics == nil || *c.SelfMetrics }
 func (c Config) SystemdOn() bool    { return c.Systemd == nil || *c.Systemd }
 func (c Config) ContainersOn() bool { return c.Containers == nil || *c.Containers }
@@ -101,6 +116,12 @@ func LoadConfig(path string, getenv func(string) string) (Config, error) {
 	}
 	if v := getenv("LUMEN_AGENT_METRICS_LISTEN"); v != "" {
 		c.MetricsListen = v
+	}
+	if v := getenv("LUMEN_AGENT_ROLE"); v == "host" || v == "checker" {
+		c.RoleSetting = v
+	}
+	if v := strings.TrimSpace(getenv("LUMEN_AGENT_HOSTNAME")); v != "" && len(v) <= 128 {
+		c.Hostname = v
 	}
 	if v := getenv("LUMEN_AGENT_HOST_METRICS"); v != "" {
 		b := truthy(v)

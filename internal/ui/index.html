@@ -681,7 +681,7 @@ async function machinesPage(){
       const d=()=>{const u=i.u.value.trim(),t=i.t.value.trim(),n=i.n.value.trim()||'nextcloud',l=i.l.value.trim();
         if(!u){res.replaceChildren(el('p',{class:'mut'},'Fill in the Nextcloud URL to get the commands.'));return}
         res.replaceChildren(cmdBox('On a Linux machine',`curl -fsSL ${o}/install/agent.sh | sudo sh -s -- --key ${shq(K())} --no-host-metrics --nextcloud ${shq(u)}${t?' --nextcloud-token '+shq(t):''} --nextcloud-name ${shq(n)}${l?' --nextcloud-log '+shq(l):''}`,'The agent can run anywhere that can reach the Nextcloud URL. Drop --no-host-metrics to also monitor that machine.'),
-          cmdBox('Or as a Docker container',`docker run -d --name lumen-agent-nc-${n.replace(/[^\w.-]/g,'')} --restart unless-stopped \\\n  -e LUMEN_AGENT_URL=${shq(o)} -e LUMEN_AGENT_API_KEY=${shq(K())} -e LUMEN_AGENT_HOST_METRICS=false \\\n  -e LUMEN_AGENT_NEXTCLOUD_URL=${shq(u)} -e LUMEN_AGENT_NEXTCLOUD_SERVICE=${shq(n)}${t?' \\\n  -e LUMEN_AGENT_NEXTCLOUD_TOKEN='+shq(t):''} \\\n  alpine:3.20 sh -c ${shq('wget -qO- '+o+'/install/agent-docker.sh | sh')}`))};
+          cmdBox('Or as a Docker container',`docker run -d --name lumen-agent-nc-${n.replace(/[^\w.-]/g,'')} --restart unless-stopped \\\n  -e LUMEN_AGENT_URL=${shq(o)} -e LUMEN_AGENT_API_KEY=${shq(K())} -e LUMEN_AGENT_HOST_METRICS=false -e LUMEN_AGENT_HOSTNAME=${shq('check-'+n.replace(/[^\w.-]/g,''))} \\\n  -e LUMEN_AGENT_NEXTCLOUD_URL=${shq(u)} -e LUMEN_AGENT_NEXTCLOUD_SERVICE=${shq(n)}${t?' \\\n  -e LUMEN_AGENT_NEXTCLOUD_TOKEN='+shq(t):''} \\\n  alpine:3.20 sh -c ${shq('wget -qO- '+o+'/install/agent-docker.sh | sh')}`))};
       Object.values(i).forEach(x=>x.oninput=d);
       box.append(el('div',{class:'msg info'},'Tip: add instances on the ',el('a',{href:'#/instances'},'Instances'),' page instead. You can fix a typo there without touching the machine. The commands below are an alternative that keeps the settings on the machine itself.'),el('p',{class:'mut'},'Monitors one Nextcloud instance from the outside: availability, version, maintenance mode, users, files, shares, apps, database size and PHP cache. Create a token on the Nextcloud server first:'),el('pre',{class:'code'},"occ config:app:set serverinfo token --value 'A_LONG_RANDOM_STRING'"),el('div',{class:'bar'},Object.values(i)),res);d()}
     else{box.append(el('p',{class:'mut'},'Loading…'));
@@ -825,6 +825,18 @@ function instanceForm(i,hosts,done){
   dialog(edit?'Edit instance':'Add Nextcloud instance',body,[['Cancel',()=>{},'ghost'],['Save',async()=>{
     const b={name:f.name.value.trim(),url:f.url.value.trim(),host:f.host.value.trim(),token:f.token.value,username:f.user.value.trim(),password:f.pw.value,log_path:f.log.value.trim(),clear_token:ct.checked,clear_password:cp.checked};
     await api(edit?'/api/v1/instances/'+i.id:'/api/v1/instances',{},{method:edit?'PUT':'POST',body:b});done()}]])}
+// Agents that only check instances are not machines, so they are not under Hosts: they are listed here, with what they check.
+function checkerSection(cs,list,w){
+  if(!cs.length)return null;
+  const n=c=>list.filter(i=>i.host===c.name).length;
+  return el('div',{style:'margin-top:22px'},el('h2',{style:'margin-bottom:4px'},'Agents that only check instances'),
+    el('p',{class:'help',style:'margin-top:0'},'These are not machines, so they are not under Hosts. They run the checks for the instances above (the “Checked by” column). Update one with its label, or remove it here when it has stopped.'),
+    el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['','Agent','IP address','Version','Last seen','Checks',''].map(x=>el('th',{},x))),cs.map(c=>
+      el('tr',{class:'row',onclick:()=>{location.hash='#/h/'+encodeURIComponent(c.name)}},el('td',{},dot(c.status)),
+        el('td',{},c.display_name||c.name,c.display_name?el('div',{class:'mut',style:'font-size:11px'},c.name):null),el('td',{class:'mono'},c.ip||'–'),
+        el('td',{class:'mut'},c.version||'–',' ',updateChip(c,instancesPage)),el('td',{class:'mut'},ago2(c.last_seen)),
+        el('td',{},n(c)+' instance'+(n(c)===1?'':'s')),
+        el('td',{style:'text-align:right'},w&&c.status!=='up'?el('button',{class:'btn danger sm',title:'Remove this agent from the list',onclick:ev=>{ev.stopPropagation();removeHost(c.name,c.display_name||c.name,instancesPage)}},'Remove'):null))))))}
 async function instancesPage(){
   setTitle('Nextcloud instances');const view=$('#view'),w=can('hosts',true);
   const r=await api('/api/v1/instances'),list=r.data||[],hosts=r.hosts||[];S.hn=r.host_names||{};
@@ -839,7 +851,8 @@ async function instancesPage(){
         el('button',{class:'btn ghost sm',title:'Take over management here',onclick:ev=>{ev.stopPropagation();instanceForm({name:i.name,host:i.host},hosts,instancesPage)}},'Manage here'),
         goneNow(i)?[' ',el('button',{class:'btn danger sm',title:'It is gone: take it out of the list',onclick:ev=>{ev.stopPropagation();removeGone(i,instancesPage)}},'Remove')]:null]):null))))):
     el('div',{class:'card empty'},'No instances yet.',w?[' ',el('a',{href:'#',onclick:e=>{e.preventDefault();instanceForm({},hosts,instancesPage)}},'Add the first one')]:null),
-    list.some(i=>!i.managed)?el('p',{class:'help'},'Rows marked “from agent flags” were set up with --nextcloud on the machine. “Manage here” creates the same instance in this list; then remove the old flags from the agent config on that machine so it is not checked twice.'):null);
+    list.some(i=>!i.managed)?el('p',{class:'help'},'Rows marked “from agent flags” were set up with --nextcloud on the machine. “Manage here” creates the same instance in this list; then remove the old flags from the agent config on that machine so it is not checked twice.'):null,
+    checkerSection(r.checkers||[],list,w));
 }
 
 // ---- one Nextcloud instance: status, versions, usage, performance and its log ----

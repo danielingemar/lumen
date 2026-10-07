@@ -158,16 +158,21 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request, do func(ctx cont
 type decodeError struct{ error }
 
 // metricHosts are the distinct hosts a batch of metric points came from (at most 500: more is not a host list).
-func metricHosts(rows []model.MetricPoint) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, r := range rows {
-		if h := r.Attrs["host"]; h != "" && !seen[h] && len(out) < 500 {
-			seen[h] = true
-			out = append(out, h)
+func metricHosts(rows []model.MetricPoint) (hosts, checkers []string) {
+	seenH, seenC := map[string]bool{}, map[string]bool{}
+	for _, r := range rows { // an agent says what it is in its info line
+		if r.Name == "lumen_agent_info" && r.Attrs["role"] == "checker" && r.Attrs["host"] != "" && !seenC[r.Attrs["host"]] {
+			seenC[r.Attrs["host"]] = true
+			checkers = append(checkers, r.Attrs["host"])
 		}
 	}
-	return out
+	for _, r := range rows {
+		if h := r.Attrs["host"]; h != "" && !seenH[h] && !seenC[h] && len(hosts) < 500 {
+			seenH[h] = true
+			hosts = append(hosts, h)
+		}
+	}
+	return hosts, checkers
 }
 
 func (s *Server) ingestTraces(w http.ResponseWriter, r *http.Request, id edition.Identity) {
@@ -210,7 +215,19 @@ func (s *Server) ingestMetrics(w http.ResponseWriter, r *http.Request, id editio
 		if err != nil {
 			return &decodeError{err}
 		}
-		hosts := metricHosts(rows)
+		hosts, checkers := metricHosts(rows)
+		if s.ten != nil { // an agent that only checks instances is not a host: it is not counted against the host limit either
+			for _, c := range checkers {
+				s.ten.Meter.MarkChecker(id.Tenant, c)
+			}
+			kept := hosts[:0]
+			for _, h := range hosts {
+				if !s.ten.Meter.IsChecker(id.Tenant, h) {
+					kept = append(kept, h)
+				}
+			}
+			hosts = kept
+		}
 		if err := s.admit(id, len(rows), len(b), hosts); err != nil {
 			return err
 		}

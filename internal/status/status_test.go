@@ -1,6 +1,7 @@
 package status
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -288,5 +289,38 @@ func TestDeeperChecksOfAnInstance(t *testing.T) {
 	}
 	if other == nil || other.Checks != nil {
 		t.Fatalf("a result older than 20 minutes is not shown, and an instance with none has no checks: %+v", other)
+	}
+}
+
+func TestAgentsThatOnlyCheckInstancesAreNotHosts(t *testing.T) {
+	rows := []model.Latest{
+		row("lumen_agent_info", 1, 3, map[string]string{"host": "web1", "version": "v1", "role": "host"}),
+		row("lumen_agent_info", 1, 3, map[string]string{"host": "oldagent", "version": "v0"}), // an agent from before roles: a host
+		row("lumen_agent_info", 1, 3, map[string]string{"host": "nc-checker", "version": "v1", "role": "checker", "self_update": "exec"}),
+		row("system_service_up", 1, 3, map[string]string{"host": "web1", "service": "sshd"}),
+		row("nextcloud_up", 1, 3, map[string]string{"instance": "cloud.example.com", "host": "nc-checker"}),
+	}
+	s := Compute(now, rows, map[string]registry.HostConfig{"nc-checker": {DisplayName: "Checker for ACME"}}, nil)
+	var names []string
+	for _, h := range s.HostList {
+		names = append(names, h.Name)
+	}
+	if strings.Join(names, ",") != "oldagent,web1" {
+		t.Fatalf("a checker is not in the host list, and an agent without a role still is: %v", names)
+	}
+	if s.Hosts.Up != 2 || s.Hosts.Down != 0 {
+		t.Fatalf("and it is not counted as a host: %+v", s.Hosts)
+	}
+	if len(s.Checkers) != 1 || s.Checkers[0].Name != "nc-checker" || s.Checkers[0].Status != "up" || s.Checkers[0].DisplayName != "Checker for ACME" || s.Checkers[0].SelfUpdate != "exec" || s.Checkers[0].Version != "v1" {
+		t.Fatalf("it is listed as a checker, with the same details as a host: %+v", s.Checkers)
+	}
+	if len(s.Instances) != 1 || s.Instances[0].Status != "up" {
+		t.Fatalf("the instance it checks is unaffected: %+v", s.Instances)
+	}
+	// a checker that has stopped is a checker that is down: it does not turn into a host that is down
+	rows[2] = row("lumen_agent_info", 1, 900, map[string]string{"host": "nc-checker", "version": "v1", "role": "checker"})
+	s = Compute(now, rows, nil, nil)
+	if s.Hosts.Down != 0 || len(s.Checkers) != 1 || s.Checkers[0].Status != "down" {
+		t.Fatalf("%+v %+v", s.Hosts, s.Checkers)
 	}
 }

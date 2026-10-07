@@ -144,6 +144,8 @@ In the UI open **Add a machine**, create an agent key (for example `web-server-1
 | **Nextcloud** | add the instance on the **Instances** page | see [Nextcloud monitoring](#nextcloud-monitoring) |
 | **Download files** | links with SHA-256 | raw binaries for manual installs |
 
+**Hosts and instances are separate.** A *host* is a machine whose agent reports on it. An agent that only checks Nextcloud instances (host metrics off, for example the “Or as a Docker container” command under *Add a machine*) is a *checker*: it is not a machine, so it is not listed or counted under **Hosts** (and not against a tenant's host limit). It is listed on the **Instances** page, next to the instances it checks, where it can be updated and removed. Agents from before this are shown as hosts until they are updated.
+
 **Updating agents.** An agent that is not the same build as the server is marked *update* on the Hosts page. Click it, or *Update N agents*, to update it (a root-owned helper installs what the server offers after checking its checksums and rolls back if the new version does not stay up; a container agent replaces itself in place). Agents from before this feature, and Windows agents, need the install command once: click the label to see it. See [UPGRADING.md](UPGRADING.md).
 
 Remove an agent with `--uninstall` (Linux), `-Uninstall` (Windows) or `docker rm -f lumen-agent`.
@@ -379,6 +381,8 @@ Backups are kept `LUMEN_BACKUP_RETENTION_DAYS` (**365**; `0` = forever). A faile
 If there are no users and no keys, nobody can log in and the server log says so.
 
 **Agent:** a JSON file (`-config`, see `lumen-agent.example.json`) and/or environment variables (variables win): `LUMEN_AGENT_URL`, `LUMEN_AGENT_API_KEY`, `LUMEN_AGENT_INTERVAL`, `LUMEN_AGENT_HOST_METRICS`, `LUMEN_AGENT_SYSTEMD`, `LUMEN_AGENT_CONTAINERS`, `LUMEN_AGENT_LOG_PATHS`, `LUMEN_AGENT_DOCKER_LOGS`, `LUMEN_AGENT_METRICS_LISTEN`, `LUMEN_AGENT_NO_REMOTE` (ignore the server's settings), `LUMEN_AGENT_NEXTCLOUD_{URL,TOKEN,USER,PASSWORD,SERVICE,LOG}`. The agent also scrapes any Prometheus `/metrics` endpoint (`scrape` list), so node_exporter, cAdvisor and app exporters work unchanged.
+
+Two agent settings decide how an agent is listed: `LUMEN_AGENT_ROLE` (`host` or `checker`; by default an agent with host metrics switched off that checks Nextcloud instances is a *checker*, anything else a *host*) and `LUMEN_AGENT_HOSTNAME` (the name it reports under, instead of the machine's own).
 
 ## API
 

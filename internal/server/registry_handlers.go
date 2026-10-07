@@ -146,7 +146,7 @@ func (s *Server) getHost(w http.ResponseWriter, r *http.Request, id edition.Iden
 		return
 	}
 	h := status.Host{Name: name, Status: "pending"}
-	for _, x := range sn.sum.HostList {
+	for _, x := range allAgents(sn.sum) {
 		if x.Name == name {
 			h = x
 		}
@@ -224,7 +224,7 @@ func (s *Server) listInstances(w http.ResponseWriter, r *http.Request, id editio
 		return
 	}
 	hosts, names := []string{}, map[string]string{}
-	for _, h := range sn.sum.HostList {
+	for _, h := range allAgents(sn.sum) {
 		hosts = append(hosts, h.Name)
 		if h.DisplayName != "" {
 			names[h.Name] = h.DisplayName
@@ -234,7 +234,16 @@ func (s *Server) listInstances(w http.ResponseWriter, r *http.Request, id editio
 	if list == nil {
 		list = []status.Instance{} // an empty list is [], not null
 	}
-	writeJSON(w, map[string]any{"data": list, "hosts": hosts, "host_names": names})
+	checkers := make([]hostOut, 0, len(sn.sum.Checkers))
+	cfgs, reqs := s.reg.ListHosts(id.Tenant), s.reg.UpdateRequests(id.Tenant)
+	for _, h := range sn.sum.Checkers {
+		c, ok := cfgs[h.Name]
+		if !ok {
+			c = registry.DefaultHost(h.Name)
+		}
+		checkers = append(checkers, hostOut{h, c, reqs[h.Name].Unix() * b2i(!reqs[h.Name].IsZero())})
+	}
+	writeJSON(w, map[string]any{"data": list, "hosts": hosts, "host_names": names, "checkers": checkers})
 }
 
 func (s *Server) createInstance(w http.ResponseWriter, r *http.Request, id edition.Identity) {
@@ -376,7 +385,7 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request, id edition.
 		writeErr(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	for _, h := range sn.sum.HostList {
+	for _, h := range allAgents(sn.sum) {
 		if h.Name != name {
 			continue
 		}
@@ -407,7 +416,7 @@ func (s *Server) updateAllAgents(w http.ResponseWriter, r *http.Request, id edit
 		return
 	}
 	requested, manual := []string{}, []string{}
-	for _, h := range sn.sum.HostList {
+	for _, h := range allAgents(sn.sum) {
 		switch why := whyNotUpdatable(h); {
 		case why == "":
 			if s.reg.RequestUpdate(id.Tenant, h.Name) == nil {
@@ -421,4 +430,12 @@ func (s *Server) updateAllAgents(w http.ResponseWriter, r *http.Request, id edit
 		s.auditOp(id, id.Tenant, "agent.update", strings.Join(requested, ","), "to "+buildinfo.Version)
 	}
 	writeJSON(w, map[string]any{"requested": requested, "manual": manual, "target": buildinfo.Version})
+}
+
+// allAgents are the machines and the agents that only check instances: both are agents that can be updated and that
+// instances can be assigned to, but only the machines are hosts.
+func allAgents(sum status.Summary) []status.Host {
+	out := make([]status.Host, 0, len(sum.HostList)+len(sum.Checkers))
+	out = append(out, sum.HostList...)
+	return append(out, sum.Checkers...)
 }

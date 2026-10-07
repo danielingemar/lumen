@@ -50,10 +50,11 @@ type Meter struct {
 	dirty  map[string]bool
 	seen   map[string]map[string]time.Time // tenant -> host -> last seen
 	loaded map[string]bool                 // tenants whose hosts have been read back after a restart
+	check  map[string]map[string]bool      // tenant -> names of agents that only check instances (they are not hosts)
 }
 
 func New(db docstore.Backend) *Meter {
-	return &Meter{DB: db, Now: time.Now, days: map[string]*Day{}, dirty: map[string]bool{}, seen: map[string]map[string]time.Time{}, loaded: map[string]bool{}}
+	return &Meter{DB: db, Now: time.Now, days: map[string]*Day{}, dirty: map[string]bool{}, seen: map[string]map[string]time.Time{}, loaded: map[string]bool{}, check: map[string]map[string]bool{}}
 }
 
 func ctx5() (context.Context, context.CancelFunc) {
@@ -342,4 +343,23 @@ func (l *Limiter) Allow(tenant string, n, perSec int) (bool, time.Duration) {
 		wait = time.Second
 	}
 	return false, wait
+}
+
+// MarkChecker notes that an agent only checks instances: it is not a host, so it is not counted as one (and if it was
+// counted before it said so, it no longer is).
+func (m *Meter) MarkChecker(tenant, name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.check[tenant] == nil {
+		m.check[tenant] = map[string]bool{}
+	}
+	m.check[tenant][name] = true
+	delete(m.hostsLocked(tenant), name)
+}
+
+// IsChecker tells whether an agent was said to only check instances.
+func (m *Meter) IsChecker(tenant, name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.check[tenant][name]
 }

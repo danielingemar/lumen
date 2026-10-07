@@ -594,3 +594,42 @@ func TestOffboardingThroughTheConsole(t *testing.T) {
 		t.Fatalf("the audit entries of a removed tenant are kept: %s", b)
 	}
 }
+
+func infoBody(host, role string) string {
+	return `{"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"lumen-agent"}},{"key":"host.name","value":{"stringValue":"` + host + `"}}]},"scopeMetrics":[{"metrics":[{"name":"lumen_agent_info","gauge":{"dataPoints":[{"timeUnixNano":"1700000000000000000","asDouble":1,"attributes":[{"key":"role","value":{"stringValue":"` + role + `"}}]}]}}]}]}]}`
+}
+
+func TestAnAgentThatOnlyChecksInstancesIsNotACountedHost(t *testing.T) {
+	e := tenServer(t)
+	e.licence(t, license.Operator)
+	ops := e.as(t, "ops")
+	if c := code(ops, "PUT", e.ts.URL+"/api/v1/operator/tenants/acme", `{"name":"acme","quotas":{"hosts":1,"hard":true}}`); c != 200 {
+		t.Fatal(c)
+	}
+	if e.ingest("acme", "/v1/metrics", metricsBody("web1")).StatusCode != 200 {
+		t.Fatal("the one host the plan allows")
+	}
+	// a checker says what it is, and then sends the instance metrics it collects: neither counts as a host
+	if r := e.ingest("acme", "/v1/metrics", infoBody("nc-checker", "checker")); r.StatusCode != 200 {
+		t.Fatalf("a checker is let in although the host limit is reached: %d", r.StatusCode)
+	}
+	if r := e.ingest("acme", "/v1/metrics", metricsBody("nc-checker")); r.StatusCode != 200 {
+		t.Fatalf("also when a batch has only its instance metrics: %d", r.StatusCode)
+	}
+	if n := e.ten.Meter.ActiveHosts("acme"); n != 1 {
+		t.Fatalf("one host is counted, not two: %d", n)
+	}
+	// a second real host is still refused
+	if r := e.ingest("acme", "/v1/metrics", metricsBody("web2")); r.StatusCode != 403 {
+		t.Fatalf("a second machine is over the limit: %d", r.StatusCode)
+	}
+	// one that was counted before it said what it is stops being counted
+	if e.ten.Tenants.Count("acme", "users") == 0 {
+		t.Fatal("setup")
+	}
+	e.ten.Meter.Record("acme", "metrics", 1, 1, []string{"old-checker"})
+	e.ten.Meter.MarkChecker("acme", "old-checker")
+	if n := e.ten.Meter.ActiveHosts("acme"); n != 1 {
+		t.Fatalf("%d", n)
+	}
+}
