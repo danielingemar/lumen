@@ -9,8 +9,30 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
+
+// Nextcloud's serverinfo leaves out the apps (installed, updates waiting) and the check for a newer Nextcloud unless it is
+// asked for them (skipApps=false, skipUpdate=false), and they are slower to answer, so they are asked for only now and then.
+const fullInfoEvery = 10 * time.Minute
+
+var (
+	fullInfoMu sync.Mutex
+	fullInfoAt = map[string]time.Time{} // instance address -> when the full answer was last asked for
+)
+
+// wantFullInfo says whether this collection should ask for the apps and the update check too. The time is taken when it is
+// asked, not when it works, so that an instance that answers slowly or badly is not asked every time.
+func wantFullInfo(base string, now time.Time) bool {
+	fullInfoMu.Lock()
+	defer fullInfoMu.Unlock()
+	if t, ok := fullInfoAt[base]; ok && now.Sub(t) < fullInfoEvery {
+		return false
+	}
+	fullInfoAt[base] = now
+	return true
+}
 
 var ncClient = &http.Client{Timeout: 20 * time.Second}
 
@@ -175,14 +197,24 @@ func collectCore(ctx context.Context, t NextcloudTarget, now int64) ([]Point, er
 	if t.Token == "" && t.Username == "" {
 		return append(pts, pt("nextcloud_info", 1, info)), nil
 	}
-	body, code, _, err = ncGet(ctx, base+"/ocs/v2.php/apps/serverinfo/api/v1/info?format=json", func(r *http.Request) {
+	auth := func(r *http.Request) {
 		r.Header.Set("OCS-APIRequest", "true")
 		if t.Token != "" {
 			r.Header.Set("NC-Token", t.Token)
 		} else {
 			r.SetBasicAuth(t.Username, t.Password)
 		}
-	})
+	}
+	infoURL := base + "/ocs/v2.php/apps/serverinfo/api/v1/info?format=json"
+	if wantFullInfo(base, time.Now()) {
+		// the apps and the update check as well; if that is refused or too slow the ordinary answer is still got
+		body, code, _, err = ncGet(ctx, infoURL+"&skipApps=false&skipUpdate=false", auth)
+		if err != nil || code != 200 {
+			body, code, _, err = ncGet(ctx, infoURL, auth)
+		}
+	} else {
+		body, code, _, err = ncGet(ctx, infoURL, auth)
+	}
 	if err != nil {
 		return append(pts, pt("nextcloud_info", 1, info)), err
 	}

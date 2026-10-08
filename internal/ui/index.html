@@ -1041,9 +1041,10 @@ async function instancePage(raw){
   {const ck=i.checks||{},dur=s=>{s=Math.abs(Math.round(s));const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),mi=Math.floor(s%3600/60);return d?d+' d '+h+' h':h?h+' h '+mi+' min':mi+' min'};
    const old=i.created&&Date.now()-Date.parse(i.created)>5*60e3;
    if(i.status==='up'){
-     if(ck.cron_age_seconds==null&&i.details&&i.managed&&old){
+     if(ck.cron_age_seconds==null&&i.details&&old){
        notes.push(i.has_password?el('div',{class:'warnbox'},el('b',{},'Background jobs and the login check cannot be read. '),'The user must be a Nextcloud administrator and the Provisioning API app must be enabled. The reason is in the agent\'s log on '+i.host+'.')
-         :el('p',{class:'help'},'Background jobs (when cron last ran) and the login check are not monitored. They need an administrator user with an app password (Edit): a serverinfo token cannot read them.'))}
+         :el('p',{class:'help'},'Background jobs (when cron last ran) and the login check are not monitored. They need an administrator user with an app password ('+(i.managed?'Edit':'press “Manage here”, then Edit')+'): a serverinfo token cannot read them.'))}
+     if(i.url&&!/^https:/i.test(i.url)&&ck.tls_expiry_seconds==null)notes.push(el('p',{class:'help'},'The certificate is not checked because the address is not https. Checking through an internal http address is normal; the certificate is what visitors see on the public address.'))
      if(ck.cron_age_seconds!=null&&ck.cron_age_seconds>4200)notes.push(el('div',{class:'warnbox'},el('b',{},'Background jobs have not run for '+(ck.cron_age_seconds>3600*24*365?'as long as anyone can tell':dur(ck.cron_age_seconds))+'. '),'File cleanup, notifications, mail and previews pile up. Check that the system cron or timer runs cron.php and that the background job mode is Cron.'));
      if(ck.webdav_ok===false)notes.push(el('div',{class:'errbox'},el('b',{},'The login check fails. '),'A user cannot log in and list their files over WebDAV: the web server, PHP, the database or the storage is failing. The reason is in the agent\'s log on '+i.host+'.'));
      if(ck.update_available)notes.push(el('div',{class:'warnbox'},el('b',{},'Nextcloud '+(ck.update_version||'a newer version')+' is available. '),'This instance runs '+((i.info&&i.info.version)||'an older version')+'. Plan the update; security fixes come in the minor versions.'));

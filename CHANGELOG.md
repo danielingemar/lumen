@@ -6,6 +6,7 @@ versions follow [Semantic Versioning](https://semver.org/) once a first release 
 ## [Unreleased]
 
 ### Fixed
+- **Apps installed, app updates and "update available" were empty on every instance.** Nextcloud's serverinfo leaves the apps and the check for a newer Nextcloud out unless it is asked for them (`skipApps=false&skipUpdate=false`). The agent now asks for them, every ten minutes (they are slower to answer), and falls back to the ordinary answer if an instance refuses. Update the agents to get them. The instance page also explains why the background job and the login check are empty (they need an administrator login) and why the certificate is not read (an `http` address), also for instances set up with agent flags.
 - **"The settings store is unavailable" when using a feature added in a newer version** (for example clicking *update* on an agent, or removing an instance that is gone). The Elasticsearch store had a fixed list of collections, and the ones added recently (`agent_updates`, `instances_gone`, and the tenant console's `tenants`, `usage`, `audit`, `support_grants`) were missing from it. They now have mappings; a collection that has no index yet gets one on its first write, also when Elasticsearch is set not to create indices itself; a search in a collection nobody has written to is empty instead of an error; the list limit is 10 000 (Elasticsearch's default window) instead of 1 000; and a test fails if the code declares a collection that has no mapping. The error message now says where to find the reason.
 
 ### Added
