@@ -1,0 +1,69 @@
+# Secrets come from deploy/.env (create it with ./gen-env.sh). Nothing sensitive is committed.
+services:
+  elasticsearch:   # document store for users, API keys and dashboards (telemetry stays in ClickHouse)
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "false"   # plain HTTP, only reachable on this compose network (no ports are published)
+      xpack.ml.enabled: "false"
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:?run deploy/gen-env.sh first}
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes: [esdata:/usr/share/elasticsearch/data]
+    ulimits: { nofile: { soft: 65535, hard: 65535 } }
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -u elastic:$$ELASTIC_PASSWORD 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null || exit 1"]
+      interval: 5s
+      retries: 60
+      start_period: 20s
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?run deploy/gen-env.sh first}
+    volumes: [chdata:/var/lib/clickhouse]
+    ulimits: { nofile: { soft: 262144, hard: 262144 } }
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8123/ping"]
+      interval: 3s
+      retries: 20
+
+  lumen:
+    build:
+      context: ..
+      args:
+        TAGS: ${LUMEN_BUILD_TAGS:-}   # "enterprise" builds the Enterprise edition (see docs/LICENSING.md)
+    depends_on:
+      clickhouse: { condition: service_healthy }
+      elasticsearch: { condition: service_healthy }
+    environment:
+      LUMEN_CLICKHOUSE_URL: http://clickhouse:8123
+      LUMEN_CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?run deploy/gen-env.sh first}
+      LUMEN_API_KEYS: ${LUMEN_API_KEYS:?run deploy/gen-env.sh first}
+      LUMEN_DATA_DIR: /data
+      LUMEN_ELASTICSEARCH_URL: http://elasticsearch:9200
+      LUMEN_ELASTICSEARCH_USER: elastic
+      LUMEN_ELASTICSEARCH_PASSWORD: ${ELASTIC_PASSWORD:?run deploy/gen-env.sh first}
+      LUMEN_ADMIN_USER: ${LUMEN_ADMIN_USER:-}
+      LUMEN_ADMIN_PASSWORD: ${LUMEN_ADMIN_PASSWORD:-}
+      LUMEN_ADMIN_TENANT: ${LUMEN_ADMIN_TENANT:-main}
+      LUMEN_RETENTION_DAYS: ${LUMEN_RETENTION_DAYS:-30}   # days of live data in ClickHouse
+      LUMEN_BACKUP_DIR: /backup                          # daily export of data before it expires
+      LUMEN_BACKUP_RETENTION_DAYS: ${LUMEN_BACKUP_RETENTION_DAYS:-365}   # 0 = keep forever
+      LUMEN_SECRET_KEY: ${LUMEN_SECRET_KEY:?run deploy/gen-env.sh first}
+      LUMEN_PUBLIC_URL: ${LUMEN_PUBLIC_URL:-}
+    # To keep backups on another disk: mount the disk on the machine (for example at /mnt/backup), add the line
+    #   - /mnt/backup:/mnt/backup
+    # under volumes, start again, and choose /mnt/backup under Settings, Where backups are kept.
+    volumes: [lumendata:/data, lumenbackup:/backup]   # only used for the optional JSON-file fallback / old auth.json import
+    ports: ["${LUMEN_BIND:-0.0.0.0}:4318:4318"]
+    restart: unless-stopped
+
+volumes:
+  chdata:
+  esdata:
+  lumenbackup:
+  lumendata:
