@@ -55,6 +55,9 @@ services:
       LUMEN_BACKUP_RETENTION_DAYS: ${LUMEN_BACKUP_RETENTION_DAYS:-365}   # 0 = keep forever
       LUMEN_SECRET_KEY: ${LUMEN_SECRET_KEY:?run deploy/gen-env.sh first}
       LUMEN_PUBLIC_URL: ${LUMEN_PUBLIC_URL:-}
+    # To keep backups on another disk: mount the disk on the machine (for example at /mnt/backup), add the line
+    #   - /mnt/backup:/mnt/backup
+    # under volumes, start again, and choose /mnt/backup under Settings, Where backups are kept.
     volumes: [lumendata:/data, lumenbackup:/backup]   # only used for the optional JSON-file fallback / old auth.json import
     ports: ["${LUMEN_BIND:-0.0.0.0}:4318:4318"]
     restart: unless-stopped

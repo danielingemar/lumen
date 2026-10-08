@@ -22,11 +22,12 @@ import (
 // licence), but counting what each tenant sends and keeping a record per tenant always runs, so that the numbers exist
 // from the first day.
 type Tenancy struct {
-	Tenants *tenants.Service
-	Meter   *metering.Meter
-	Limiter *metering.Limiter
-	Audit   *audit.Log
-	Off     *tenants.Offboarder
+	AuditDays int // how long entries of the audit log are kept (0 = until there are more than 10 000 per tenant)
+	Tenants   *tenants.Service
+	Meter     *metering.Meter
+	Limiter   *metering.Limiter
+	Audit     *audit.Log
+	Off       *tenants.Offboarder
 }
 
 // WithTenancy enables tenant records, metering, limits and the operator console.
@@ -211,14 +212,15 @@ func retryAfter(w http.ResponseWriter, d time.Duration) {
 // ---- the record of what was done ----
 
 func (s *Server) auditOp(id edition.Identity, tenant, action, target, detail string) {
-	if s.ten == nil || s.ten.Audit == nil {
+	log := s.auditLog()
+	if log == nil {
 		return
 	}
 	who := id.User
 	if who == "" {
 		who = "api key"
 	}
-	if err := s.ten.Audit.Add(audit.Entry{Tenant: tenant, Actor: who, Acting: id.Acting, Action: action, Target: target, Detail: detail}); err != nil {
+	if err := log.Add(audit.Entry{Tenant: tenant, Actor: who, Acting: id.Acting, Action: action, Target: target, Detail: detail}); err != nil {
 		s.log.Error("audit entry could not be written", "action", action, "err", err)
 	}
 }
@@ -251,7 +253,7 @@ func (t *Tenancy) Run(ctx context.Context, log *slog.Logger) {
 			t.sampleAll()
 		case <-tidy.C:
 			t.Meter.Prune(400)
-			t.Audit.Prune(5000)
+			t.Audit.Retain(10000, time.Duration(t.AuditDays)*24*time.Hour)
 			log.Debug("tenancy tidied")
 		}
 	}

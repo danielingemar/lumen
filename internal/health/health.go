@@ -238,8 +238,9 @@ func Overall(ps []Problem) string {
 
 // Sources are where a Monitor looks. Any of them may be nil: Elasticsearch is not used by every installation.
 type Sources struct {
-	Paths map[string]string // name -> a path whose file system is measured
-	ES    interface {
+	Paths   map[string]string        // name -> a path whose file system is measured
+	PathsFn func() map[string]string // when set, asked each time (the backup folder can be changed in Settings); added to Paths
+	ES      interface {
 		Health(ctx context.Context) (ES, error)
 	}
 	CH interface {
@@ -260,6 +261,9 @@ type Monitor struct {
 	last Report
 	have bool
 }
+
+// Statfs measures the file system that holds a path.
+var Statfs = statfs
 
 func New(src Sources, warn, crit float64) *Monitor {
 	if warn <= 0 || warn >= 100 {
@@ -286,14 +290,23 @@ func (m *Monitor) Report(ctx context.Context) Report {
 // Refresh always looks.
 func (m *Monitor) Refresh(ctx context.Context) Report {
 	r := Report{At: m.Now(), Disks: []Disk{}, Problems: []Problem{}}
-	names := make([]string, 0, len(m.Src.Paths))
-	for n := range m.Src.Paths {
+	paths := map[string]string{}
+	for n, p := range m.Src.Paths {
+		paths[n] = p
+	}
+	if m.Src.PathsFn != nil {
+		for n, p := range m.Src.PathsFn() {
+			paths[n] = p
+		}
+	}
+	names := make([]string, 0, len(paths))
+	for n := range paths {
 		names = append(names, n)
 	}
 	sort.Strings(names)
 	for _, n := range names {
-		if total, free, err := m.Statfs(m.Src.Paths[n]); err == nil {
-			r.Disks = append(r.Disks, Disk{Name: n, Path: m.Src.Paths[n], Total: total, Free: free})
+		if total, free, err := m.Statfs(paths[n]); err == nil {
+			r.Disks = append(r.Disks, Disk{Name: n, Path: paths[n], Total: total, Free: free})
 		}
 	}
 	// the file system under /data and under the backups is often the same one: say it once, with both names

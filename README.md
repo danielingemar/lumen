@@ -28,7 +28,7 @@ Traces, logs and metrics, dashboards you build yourself, host / service / Docker
 - [Add machines](#add-machines) · [Hosts, instances and remote configuration](#hosts-instances-and-remote-configuration) · [Nextcloud monitoring](#nextcloud-monitoring)
 - [Status and "Down"](#status-and-down) · [Labels](#labels)
 - [Users, groups and permissions](#users-groups-and-permissions) · [Login, keys and security](#login-keys-and-security)
-- [Retention, backup and archive](#retention-backup-and-archive)
+- [Billing](#billing-for-nextcloud-instances) · [Retention, backup and archive](#retention-backup-and-archive)
 - [Editions and design documents](#editions-and-design-documents) · [Configuration](#configuration) · [API](#api) · [Development](#development) · [Contributing](#contributing) · [Roadmap](#roadmap)
 
 ## Features
@@ -278,6 +278,50 @@ Each channel can be limited to some importances (for example only critical) and 
 
 **What is not there yet:** rules on traces (error rate, latency), escalation policies and on-call schedules, recurring maintenance windows, message templates, assigning an alert to a person, and metrics about the alert engine itself. See the [design](docs/design/alerting.md). A single server runs the evaluation; there is no high-availability mode yet.
 
+## Audit log
+
+**Audit log** in the menu shows who changed what, and who signed in. Everything that changes something is recorded by itself: users, groups, API keys, hosts and host groups, instances, alert rules, channels and silences, dashboards, backups, settings. The record says who (a person, or an API key), what in words (“created the user alice”, “changed the host group Web (2 added, 1 removed)”), and from which address. Sign-ins are recorded, and so are failed ones (once a minute for each person and address at most, so that password guessing does not fill the log).
+
+- **What is never written down:** passwords, keys, tokens and secrets. A password reset says that it was reset, not to what.
+- **Only changes that went through are recorded.** A request that was refused, or failed, is not.
+- **Search and export:** filter by person, text and dates; **Export CSV** gives exactly what is shown (a cell that starts like a spreadsheet formula is made harmless).
+- **Who may read it:** whoever may see Settings, and only the entries of their own tenant. An operator who goes into a tenant to support it is recorded there too, so support access is never invisible.
+- **How long:** a year by default (`LUMEN_AUDIT_DAYS`), and at most 10 000 entries per tenant.
+- It is added to every route that changes something by one guard, and a test fails if a route is added that does not pass it.
+
+API: `GET /api/v1/audit-log?actor=&q=&from=&to=&limit=&format=csv`.
+
+Tamper-evident storage with long retention and SIEM export is an Enterprise feature (see the edition charter); this log is for knowing what happened.
+
+## Single sign-on (OpenID Connect)
+
+Under **Settings, Single sign-on** you set up **one** OpenID Connect provider (Keycloak, Authentik, Microsoft Entra ID, Google, …), and the login page then offers “Sign in with …”.
+
+1. **Set `LUMEN_PUBLIC_URL`** to the address people use to reach Lumen (it is also used for the agent install scripts) and start Lumen again.
+2. **At the provider**, make an application (client) for Lumen and register the **redirect address** that the card shows: `https://your-lumen/auth/oidc/callback`.
+3. **In Lumen**, give the issuer address (exactly as the provider names itself; `…/.well-known/openid-configuration` must be under it), the client id and the client secret, and press *Test the provider*, then *Save*. It is only turned on if the provider answers as it should.
+
+- **Who gets in:** choose the email domains that may sign in (empty lets in everybody the provider vouches for), whether an **account is made at the first sign-in** (and in which group; making administrators of everyone is not allowed without a domain list), and whether an existing account whose user name is the same email address is **linked** (only when the provider says the address is verified). An account is tied to the provider's own id for the person, so a changed address does not give anybody else the account.
+- **Passwords keep working.** The local accounts are the way in if the provider is down.
+- **What is checked:** the sign-in is started and finished in the same browser (state, nonce and a PKCE secret in a short-lived signed cookie); the token must be signed with RS256 or ES256 by a key the provider lists (never “none” or a shared-secret algorithm), and must be for this application, from this issuer, not expired, and for this very sign-in. Keys are read again when the provider rotates them (at most once a minute).
+- **Where it lives:** the people who sign in belong to the tenant of whoever saved the setting (the tenant that runs the installation). Only that tenant can change it.
+- A provider is reached over **https** (or on this very machine). For one inside a closed network over plain http, set `LUMEN_OIDC_ALLOW_HTTP=1`.
+- Every sign-in, and every refusal with its reason, is in the audit log.
+
+SAML, SCIM, LDAP group mapping and enforced MFA are Enterprise features (see the edition charter).
+
+## Where backups are kept
+
+By default backups go to `LUMEN_BACKUP_DIR` (`/backup`, a Docker volume). Under **Settings, Where backups are kept** you choose another folder yourself, for example a disk that is mounted at `/mnt/backup`, so that the backups are not on the same disk as the data.
+
+- **Check** looks at a folder before you use it: is it there, can Lumen write to it (it writes and removes a small test file), how much room is there, and is it on the same disk as Lumen's data (a warning: a disk that fails takes both).
+- **Use this folder** takes effect from the next backup, without a restart. Backups already made stay in the old folder (Lumen tells you how many days); copy them over yourself if you want them in one place. **Use the default** goes back.
+- **In Docker the disk has to be mounted into the Lumen container.** Mount it on the machine, add `- /mnt/backup:/mnt/backup` under `lumen` → `volumes` in `deploy/docker-compose.yml`, run `docker compose up -d`, and then choose it. The card shows the exact line for the folder you type.
+- **Lumen never makes a folder you chose.** If the disk is not mounted (after a reboot, say), backups stop with a clear message until it is, instead of being written to whatever lies under the mount point (in a container, its own storage, which is lost when it is recreated).
+- **Where a folder may be:** inside `/backup`, `/mnt`, `/media`, `/srv` or `/var/backups` (change with `LUMEN_BACKUP_ROOTS`, a comma separated list), so that this setting cannot be used to write into the system. A link that leads out of those places is refused. Only the tenant that runs the installation can change it.
+
+API: `GET /api/v1/backup-location`, `POST /api/v1/backup-location/check`, `PUT /api/v1/backup-location` (`{"dir": ""}` goes back to the default).
+
 ## Lumen watches itself
 
 The failure that is worst for an observability tool is its own disk filling up: Elasticsearch stops creating indices at 85 percent and refuses writes at 95, ClickHouse goes read-only, and the first sign is a page that says “unavailable”. So Lumen looks at itself:
@@ -305,6 +349,20 @@ A **host group** is a name you put on hosts, so that you can look at, and alert 
 - **Names:** 1-40 characters, letters, digits, spaces and `. _ - : & + ( )`, matched without regard to case; a host can be in at most 20 groups. A group has the tenant's hosts only: tenants have groups of their own.
 - **Permissions:** changing groups needs the same permission as changing hosts; anyone who can see hosts can use a group as a filter.
 
+## Billing for Nextcloud instances
+
+Under **Billing** you set what you charge and get, for any period you choose, what each customer owes: the basis for an invoice. Lumen is not an invoicing program: you copy the figures into yours, or export them.
+
+- **Two prices, both chosen by you:** a price **per user and month** and a price **per gigabyte of stored data and month**. Prices are decimals (`49.50`, `0.125`); a comma is accepted.
+- **Currency:** SEK, EUR, USD, GBP, NOK, DKK, CHF, ISK, PLN, CZK, CAD, AUD, NZD, JPY, CNY and INR. A customer can have a currency of its own (then both prices in that currency are set for it). There is no conversion: every invoice is in one currency and the totals are added up per currency.
+- **What is counted:** the users and the data the accounts' files take, as the Nextcloud instance reports them (the same numbers as on the instance page; they need the serverinfo token or an administrator login). The **users are counted on the last day of the period** (they hardly change, and an invoice is for how many there are when it is made); you can instead charge the highest number of any day or the average. The data is charged on the peak of the period by default, and can also be the average or the last day. Data is counted in GB (10^9 bytes) or GiB (2^30).
+- **Customers:** instances with the same customer name are on one invoice. Per instance you can set a discount, another VAT rate, a note, or mark it **not invoiced** (your own and test instances). VAT is stated per rate, as an invoice does. An instance that reported only part of the month can be charged for those days (*prorate*).
+- **Money is exact:** amounts are whole öre/cents, rounded once per line, half up. The report warns about instances that reported nothing, or without users or data (the token is missing, for example).
+- **Reports:** for any days from one date to another (both included; at most a year), with buttons for this month, last month and the last 30 days, as a table, as **CSV per customer** or **per instance**, or a clean page to print or save as PDF. The prices are for the whole period you pick, so pick the days you invoice (the 1st to the last day of the month, say). A period that has not ended is marked as not final.
+- **History:** Lumen copies the daily numbers into its settings store every half hour, so a month can be invoiced long after the telemetry has expired (30 days by default).
+
+Permission: **Billing** (read to see, write to change prices). Changes are in the [audit log](#audit-log). API: `GET/PUT /api/v1/billing` and `GET /api/v1/billing/report?from=2026-09-05&to=2026-10-04` (or `period=2026-09`)`[&format=csv&view=invoices|lines]`.
+
 ## Tenants and the operator console
 
 A **tenant** is one customer (or team) of an installation: its users, keys, dashboards, hosts and data are invisible to every other tenant. Isolation is always on and free. The people who run the installation can manage all tenants from the **Tenants** page, which is part of the **Operator add-on** (it needs an Operator licence; without one Lumen still counts what each tenant sends, but enforces nothing and never cuts anyone off).
@@ -319,7 +377,7 @@ A **tenant** is one customer (or team) of an installation: its users, keys, dash
 - **Go into a tenant** for support, for up to 4 hours, read-only or with write access. The tenant decides whether that is allowed: *off*, *only when an administrator allows it* (the default for new tenants; they allow it for a chosen time under Settings, Support access) or *any time*. Inside, you act as one of the tenant's administrators, a banner tells you so, **everything you change is on record and the tenant can read the record** (Settings, Access log), and you cannot widen your own access.
 - **Export** a tenant's settings and documents as a zip (no passwords, key hashes or sealed secrets; telemetry is in the daily backups).
 - **Remove** a tenant for good: you type its id, then its users, keys, dashboards, hosts, instances, alert rules and channels, and its traces, logs and metrics (also archived days and the daily backups) are deleted, and Lumen checks that nothing is left. The usage records (for your invoices) and the access log are kept, and the name stays taken. A removal that fails (for example the database is down) says which step and why, and can be run again.
-- **Usage**: what each tenant sent per day (items and bytes per signal, hosts that reported, the highest number of users, keys and so on), as a table or a **CSV for your invoicing**. A byte is a byte of accepted OTLP payload after decompression, so a customer can check it. Lumen does not do billing.
+- **Usage**: what each tenant sent per day (items and bytes per signal, hosts that reported, the highest number of users, keys and so on), as a table or a **CSV for your invoicing**. A byte is a byte of accepted OTLP payload after decompression, so a customer can check it. The prices and invoice basis for your own Nextcloud instances are under [Billing](#billing-for-nextcloud-instances).
 - **Audit log**: every operator action and everything done inside a tenant.
 
 **Not there yet:** a limit on stored data, on the length of a query or the number of queries at once, retention and branding per tenant, sign-in addresses per tenant, and separate storage for a tenant. See the [design](docs/design/tenancy.md).
@@ -428,6 +486,8 @@ Two agent settings decide how an agent is listed: `LUMEN_AGENT_ROLE` (`host` or 
 | GET/PUT/DELETE | `/api/v1/hosts[/{host}]` (PUT takes `display_name`) | hosts |
 | POST | `/api/v1/hosts/{host}/remove` | hosts |
 | GET | `/api/v1/facets?source=traces\|logs[&service=]` | traces / logs: services, hosts and operations that have data |
+| GET/PUT | `/api/v1/billing` | billing: prices, currency, VAT, customers |
+| GET | `/api/v1/billing/report` | billing: `from=YYYY-MM-DD&to=YYYY-MM-DD` (or `period=YYYY-MM`), `format=csv`, `view=invoices\|lines` |
 | GET | `/api/v1/branding`, `/branding/logo` | none (public) |
 | PUT | `/api/v1/settings/branding` | settings |
 | GET/POST/PUT/DELETE | `/api/v1/instances[/{id}]` | hosts |

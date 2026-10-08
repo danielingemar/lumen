@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,6 +27,10 @@ type Entry struct {
 	Action string    `json:"action"`           // for example tenant.create, support.enter, http.POST
 	Target string    `json:"target,omitempty"`
 	Detail string    `json:"detail,omitempty"`
+	// Summary is what happened in words ("created user alice"); Via is how the person was signed in; IP is where from.
+	Summary string `json:"summary,omitempty"`
+	Via     string `json:"via,omitempty"` // password | api key | oidc | support
+	IP      string `json:"ip,omitempty"`
 }
 
 // Log writes and reads entries.
@@ -49,7 +54,7 @@ func (l *Log) Add(e Entry) error {
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	e.ID, e.Time = hex.EncodeToString(b), l.Now().UTC()
-	e.Detail, e.Target = clip(e.Detail, 400), clip(e.Target, 200)
+	e.Detail, e.Target, e.Summary, e.Actor, e.Via, e.IP = clip(e.Detail, 400), clip(e.Target, 200), clip(e.Summary, 300), clip(e.Actor, 120), clip(e.Via, 20), clip(e.IP, 64)
 	c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return l.DB.Put(c, coll, e.ID, e, "")
@@ -89,6 +94,63 @@ func (l *Log) Prune(keep int) {
 	for _, e := range all { // newest first
 		seen[e.Tenant]++
 		if seen[e.Tenant] > keep {
+			_ = l.DB.Delete(c, coll, e.ID)
+		}
+	}
+}
+
+// Filter narrows a search of the log.
+type Filter struct {
+	Actor    string    // exactly this person (without regard to case)
+	Q        string    // this text in the summary, action, target or detail (without regard to case)
+	From, To time.Time // zero = no limit
+	Limit    int       // 0 = 200; at most 5000
+}
+
+// Query returns the newest entries of a tenant that match, newest first.
+func (l *Log) Query(tenant string, f Filter) []Entry {
+	limit := f.Limit
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 5000 {
+		limit = 5000
+	}
+	q := strings.ToLower(f.Q)
+	var out []Entry
+	for _, e := range l.List(tenant, 0) { // newest first
+		if f.Actor != "" && !strings.EqualFold(e.Actor, f.Actor) {
+			continue
+		}
+		if !f.From.IsZero() && e.Time.Before(f.From) || !f.To.IsZero() && e.Time.After(f.To) {
+			continue
+		}
+		if q != "" && !strings.Contains(strings.ToLower(e.Summary+" "+e.Action+" "+e.Target+" "+e.Detail), q) {
+			continue
+		}
+		out = append(out, e)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+// Retain keeps what is newer than maxAge (when it is above zero) and at most keep entries per tenant, and deletes the rest.
+func (l *Log) Retain(keep int, maxAge time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	all := l.List("", 0)
+	seen := map[string]int{}
+	c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cutoff := time.Time{}
+	if maxAge > 0 {
+		cutoff = l.Now().Add(-maxAge)
+	}
+	for _, e := range all { // newest first
+		seen[e.Tenant]++
+		if (keep > 0 && seen[e.Tenant] > keep) || (!cutoff.IsZero() && e.Time.Before(cutoff)) {
 			_ = l.DB.Delete(c, coll, e.ID)
 		}
 	}

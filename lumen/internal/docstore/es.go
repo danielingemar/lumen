@@ -62,6 +62,8 @@ var mappings = map[string]string{
 	"tenants":         `{"dynamic":false,"properties":{"id":{"type":"keyword"},"status":{"type":"keyword"}}}`,
 	"usage":           `{"dynamic":false,"properties":{"tenant":{"type":"keyword"},"day":{"type":"keyword"}}}`,
 	"audit":           `{"dynamic":false,"properties":{"tenant":{"type":"keyword"},"time":{"type":"date"}}}`,
+	"billing":         `{"dynamic":false,"properties":{"tenant":{"type":"keyword"},"updated":{"type":"date"}}}`,
+	"billing_usage":   `{"dynamic":false,"properties":{"tenant":{"type":"keyword"},"instance":{"type":"keyword"},"month":{"type":"keyword"},"updated":{"type":"date"}}}`,
 	"support_grants":  `{"dynamic":false,"properties":{"tenant":{"type":"keyword"}}}`,
 }
 

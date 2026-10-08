@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -61,7 +62,58 @@ func (s *Server) services(w http.ResponseWriter, r *http.Request, id edition.Ide
 		return
 	}
 	rows, err := s.store.Services(r.Context(), id.Tenant, from, to)
+	if err == nil && s.reg != nil {
+		rows = s.withoutDismissed(id.Tenant, rows)
+	}
 	s.respond(w, rows, err)
+}
+
+// withoutDismissed leaves out the rows somebody took off the list, unless they have reported since.
+func (s *Server) withoutDismissed(tenant string, rows []json.RawMessage) []json.RawMessage {
+	gone := s.reg.DismissedServices(tenant)
+	if len(gone) == 0 {
+		return rows
+	}
+	out := rows[:0:0]
+	for _, r := range rows {
+		var x struct {
+			Svc      string `json:"svc"`
+			LastSeen string `json:"last_seen"`
+		}
+		if json.Unmarshal(r, &x) == nil {
+			if at, ok := gone[x.Svc]; ok {
+				if seen, ok := parseSeen(x.LastSeen); !ok || !seen.After(at) {
+					continue
+				}
+			}
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// parseSeen reads the time ClickHouse writes ("2026-10-07 12:34:56.123456789", UTC) or an RFC 3339 one.
+func parseSeen(v string) (time.Time, bool) {
+	for _, layout := range []string{"2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05", time.RFC3339Nano} {
+		if t, err := time.ParseInLocation(layout, v, time.UTC); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func (s *Server) dismissService(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	var in struct {
+		Name string `json:"name"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	if err := s.reg.DismissService(id.Tenant, in.Name); err != nil {
+		s.regErr(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
 }
 
 func (s *Server) metricNames(w http.ResponseWriter, r *http.Request, id edition.Identity) {

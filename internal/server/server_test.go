@@ -19,20 +19,21 @@ import (
 )
 
 type fakeStore struct {
-	spans      []model.Span
-	logs       []model.LogRecord
-	tenant     string // tenant seen by the last query
-	lastSeries model.SeriesQuery
-	latest     []model.Latest
-	latestErr  error
-	latestFor  string
-	facets     model.Facets
-	facetCalls int
-	lastFacet  string
-	lastLogQ   model.LogQuery
-	lastTraceQ model.TraceQuery
-	archive    bool
-	metrics    int // metric points stored
+	servicesRows []json.RawMessage // what Services answers, when set
+	spans        []model.Span
+	logs         []model.LogRecord
+	tenant       string // tenant seen by the last query
+	lastSeries   model.SeriesQuery
+	latest       []model.Latest
+	latestErr    error
+	latestFor    string
+	facets       model.Facets
+	facetCalls   int
+	lastFacet    string
+	lastLogQ     model.LogQuery
+	lastTraceQ   model.TraceQuery
+	archive      bool
+	metrics      int // metric points stored
 }
 
 func (f *fakeStore) InsertSpans(_ context.Context, r []model.Span) error {
@@ -56,6 +57,9 @@ func (f *fakeStore) Series(_ context.Context, t string, q model.SeriesQuery) ([]
 }
 func (f *fakeStore) Services(_ context.Context, t string, _, _ time.Time) ([]json.RawMessage, error) {
 	f.tenant = t
+	if f.servicesRows != nil {
+		return f.servicesRows, nil
+	}
 	return []json.RawMessage{json.RawMessage(`{"svc":"checkout"}`)}, nil
 }
 func (f *fakeStore) MetricNames(_ context.Context, t, _ string, _, _ time.Time) ([]json.RawMessage, error) {

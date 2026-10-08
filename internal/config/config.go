@@ -32,6 +32,9 @@ type Config struct {
 	AlertAllowPrivate                             bool          // LUMEN_ALERT_ALLOW_PRIVATE: let channels reach internal addresses (an internal mail relay)
 	AlertGroupWait                                time.Duration // LUMEN_ALERT_GROUP_WAIT: how long related alerts are collected into one message
 	AlertRepeat                                   time.Duration // LUMEN_ALERT_REPEAT: how often a firing alert is announced again
+	OIDCAllowHTTP                                 bool          // LUMEN_OIDC_ALLOW_HTTP: accept a sign-in provider that is reached over plain http (one inside a closed network)
+	AuditDays                                     int           // LUMEN_AUDIT_DAYS: how long the audit log is kept (default 365)
+	BackupRoots                                   []string      // LUMEN_BACKUP_ROOTS: where a backup folder may be chosen (default /backup, /mnt, /media, /srv, /var/backups)
 	DiskWarn, DiskCrit                            float64       // LUMEN_DISK_WARN / LUMEN_DISK_CRIT: percent full at which Lumen warns about its own disk (default 80 and 90)
 	LicenseFile                                   string        // LUMEN_LICENSE_FILE: a licence file to use (a renewal can be dropped in as a file)
 }
@@ -60,6 +63,9 @@ func Load() Config {
 	}
 	c := Config{
 		LicenseFile:         os.Getenv("LUMEN_LICENSE_FILE"),
+		OIDCAllowHTTP:       os.Getenv("LUMEN_OIDC_ALLOW_HTTP") == "1",
+		AuditDays:           int(num("LUMEN_AUDIT_DAYS", 365)),
+		BackupRoots:         list(os.Getenv("LUMEN_BACKUP_ROOTS")),
 		DiskWarn:            num("LUMEN_DISK_WARN", 80),
 		DiskCrit:            num("LUMEN_DISK_CRIT", 90),
 		Alerts:              os.Getenv("LUMEN_ALERTS") != "false",
@@ -107,4 +113,15 @@ func num(key string, def float64) float64 {
 		}
 	}
 	return def
+}
+
+// list reads a comma separated list from the environment; empty gives nil.
+func list(v string) []string {
+	var out []string
+	for _, p := range strings.Split(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

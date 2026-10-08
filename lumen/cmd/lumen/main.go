@@ -15,6 +15,7 @@ import (
 	"github.com/danielingemar/lumen/internal/audit"
 	"github.com/danielingemar/lumen/internal/auth"
 	"github.com/danielingemar/lumen/internal/backup"
+	"github.com/danielingemar/lumen/internal/billing"
 	"github.com/danielingemar/lumen/internal/branding"
 	"github.com/danielingemar/lumen/internal/buildinfo"
 	"github.com/danielingemar/lumen/internal/config"
@@ -109,6 +110,20 @@ func main() {
 		Off: &tenants.Offboarder{Svc: tsvc, Purger: ch, BackupDirFn: where.Get, Log: log}}
 	app.WithTenancy(ten)
 	go ten.Run(bg, log)
+	// billing: the prices of each tenant, and a copy of the users and data used by each Nextcloud instance, day by day, that
+	// outlives the telemetry (which expires after the retention), so that an invoice can be made from last month
+	bsvc := billing.New(backend)
+	rec := &billing.Recorder{DB: backend, Src: ch, Log: log, Backfill: time.Duration(cfg.RetentionDays) * 24 * time.Hour, Tenants: func() []string {
+		var out []string
+		for _, t := range tsvc.List() {
+			if t.Status == tenants.Active || t.Status == tenants.Suspended { // not one that is being removed
+				out = append(out, t.ID)
+			}
+		}
+		return out
+	}}
+	app.WithBilling(&server.Billing{Svc: bsvc, DB: backend, Rec: rec})
+	go rec.Run(bg)
 	for _, t := range tsvc.List() { // a removal that was interrupted by a restart carries on
 		if t.Status == tenants.Offboarding && t.Offboard != nil && t.Offboard.State == "purging" {
 			log.Info("resuming the removal of a tenant", "tenant", t.ID)

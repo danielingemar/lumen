@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"github.com/danielingemar/lumen/internal/health"
+	"github.com/danielingemar/lumen/internal/oidc"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/danielingemar/lumen/internal/audit"
 	"github.com/danielingemar/lumen/internal/auth"
 	"github.com/danielingemar/lumen/internal/backup"
+	"github.com/danielingemar/lumen/internal/billing"
 	"github.com/danielingemar/lumen/internal/branding"
 	"github.com/danielingemar/lumen/internal/buildinfo"
 	"github.com/danielingemar/lumen/internal/config"
@@ -94,10 +96,34 @@ func main() {
 	if n := tsvc.Ensure(known); n > 0 {
 		log.Info("tenant records made for existing tenants", "count", n)
 	}
-	ten := &server.Tenancy{Tenants: tsvc, Meter: metering.New(backend), Limiter: metering.NewLimiter(), Audit: audit.New(backend),
-		Off: &tenants.Offboarder{Svc: tsvc, Purger: ch, BackupDir: cfg.BackupDir, Log: log}}
+	// sign-in with an OpenID Connect provider, when one is set up under Settings
+	app.WithOIDC(&oidc.Service{DB: backend, Box: box, PublicURL: cfg.PublicURL, Secret: store.Secret, AllowInsecure: cfg.OIDCAllowHTTP})
+	// where backups go: the folder somebody chose in Settings, else LUMEN_BACKUP_DIR. It can change while Lumen runs.
+	backupDir, strict := cfg.BackupDir, false
+	if chosen := backup.LoadSaved(bg, backend); chosen != "" {
+		backupDir, strict = chosen, true
+	}
+	where := backup.NewWhere(backupDir, strict)
+	alog := audit.New(backend) // one record of who changed what: the changes of everybody, and of the operator
+	app.WithAudit(alog)
+	ten := &server.Tenancy{AuditDays: cfg.AuditDays, Tenants: tsvc, Meter: metering.New(backend), Limiter: metering.NewLimiter(), Audit: alog,
+		Off: &tenants.Offboarder{Svc: tsvc, Purger: ch, BackupDirFn: where.Get, Log: log}}
 	app.WithTenancy(ten)
 	go ten.Run(bg, log)
+	// billing: the prices of each tenant, and a copy of the users and data used by each Nextcloud instance, day by day, that
+	// outlives the telemetry (which expires after the retention), so that an invoice can be made from last month
+	bsvc := billing.New(backend)
+	rec := &billing.Recorder{DB: backend, Src: ch, Log: log, Backfill: time.Duration(cfg.RetentionDays) * 24 * time.Hour, Tenants: func() []string {
+		var out []string
+		for _, t := range tsvc.List() {
+			if t.Status == tenants.Active || t.Status == tenants.Suspended { // not one that is being removed
+				out = append(out, t.ID)
+			}
+		}
+		return out
+	}}
+	app.WithBilling(&server.Billing{Svc: bsvc, DB: backend, Rec: rec})
+	go rec.Run(bg)
 	for _, t := range tsvc.List() { // a removal that was interrupted by a restart carries on
 		if t.Status == tenants.Offboarding && t.Offboard != nil && t.Offboard.State == "purging" {
 			log.Info("resuming the removal of a tenant", "tenant", t.ID)
@@ -106,10 +132,12 @@ func main() {
 	}
 	// Lumen looks at itself: the disk it writes to (the file system under the data and backup folders is the one under Docker's
 	// volumes), Elasticsearch if it is used, and ClickHouse
-	src := health.Sources{Paths: map[string]string{"data": cfg.DataDir}, CH: ch}
-	if cfg.BackupDir != "" {
-		src.Paths["backups"] = cfg.BackupDir
-	}
+	src := health.Sources{Paths: map[string]string{"data": cfg.DataDir}, CH: ch, PathsFn: func() map[string]string {
+		if d := where.Get(); d != "" {
+			return map[string]string{"backups": d}
+		}
+		return nil
+	}}
 	if es, ok := backend.(interface {
 		Health(context.Context) (health.ES, error)
 	}); ok {
@@ -137,11 +165,12 @@ func main() {
 		go eng.Run(bg)
 		log.Info("alerting enabled", "group_wait", cfg.AlertGroupWait.String(), "repeat", cfg.AlertRepeat.String(), "allow_private", cfg.AlertAllowPrivate)
 	}
-	if cfg.BackupDir != "" {
-		bk := &backup.Manager{Dir: cfg.BackupDir, Src: ch, Docs: backend, DataDays: cfg.RetentionDays, KeepDays: cfg.BackupRetentionDays, Log: log}
+	if where.Get() != "" {
+		app.WithBackupLocation(&server.BackupWhere{DB: backend, Where: where, Default: cfg.BackupDir, Roots: cfg.BackupRoots, DataDir: cfg.DataDir})
+		bk := &backup.Manager{Where: where, Src: ch, Docs: backend, DataDays: cfg.RetentionDays, KeepDays: cfg.BackupRetentionDays, Log: log}
 		app.WithBackups(bk, server.BackupInfo{DataDays: cfg.RetentionDays, KeepDays: cfg.BackupRetentionDays})
 		go bk.Run(bg)
-		log.Info("daily backup of expiring data enabled", "dir", cfg.BackupDir, "live_days", cfg.RetentionDays, "backup_days", cfg.BackupRetentionDays)
+		log.Info("daily backup of expiring data enabled", "dir", where.Get(), "chosen_in_settings", strict, "live_days", cfg.RetentionDays, "backup_days", cfg.BackupRetentionDays)
 	} else {
 		log.Warn("LUMEN_BACKUP_DIR is empty: data is deleted after the retention period without a backup", "retention_days", cfg.RetentionDays)
 	}

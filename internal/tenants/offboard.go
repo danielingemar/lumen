@@ -24,14 +24,15 @@ type Purger interface {
 
 // PurgeCollections are the document collections that are emptied for a tenant when it is removed. Two things are kept on
 // purpose: what the tenant used (the usage records, for the operator's invoices) and the audit log.
-var PurgeCollections = []string{"users", "keys", "groups", "dashboards", "hosts", "instances", "alert_rules", "alert_state", "alert_events", "alert_silences", "alert_channels", "support_grants"}
+var PurgeCollections = []string{"users", "keys", "groups", "dashboards", "hosts", "instances", "alert_rules", "alert_state", "alert_events", "alert_silences", "alert_channels", "support_grants", "billing", "billing_usage"}
 
 // Offboarder removes a tenant: it empties the document store, the telemetry and the backups, and checks that nothing is left.
 type Offboarder struct {
-	Svc       *Service
-	Purger    Purger
-	BackupDir string
-	Log       *slog.Logger
+	Svc         *Service
+	Purger      Purger
+	BackupDir   string
+	BackupDirFn func() string // when set, asked each time (the folder can be changed in Settings)
+	Log         *slog.Logger
 }
 
 func (o *Offboarder) log() *slog.Logger {
@@ -146,11 +147,15 @@ func (o *Offboarder) Run(ctx context.Context, id string) {
 	}
 	// 3. backups
 	detail := "no backup directory is configured"
-	if o.BackupDir != "" {
+	backupDir := o.BackupDir
+	if o.BackupDirFn != nil {
+		backupDir = o.BackupDirFn()
+	}
+	if backupDir != "" {
 		if id == "" || id == "." || id == ".." || strings.ContainsAny(id, `/\`) {
 			detail = "the tenant's name cannot be used as a directory name, so its backups were not touched; remove them by hand"
 		} else {
-			matches, _ := filepath.Glob(filepath.Join(o.BackupDir, "telemetry", "*", id))
+			matches, _ := filepath.Glob(filepath.Join(backupDir, "telemetry", "*", id))
 			for _, m := range matches {
 				if err := os.RemoveAll(m); err != nil {
 					o.fail(id, 2, err)

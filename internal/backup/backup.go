@@ -54,6 +54,7 @@ type Source interface {
 
 type Manager struct {
 	Dir      string
+	Where    *Where // when set, the folder is read from here each time: it can be changed while Lumen runs
 	Src      Source
 	Docs     docstore.Backend // for the daily configuration dump; may be nil
 	DataDays int              // days of live data in ClickHouse: how far back a first run backfills
@@ -91,7 +92,13 @@ func (m *Manager) logf() *slog.Logger {
 func (m *Manager) State() State            { m.sm.Lock(); defer m.sm.Unlock(); return m.st }
 func (m *Manager) setState(f func(*State)) { m.sm.Lock(); f(&m.st); m.sm.Unlock() }
 
-func (m *Manager) telemetryDir() string { return filepath.Join(m.Dir, "telemetry") }
+func (m *Manager) dir() string {
+	if m.Where != nil {
+		return m.Where.Get()
+	}
+	return m.Dir
+}
+func (m *Manager) telemetryDir() string { return filepath.Join(m.dir(), "telemetry") }
 
 type fileInfo struct {
 	Rows  int64 `json:"rows"`
@@ -193,8 +200,15 @@ func (m *Manager) RunOnce(ctx context.Context) error {
 }
 
 func (m *Manager) runLocked(ctx context.Context) (int, error) {
+	// A folder somebody chose (a mounted disk) must already be there. Making it would put the backups on whatever lies under
+	// the mount point, for example the container's own storage, if the disk is not mounted: they would look saved and not be.
+	if m.Where != nil && m.Where.Strict() {
+		if st, err := os.Stat(m.dir()); err != nil || !st.IsDir() {
+			return 0, fmt.Errorf("the backup folder %s does not exist. Is the disk mounted? (Backups are not made until it is: that is better than making them in the wrong place.)", m.dir())
+		}
+	}
 	if err := os.MkdirAll(m.telemetryDir(), 0o750); err != nil {
-		return 0, fmt.Errorf("the backup directory %s is not writable: %w", m.Dir, err)
+		return 0, fmt.Errorf("the backup directory %s is not writable: %w", m.dir(), err)
 	}
 	today := m.now().Truncate(24 * time.Hour)
 	exported := 0
@@ -239,7 +253,7 @@ func (m *Manager) dumpConfig(ctx context.Context, today time.Time) error {
 	if m.Docs == nil {
 		return nil
 	}
-	dir := filepath.Join(m.Dir, "config")
+	dir := filepath.Join(m.dir(), "config")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}

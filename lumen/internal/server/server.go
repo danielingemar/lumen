@@ -47,6 +47,7 @@ type Server struct {
 	health             *health.Monitor
 	backupWhere        *BackupWhere
 	audit              *audit.Log
+	billing            *Billing
 	oidc               *oidc.Service
 	bkInfo             BackupInfo
 	snaps              snapCache
@@ -100,6 +101,7 @@ func (s *Server) Handler() http.Handler {
 	s.backupLocationRoutes(mux)
 	s.routesAudit(mux)
 	s.oidcRoutes(mux)
+	s.billingRoutes(mux)
 	mux.Handle("POST /v1/traces", s.authed("ingest", s.ingestTraces))
 	mux.Handle("POST /v1/logs", s.authed("ingest", s.ingestLogs))
 	mux.Handle("POST /v1/metrics", s.authed("ingest", s.ingestMetrics))

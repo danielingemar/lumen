@@ -91,6 +91,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		auth.SetCookie(w, r, tok, int(auth.SessionTTL.Seconds()))
+		s.auditSignIn(r, "an API key", tenant, true, "api key")
 		writeJSON(w, map[string]any{"user": "", "tenant": tenant, "via_key": true})
 		return
 	}
@@ -106,6 +107,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		s.a.Limiter.Fail(name)
 		s.log.Warn("failed login", "user", name, "remote", r.RemoteAddr)
+		tenant := ""
+		if known, ok := s.a.Store.GetUser(name); ok {
+			tenant = known.Tenant // a failed attempt on a real user is visible to that tenant; a made-up name is not visible to any
+		}
+		s.auditSignIn(r, name, tenant, false, "password")
 		writeErr(w, http.StatusUnauthorized, "invalid username or password")
 		return
 	}
@@ -114,6 +120,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth.SetCookie(w, r, s.a.IssueSession(u), int(auth.SessionTTL.Seconds()))
+	s.auditSignIn(r, u.Name, u.Tenant, true, "password")
 	writeJSON(w, map[string]any{"user": u.Name, "tenant": u.Tenant})
 }
 

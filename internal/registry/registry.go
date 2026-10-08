@@ -21,10 +21,11 @@ import (
 )
 
 const (
-	collHosts = "hosts"
-	collInst  = "instances"
-	collUpd   = "agent_updates"  // updates that someone asked for in the UI, per host
-	collGone  = "instances_gone" // instances that were removed, so that their last metrics do not bring them back
+	collHosts          = "hosts"
+	collServicesHidden = "services_hidden" // rows the user took off the Home list; they come back if they report again
+	collInst           = "instances"
+	collUpd            = "agent_updates"  // updates that someone asked for in the UI, per host
+	collGone           = "instances_gone" // instances that were removed, so that their last metrics do not bring them back
 )
 
 var (
@@ -707,4 +708,44 @@ func (s *Service) DeleteGroup(tenant, group string) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+// ---- rows taken off the Home list ----
+
+type hiddenService struct {
+	Tenant string    `json:"tenant"`
+	Name   string    `json:"name"`
+	At     time.Time `json:"at"`
+}
+
+// DismissService takes a row off the "reporting in the last 24 hours" list. Nothing is deleted: the data stays until it
+// expires, and the row comes back by itself if the service reports again after this moment.
+func (s *Service) DismissService(tenant, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" || len([]rune(name)) > 200 {
+		return invalid("a service name is 1-200 characters")
+	}
+	for _, r := range name {
+		if r < 32 || r == 127 {
+			return invalid("a service name cannot contain control characters")
+		}
+	}
+	cc, cancel := ctx()
+	defer cancel()
+	return s.b.Put(cc, collServicesHidden, tenant+":"+name, hiddenService{Tenant: tenant, Name: name, At: time.Now().UTC()}, "")
+}
+
+// DismissedServices tells when each dismissed row was taken off the list.
+func (s *Service) DismissedServices(tenant string) map[string]time.Time {
+	cc, cancel := ctx()
+	defer cancel()
+	docs, _ := s.b.List(cc, collServicesHidden, map[string]string{"tenant": tenant}, 1000)
+	out := map[string]time.Time{}
+	for _, d := range docs {
+		var h hiddenService
+		if d.Decode(&h) == nil {
+			out[h.Name] = h.At
+		}
+	}
+	return out
 }

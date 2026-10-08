@@ -28,7 +28,7 @@ Traces, logs and metrics, dashboards you build yourself, host / service / Docker
 - [Add machines](#add-machines) · [Hosts, instances and remote configuration](#hosts-instances-and-remote-configuration) · [Nextcloud monitoring](#nextcloud-monitoring)
 - [Status and "Down"](#status-and-down) · [Labels](#labels)
 - [Users, groups and permissions](#users-groups-and-permissions) · [Login, keys and security](#login-keys-and-security)
-- [Retention, backup and archive](#retention-backup-and-archive)
+- [Billing](#billing-for-nextcloud-instances) · [Retention, backup and archive](#retention-backup-and-archive)
 - [Editions and design documents](#editions-and-design-documents) · [Configuration](#configuration) · [API](#api) · [Development](#development) · [Contributing](#contributing) · [Roadmap](#roadmap)
 
 ## Features
@@ -349,6 +349,20 @@ A **host group** is a name you put on hosts, so that you can look at, and alert 
 - **Names:** 1-40 characters, letters, digits, spaces and `. _ - : & + ( )`, matched without regard to case; a host can be in at most 20 groups. A group has the tenant's hosts only: tenants have groups of their own.
 - **Permissions:** changing groups needs the same permission as changing hosts; anyone who can see hosts can use a group as a filter.
 
+## Billing for Nextcloud instances
+
+Under **Billing** you set what you charge and get, for any month, what each customer owes: the basis for an invoice. Lumen is not an invoicing program: you copy the figures into yours, or export them.
+
+- **Two prices, both chosen by you:** a price **per user and month** and a price **per gigabyte of stored data and month**. Prices are decimals (`49.50`, `0.125`); a comma is accepted.
+- **Currency:** SEK, EUR, USD, GBP, NOK, DKK, CHF, ISK, PLN, CZK, CAD, AUD, NZD, JPY, CNY and INR. A customer can have a currency of its own (then both prices in that currency are set for it). There is no conversion: every invoice is in one currency and the totals are added up per currency.
+- **What is counted:** the users and the data the accounts' files take, as the Nextcloud instance reports them (the same numbers as on the instance page; they need the serverinfo token or an administrator login). For each month you choose whether to charge the **highest** number of any day, the **average**, or the value on the **last day**, separately for users and data. Data is counted in GB (10^9 bytes) or GiB (2^30).
+- **Customers:** instances with the same customer name are on one invoice. Per instance you can set a discount, another VAT rate, a note, or mark it **not invoiced** (your own and test instances). VAT is stated per rate, as an invoice does. An instance that reported only part of the month can be charged for those days (*prorate*).
+- **Money is exact:** amounts are whole öre/cents, rounded once per line, half up. The report warns about instances that reported nothing, or without users or data (the token is missing, for example).
+- **Reports:** per month, as a table, as **CSV per customer** or **per instance**, or a clean page to print or save as PDF. The running month is marked as not final.
+- **History:** Lumen copies the daily numbers into its settings store every half hour, so a month can be invoiced long after the telemetry has expired (30 days by default).
+
+Permission: **Billing** (read to see, write to change prices). Changes are in the [audit log](#audit-log). API: `GET/PUT /api/v1/billing` and `GET /api/v1/billing/report?period=2026-09[&format=csv&view=invoices|lines]`.
+
 ## Tenants and the operator console
 
 A **tenant** is one customer (or team) of an installation: its users, keys, dashboards, hosts and data are invisible to every other tenant. Isolation is always on and free. The people who run the installation can manage all tenants from the **Tenants** page, which is part of the **Operator add-on** (it needs an Operator licence; without one Lumen still counts what each tenant sends, but enforces nothing and never cuts anyone off).
@@ -363,7 +377,7 @@ A **tenant** is one customer (or team) of an installation: its users, keys, dash
 - **Go into a tenant** for support, for up to 4 hours, read-only or with write access. The tenant decides whether that is allowed: *off*, *only when an administrator allows it* (the default for new tenants; they allow it for a chosen time under Settings, Support access) or *any time*. Inside, you act as one of the tenant's administrators, a banner tells you so, **everything you change is on record and the tenant can read the record** (Settings, Access log), and you cannot widen your own access.
 - **Export** a tenant's settings and documents as a zip (no passwords, key hashes or sealed secrets; telemetry is in the daily backups).
 - **Remove** a tenant for good: you type its id, then its users, keys, dashboards, hosts, instances, alert rules and channels, and its traces, logs and metrics (also archived days and the daily backups) are deleted, and Lumen checks that nothing is left. The usage records (for your invoices) and the access log are kept, and the name stays taken. A removal that fails (for example the database is down) says which step and why, and can be run again.
-- **Usage**: what each tenant sent per day (items and bytes per signal, hosts that reported, the highest number of users, keys and so on), as a table or a **CSV for your invoicing**. A byte is a byte of accepted OTLP payload after decompression, so a customer can check it. Lumen does not do billing.
+- **Usage**: what each tenant sent per day (items and bytes per signal, hosts that reported, the highest number of users, keys and so on), as a table or a **CSV for your invoicing**. A byte is a byte of accepted OTLP payload after decompression, so a customer can check it. The prices and invoice basis for your own Nextcloud instances are under [Billing](#billing-for-nextcloud-instances).
 - **Audit log**: every operator action and everything done inside a tenant.
 
 **Not there yet:** a limit on stored data, on the length of a query or the number of queries at once, retention and branding per tenant, sign-in addresses per tenant, and separate storage for a tenant. See the [design](docs/design/tenancy.md).
@@ -472,6 +486,8 @@ Two agent settings decide how an agent is listed: `LUMEN_AGENT_ROLE` (`host` or 
 | GET/PUT/DELETE | `/api/v1/hosts[/{host}]` (PUT takes `display_name`) | hosts |
 | POST | `/api/v1/hosts/{host}/remove` | hosts |
 | GET | `/api/v1/facets?source=traces\|logs[&service=]` | traces / logs: services, hosts and operations that have data |
+| GET/PUT | `/api/v1/billing` | billing: prices, currency, VAT, customers |
+| GET | `/api/v1/billing/report` | billing: `period=YYYY-MM`, `format=csv`, `view=invoices\|lines` |
 | GET | `/api/v1/branding`, `/branding/logo` | none (public) |
 | PUT | `/api/v1/settings/branding` | settings |
 | GET/POST/PUT/DELETE | `/api/v1/instances[/{id}]` | hosts |

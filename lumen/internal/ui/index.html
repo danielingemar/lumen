@@ -70,6 +70,7 @@ pre.code{background:var(--bg);border:1px solid var(--line);border-radius:8px;pad
 .chip{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;border:1px solid var(--line);margin:2px 4px 2px 0;cursor:pointer;background:var(--panel)}.chip:hover{border-color:var(--acc);background:var(--acc2)}.chip.on{background:var(--acc);color:#fff;border-color:var(--acc)}
 
 .errbox{background:#fef2f2;color:#991b1b;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;margin-bottom:12px}[data-theme=dark] .errbox{background:#3b1414;color:#fecaca;border-color:#7f1d1d}
+.printable{display:none}@media print{body.printing>*:not(.printable){display:none!important}body.printing .printable{display:block!important;position:static;background:#fff;color:#000;padding:0}.printable table{width:100%;font-size:12px}.printable th,.printable td{border-bottom:1px solid #ccc;color:#000}.printable h2{margin:0 0 4px}.printable .inv{page-break-after:always}.printable .inv:last-child{page-break-after:auto}}
 .warnbox{background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;margin-bottom:12px}[data-theme=dark] .warnbox{background:#33270d;color:#fcd34d;border-color:#5c4513}
 textarea{width:100%;min-height:84px;font-family:ui-monospace,monospace;font-size:12px}
 .two{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;align-items:start}
@@ -447,10 +448,11 @@ const ICON={home:'<path d="M3 11l9-8 9 8M5 10v10h14V10"/>',dash:'<rect x="3" y="
  users:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.3-5 6.5-5s5.7 1.5 6.5 5"/><path d="M16 4.5a3.5 3.5 0 010 7M18 15c2 .5 3.2 2 3.5 5"/>',archive:'<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11h14V8M10 12h4"/>',
  building:'<path d="M4 21V5l8-2v18M12 21V9l8 2v10M8 9h.01M8 13h.01M8 17h.01M16 14h.01M16 18h.01"/>',
  bell:'<path d="M6 8a6 6 0 0112 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 004 0"/>',
+ billing:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/>',
  audit:'<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',cog:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'};
 // each entry: href, label, icon, who may see it (hidden pages are also refused by the server)
 const NAV=[['#/','Home','home',()=>true],['#/dashboards','Dashboards','dash',()=>can('dashboards')],['#/traces','Traces','trace',()=>can('traces')],['#/logs','Logs','logs',()=>can('logs')],['#/metrics','Metrics','metric',()=>can('metrics')],
- ['#/hosts','Hosts','host',()=>can('hosts')],['#/instances','Instances','cloud',()=>can('hosts')],['#/alerts','Alerts','bell',()=>can('alerts')],['#/tenants','Tenants','building',()=>can('operator')],['#/machines','Add a machine','machine',()=>can('keys')||can('hosts',true)],
+ ['#/hosts','Hosts','host',()=>can('hosts')],['#/instances','Instances','cloud',()=>can('hosts')],['#/alerts','Alerts','bell',()=>can('alerts')],['#/billing','Billing','billing',()=>can('billing')],['#/tenants','Tenants','building',()=>can('operator')],['#/machines','Add a machine','machine',()=>can('keys')||can('hosts',true)],
  ['#/users','Users & groups','users',()=>can('users')],['#/backups','Backups & archive','archive',()=>can('backups')],['#/audit','Audit log','audit',()=>can('settings')],['#/settings','Settings','cog',()=>can('settings')],['#/account','Account','user',()=>true]];
 const iconEl=k=>{const s=svg('svg',{viewBox:'0 0 24 24'});s.innerHTML=ICON[k];return s};
 function setTitle(t){const h=$('#top h1');if(h)h.textContent=t;document.title=t+' · '+((S.brand&&S.brand.name)||'Lumen')}
@@ -538,7 +540,7 @@ function shell(){
 
 // ---- router ----
 const ROUTES=[[/^#\/$/,homePage],[/^#\/dashboards$/,dashboardsPage,'dashboards'],[/^#\/d\/([\w-]+)$/,dashboardPage,'dashboards'],[/^#\/traces$/,tracesPage,'traces'],[/^#\/t\/([\w-]+)$/,tracePage,'traces'],[/^#\/logs$/,logsPage,'logs'],[/^#\/metrics$/,metricsPage,'metrics'],
- [/^#\/hosts$/,hostsPage,'hosts'],[/^#\/h\/([^\/?]+)$/,hostPage,'hosts'],[/^#\/instances$/,instancesPage,'hosts'],[/^#\/alerts(?:\/(rules|channels|silences|history))?$/,alertsPage,'alerts'],[/^#\/tenants(?:\/(usage|audit))?$/,tenantsPage,'operator'],[/^#\/tenant\/([^\/?]+)$/,tenantPage,'operator'],[/^#\/n\/([^\/?]+)$/,instancePage,'hosts'],[/^#\/users$/,usersPage,'users'],[/^#\/backups$/,backupsPage,'backups'],[/^#\/settings$/,settingsPage,'settings'],[/^#\/audit$/,auditPage,'settings'],[/^#\/machines$/,machinesPage],[/^#\/account$/,accountPage]];
+ [/^#\/hosts$/,hostsPage,'hosts'],[/^#\/h\/([^\/?]+)$/,hostPage,'hosts'],[/^#\/instances$/,instancesPage,'hosts'],[/^#\/alerts(?:\/(rules|channels|silences|history))?$/,alertsPage,'alerts'],[/^#\/tenants(?:\/(usage|audit))?$/,tenantsPage,'operator'],[/^#\/tenant\/([^\/?]+)$/,tenantPage,'operator'],[/^#\/n\/([^\/?]+)$/,instancePage,'hosts'],[/^#\/users$/,usersPage,'users'],[/^#\/backups$/,backupsPage,'backups'],[/^#\/settings$/,settingsPage,'settings'],[/^#\/audit$/,auditPage,'settings'],[/^#\/billing(?:\/(prices))?$/,billingPage,'billing'],[/^#\/machines$/,machinesPage],[/^#\/account$/,accountPage]];
 async function route(){
   if(S.me&&Date.now()-(S.alertAt||0)>30000){S.alertAt=Date.now();refreshAlertBadge()} // the menu's alert count, at most every 30 s
   if(!S.me)return;clearTimers();S.onRangeChange=null;
@@ -1135,6 +1137,140 @@ async function auditPage(){
   [f.actor,f.q].forEach(i=>i.onkeydown=ev=>{if(ev.key==='Enter'){limit=200;load()}});
   view.replaceChildren(el('p',{class:'help',style:'margin-top:0'},'Who changed what, and who signed in. Everything that changes something is recorded here by itself, including what an API key does. Passwords and keys are never written down. Entries are kept for a year unless your administrator set another time.'),bar,out);
   await load()}
+// ---- billing: prices, a month's usage per customer, and the basis for invoices ----
+const money=(minor,cur,dec)=>{const v=minor/Math.pow(10,dec);try{return new Intl.NumberFormat(undefined,{style:'currency',currency:cur,minimumFractionDigits:dec,maximumFractionDigits:dec}).format(v)}catch{return v.toFixed(dec)+' '+cur}};
+const qtyTxt=n=>String(+(+n).toFixed(3));
+const BILL_BASIS=[['peak','the highest day of the month'],['average','the average of the days reported'],['end','the last day reported']];
+const basisText=b=>({peak:'the peak of the month',average:'the average of the days reported',end:'the value on the last day reported'}[b]||b);
+const defaultBillPeriod=(periods,today)=>{const d=+String(today||'').slice(8,10);return d&&d<=10&&periods[1]?periods[1]:periods[0]};
+async function billingPage(tab){
+  tab=tab||'';setTitle('Billing');const view=$('#view');
+  const bar=el('div',{class:'bar',style:'gap:6px'},[['','Report'],['prices','Prices & customers']].map(([t,l])=>el('a',{class:'btn '+(t===tab?'':'ghost'),href:'#/billing'+(t?'/'+t:'')},l)));
+  const body=el('div');view.replaceChildren(bar,body);
+  const info=await api('/api/v1/billing');
+  await(tab==='prices'?billingPrices:billingReport)(body,info);
+}
+async function billingReport(body,info){
+  const periods=info.periods,per=S.billPeriod&&periods.includes(S.billPeriod)?S.billPeriod:defaultBillPeriod(periods,info.today);
+  const sel=el('select',{onchange:()=>{S.billPeriod=sel.value;draw()}},periods.map(p=>el('option',{value:p,selected:p===per?'':null},p)));
+  const sv=el('input',{type:'checkbox',checked:store.get('lumen.billsv','0')==='1',onchange:()=>{store.set('lumen.billsv',sv.checked?'1':'0');links()}});
+  const out=el('div'),dl=el('span'),printAll=el('button',{class:'btn ghost sm'},'Print all');
+  const links=()=>{const q=v=>'/api/v1/billing/report?'+new URLSearchParams({period:sel.value,format:'csv',view:v,locale:sv.checked?'sv':''}).toString();
+    dl.replaceChildren(el('a',{class:'btn ghost sm',href:q('invoices')},'Per customer (CSV)'),' ',el('a',{class:'btn ghost sm',href:q('lines')},'Per instance (CSV)'))};
+  const draw=async()=>{links();let rep;try{rep=await api('/api/v1/billing/report',{period:sel.value})}catch(er){out.replaceChildren(el('div',{class:'errbox'},er.message));return}
+    printAll.onclick=()=>printBasis(rep,rep.invoices);out.replaceChildren(billingReportView(rep,info))};
+  body.replaceChildren(el('p',{class:'help',style:'margin-top:0'},'What each customer owes for a month: users and stored data of every Nextcloud instance, priced as set under ',el('a',{href:'#/billing/prices'},'Prices & customers'),'. This is the basis for an invoice, not an invoice: copy it into your invoicing program, or export it.'),
+    el('div',{class:'bar'},el('label',{},'Month '),sel,el('span',{class:'sp'}),el('label',{class:'mut',title:'Semicolons between columns and a decimal comma, which is what a Swedish Excel expects'},sv,' Swedish spreadsheet format'),dl,printAll),out);
+  await draw();
+}
+function billingReportView(rep,info){
+  const kids=[];
+  if(!rep.complete)kids.push(el('div',{class:'warnbox'},'The month is not over: this is the basis so far, and it changes until the last day.'));
+  (rep.warnings||[]).filter(x=>!/not over/.test(x)).forEach(x=>kids.push(el('div',{class:'warnbox'},x)));
+  if(!rep.invoices.length){kids.push(el('div',{class:'card empty'},'No instance has reported for '+rep.period+'. Add the Nextcloud instances under ',el('a',{href:'#/instances'},'Instances'),'.'));return el('div',{},kids)}
+  kids.push(el('div',{style:'display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px'},rep.totals.map(t=>el('div',{class:'card',style:'min-width:220px'},
+    el('div',{class:'mut'},'Total '+t.currency+(rep.totals.length>1?' (currencies are not added together)':'')),el('div',{style:'font-size:24px;font-weight:600;margin:2px 0'},money(t.total,t.currency,t.decimals)),
+    el('div',{class:'mut'},'Net '+money(t.net,t.currency,t.decimals)+' · VAT '+money(t.vat,t.currency,t.decimals))))));
+  rep.invoices.forEach(inv=>kids.push(invoiceCard(rep,inv)));
+  if(rep.excluded)kids.push(el('p',{class:'help'},rep.excluded+' instance'+(rep.excluded===1?' is':'s are')+' marked as not invoiced.'));
+  kids.push(el('p',{class:'help'},'Users are charged on '+basisText(rep.user_basis)+', stored data on '+basisText(rep.data_basis)+' (1 '+(rep.gb_unit==='gib'?'GiB = 2³⁰':'GB = 10⁹')+' bytes)'+(rep.prorate?'; an instance that reported part of the month is charged for those days only':'')+'. Stored data is what the accounts\' files take, as Nextcloud counts them against the quota.'));
+  return el('div',{},kids);
+}
+function invoiceCard(rep,inv){
+  const m=v=>money(v,inv.currency,inv.decimals),r='text-align:right;white-space:nowrap';
+  const rows=inv.lines.map(l=>el('tr',{},
+    el('td',{},el('b',{},l.name),el('div',{class:'mut',style:'font-size:12px'},'reported '+l.days_reported+' of '+rep.days+' days'+(l.note?' · '+l.note:'')),
+      (l.warnings||[]).map(x=>el('div',{style:'font-size:12px;color:var(--warn)'},x))),
+    el('td',{style:r},qtyTxt(l.users),el('div',{class:'mut',style:'font-size:12px'},'× '+l.user_price)),
+    el('td',{style:r},qtyTxt(l.gb)+' GB',el('div',{class:'mut',style:'font-size:12px'},'× '+l.gb_price)),
+    el('td',{style:r},m(l.user_amount)),el('td',{style:r},m(l.data_amount)),
+    el('td',{style:r},l.discount?'−'+m(l.discount)+' ('+l.discount_percent+'%)':'–'),el('td',{style:r},el('b',{},m(l.net)))));
+  const foot=(label,v,bold)=>el('tr',{},el('td',{colspan:6,style:'text-align:right'+(bold?';font-weight:600':'')},label),el('td',{style:r+(bold?';font-weight:600':'')},m(v)));
+  return el('div',{class:'card',style:'margin-bottom:14px;padding:14px 0 0'},
+    el('div',{class:'bar',style:'margin:0 16px 8px'},el('b',{style:'font-size:15px'},inv.customer),el('span',{class:'pill'},inv.currency),el('span',{class:'sp'}),el('button',{class:'btn ghost sm',onclick:()=>printBasis(rep,[inv])},'Print basis')),
+    el('div',{style:'overflow-x:auto'},el('table',{},el('tr',{},['Instance','Users','Stored data','Users','Stored data','Discount','Net'].map((x,i)=>el('th',{style:i>0?'text-align:right':''},x))),rows,
+      foot('Net',inv.net),inv.vat_lines.map(v=>foot('VAT '+v.percent+'% of '+m(v.base),v.vat)),foot('Total',inv.total,true))));
+}
+// A clean page for printing (or saving as PDF): one section per customer, laid out like the lines of an invoice.
+function printBasis(rep,list){
+  const area=el('div',{class:'printable'});
+  list.forEach(inv=>{
+    const m=v=>money(v,inv.currency,inv.decimals),r='text-align:right';
+    const lines=[];
+    inv.lines.forEach(l=>{
+      const part=rep.prorate&&l.days_reported<rep.days?' (charged for '+l.days_reported+' of '+rep.days+' days)':'';
+      lines.push(el('tr',{},el('td',{},'Users, '+basisWord(rep.user_basis)+' — '+l.name+part),el('td',{style:r},qtyTxt(l.users)),el('td',{style:r},l.user_price),el('td',{style:r},m(l.user_amount))));
+      lines.push(el('tr',{},el('td',{},'Stored data (GB), '+basisWord(rep.data_basis)+' — '+l.name+part),el('td',{style:r},qtyTxt(l.gb)),el('td',{style:r},l.gb_price),el('td',{style:r},m(l.data_amount))));
+      if(l.discount)lines.push(el('tr',{},el('td',{},'Discount '+l.discount_percent+'% — '+l.name),el('td'),el('td'),el('td',{style:r},'−'+m(l.discount))));
+      if(l.note)lines.push(el('tr',{},el('td',{colspan:4,style:'font-size:11px'},l.name+': '+l.note)));
+    });
+    const sum=(a,v,b)=>el('tr',{},el('td',{colspan:3,style:r+(b?';font-weight:bold':'')},a),el('td',{style:r+(b?';font-weight:bold':'')},m(v)));
+    area.append(el('div',{class:'inv'},el('h2',{},'Invoice basis'),el('div',{style:'font-size:15px;font-weight:bold'},inv.customer),
+      el('div',{style:'margin-bottom:12px'},rep.from+' – '+rep.to+' · '+inv.currency),
+      el('table',{},el('tr',{},['Description','Quantity','Unit price','Amount'].map((x,i)=>el('th',{style:i?r:''},x))),lines,sum('Net',inv.net),inv.vat_lines.map(v=>sum('VAT '+v.percent+'% of '+m(v.base),v.vat)),sum('Total',inv.total,true)),
+      el('p',{style:'font-size:11px;margin-top:16px'},'Basis for an invoice, made by Lumen on '+new Date(rep.generated).toLocaleDateString()+(rep.complete?'':'. The month is not over: the numbers are the ones so far.'))));
+  });
+  document.body.append(area);document.body.classList.add('printing');
+  const done=()=>{document.body.classList.remove('printing');area.remove();window.removeEventListener('afterprint',done)};
+  window.addEventListener('afterprint',done);
+  try{window.print()}catch{done()}
+}
+const basisWord=b=>({peak:'peak',average:'average',end:'last day'}[b]||b);
+async function billingPrices(body,info){
+  const w=can('billing',true),cfg=JSON.parse(JSON.stringify(info.config)),curs=info.currencies,byKey={};
+  cfg.profiles.forEach(p=>byKey[p.key]=p);
+  const blank=key=>({key,customer:'',exclude:false,currency:'',user_price:'',gb_price:'',discount_percent:'',vat_percent:'',note:''});
+  const rows=info.instances.map(i=>({inst:i,p:Object.assign(blank(i.key),byKey[i.key]||{})})),listed=new Set(rows.map(x=>x.p.key));
+  const inp=(v,ph,sz)=>el('input',{value:v||'',placeholder:ph||'',size:sz||9,inputmode:'decimal',disabled:w?null:''});
+  const sel=(opts,v)=>el('select',{disabled:w?null:''},opts.map(([k,t])=>el('option',{value:k,selected:k===v?'':null},t)));
+  const f={currency:sel(curs.map(c=>[c.code,c.code+' — '+c.name+' ('+c.symbol+')']),cfg.currency),user:inp(cfg.user_price,'0.00'),gb:inp(cfg.gb_price,'0.00'),vat:inp(cfg.vat_percent,'0',6),
+    ub:sel(BILL_BASIS,cfg.user_basis),db:sel(BILL_BASIS,cfg.data_basis),unit:sel([['gb','1 GB = 1,000,000,000 bytes (what disks are sold in)'],['gib','1 GiB = 1,073,741,824 bytes (what most tools show)']],cfg.gb_unit),
+    prorate:el('input',{type:'checkbox',checked:cfg.prorate,disabled:w?null:''})};
+  const num=s=>{const n=parseFloat(String(s).replace(',','.'));return isFinite(n)?n:0};
+  const example=el('p',{class:'help'}),cc=el('span',{class:'mut'});
+  const preview=()=>{const c=f.currency.value;cc.textContent=c;const u=num(f.user.value),g=num(f.gb.value),v=num(f.vat.value),net=10*u+500*g;
+    example.textContent='Example: a customer with 10 users and 500 GB pays 10 × '+u.toFixed(2)+' + 500 × '+g.toFixed(2)+' = '+net.toFixed(2)+' '+c+' a month'+(v?', plus '+v+'% VAT = '+(net*(1+v/100)).toFixed(2)+' '+c:'')+'.'};
+  [f.currency,f.user,f.gb,f.vat].forEach(x=>{x.oninput=preview;x.onchange=preview});preview();
+  const status=i=>{if(!i.registered)return el('span',{class:'mut'},'seen, not added under Instances');
+    if(!i.users_days&&!i.data_days)return el('span',{class:'mut'},'nothing reported this month');
+    if(!i.data_days)return el('span',{style:'color:var(--warn)'},i.has_login?'users only: the data used is not reported yet':'users only: add an administrator login under Instances to read the data used');
+    return el('span',{class:'ok'},'users '+i.users_days+' d · data '+i.data_days+' d')};
+  const tbody=el('tbody');
+  const drawRows=()=>tbody.replaceChildren(rows.map(x=>{const p=x.p;
+    const cust=el('input',{value:p.customer,placeholder:x.inst.name,size:22,disabled:w?null:'',oninput:()=>{p.customer=cust.value}});
+    const ex=el('input',{type:'checkbox',checked:p.exclude,disabled:w?null:'',onchange:()=>{p.exclude=ex.checked}});
+    const own=p.currency||p.user_price||p.gb_price||p.discount_percent||p.vat_percent||p.note;
+    return el('tr',{},el('td',{},el('b',{},x.inst.name),el('div',{class:'mut mono',style:'font-size:12px'},x.inst.key)),el('td',{},cust),el('td',{style:'text-align:center'},ex),el('td',{},status(x.inst)),
+      el('td',{style:'white-space:nowrap'},el('button',{class:'btn ghost sm',onclick:()=>profileDialog(x,drawRows)},w?'Own prices…':'Details'),own?el('span',{class:'pill',style:'margin-left:6px'},'own settings'):null))}));
+  const profileDialog=(x,again)=>{
+    const p=x.p,def=f.currency.value,pf={cur:sel([['','Same as the default ('+def+')']].concat(curs.map(c=>[c.code,c.code+' — '+c.name])),p.currency),u:inp(p.user_price,'default'),g:inp(p.gb_price,'default'),d:inp(p.discount_percent,'0'),v:inp(p.vat_percent,'default',6),
+      n:el('input',{value:p.note,size:40,maxlength:300,disabled:w?null:'',placeholder:'Shown on the basis, for example "Billed quarterly"'})};
+    dialog('Settings for '+x.inst.name,el('div',{},el('p',{class:'help'},'Leave a field empty to use the default prices. A customer in another currency needs both prices in that currency. Instances with the same customer name are on one invoice.'),
+      el('div',{class:'form'},el('label',{},'Currency'),pf.cur,el('label',{},'Price per user and month'),pf.u,el('label',{},'Price per GB and month'),pf.g,el('label',{},'Discount, %'),pf.d,el('label',{},'VAT, %'),pf.v,el('label',{},'Note'),pf.n)),
+      [['Cancel',()=>{},'ghost'],w?['Done',()=>{Object.assign(p,{currency:pf.cur.value,user_price:pf.u.value.trim(),gb_price:pf.g.value.trim(),discount_percent:pf.d.value.trim(),vat_percent:pf.v.value.trim(),note:pf.n.value.trim()});again()}]:null].filter(Boolean))};
+  drawRows();
+  const msg=el('span',{class:'mut'});
+  const collect=()=>{const profiles=[];
+    rows.forEach(({p})=>{if(p.customer.trim()||p.exclude||p.currency||p.user_price||p.gb_price||p.discount_percent||p.vat_percent||p.note.trim())profiles.push(Object.assign({},p,{customer:p.customer.trim()}))});
+    cfg.profiles.forEach(p=>{if(!listed.has(p.key))profiles.push(p)});
+    return{currency:f.currency.value,user_price:f.user.value.trim(),gb_price:f.gb.value.trim(),user_basis:f.ub.value,data_basis:f.db.value,gb_unit:f.unit.value,vat_percent:f.vat.value.trim(),prorate:f.prorate.checked,profiles}};
+  const save=el('button',{class:'btn',onclick:async()=>{save.disabled=true;msg.className='mut';msg.textContent='Saving…';
+    try{await api('/api/v1/billing',{},{method:'PUT',body:collect()});msg.className='ok';msg.textContent='Saved.';setTimeout(()=>{if(msg.isConnected)billingPage('prices')},600)}catch(er){msg.className='err';msg.textContent=er.message}finally{save.disabled=false}}},'Save');
+  const row=(l,c,h)=>[el('label',{},l),el('div',{},c,h?el('div',{class:'help'},h):null)];
+  body.replaceChildren(
+    el('div',{class:'card',style:'margin-bottom:14px'},el('h2',{style:'margin-top:0'},'Prices'),
+      el('div',{class:'form'},row('Currency',f.currency,'Every price is in this currency. There is no conversion: a customer in another currency gets its own prices below.'),
+        row('Price per user and month',el('span',{},f.user,' ',cc)),row('Price per GB of data and month',el('span',{},f.gb,' ',cc)),row('VAT, %',f.vat,'Added to the net amount. Set 0 if you do not charge VAT, or give a customer abroad its own value.')),
+      example),
+    el('div',{class:'card',style:'margin-bottom:14px'},el('h2',{style:'margin-top:0'},'What is counted'),
+      el('div',{class:'form'},row('Users are charged on',f.ub,'Users that exist on the instance, as Nextcloud reports them.'),row('Data is charged on',f.db,'What the users\' files take, as Nextcloud counts it against their quota. It needs an administrator login on the instance.'),row('A gigabyte is',f.unit),
+        row('Part of a month',el('label',{},f.prorate,' Charge only the days an instance reported'),'Off: an instance that reported any day is charged for the whole month. On: a customer that started on the 22nd pays for the days since.'))),
+    el('div',{class:'card',style:'margin-bottom:14px;padding:14px 0 0'},el('h2',{style:'margin:0 16px 4px'},'Customers'),
+      el('p',{class:'help',style:'margin:0 16px 10px'},'Who each instance is invoiced to. Leave the customer empty to use the instance name. Tick "Not invoiced" for your own and test instances.'),
+      rows.length?el('div',{style:'overflow-x:auto'},el('table',{},el('tr',{},['Instance','Customer','Not invoiced','This month',''].map(x=>el('th',{},x))),tbody)):el('div',{class:'empty'},'No Nextcloud instances yet. Add them under ',el('a',{href:'#/instances'},'Instances'),'.')),
+    w?el('div',{class:'bar'},save,msg):el('p',{class:'help'},'You can look at the prices but not change them.'));
+}
+
 async function backupsPage(){
   setTitle('Backups & archive');const view=$('#view'),w=can('backups',true);
   const r=await api('/api/v1/backups');

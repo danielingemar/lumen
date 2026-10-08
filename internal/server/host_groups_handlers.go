@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -53,16 +52,7 @@ func (s *Server) changeGroupMembers(w http.ResponseWriter, r *http.Request, id e
 		return
 	}
 	s.forget(id.Tenant)
-	s.auditOp(id, id.Tenant, "hostgroup.members", in.Group, strings.Join(append(append([]string{}, prefixed("+", in.Add)...), prefixed("-", in.Remove)...), " "))
 	writeJSON(w, map[string]any{"ok": true, "changed": n})
-}
-
-func prefixed(p string, xs []string) []string {
-	out := make([]string, len(xs))
-	for i, x := range xs {
-		out[i] = p + x
-	}
-	return out
 }
 
 func (s *Server) renameHostGroup(w http.ResponseWriter, r *http.Request, id edition.Identity) {
@@ -84,7 +74,6 @@ func (s *Server) renameHostGroup(w http.ResponseWriter, r *http.Request, id edit
 		to, _ := registry.NormalizeGroup(in.To)
 		rules = s.alerts.RenameRuleGroup(id.Tenant, in.From, to)
 	}
-	s.auditOp(id, id.Tenant, "hostgroup.rename", in.From, "to "+in.To)
 	writeJSON(w, map[string]any{"ok": true, "changed": n, "rules": rules})
 }
 
@@ -101,8 +90,5 @@ func (s *Server) deleteHostGroup(w http.ResponseWriter, r *http.Request, id edit
 		return
 	}
 	s.forget(id.Tenant)
-	s.auditOp(id, id.Tenant, "hostgroup.delete", in.Group, "")
 	writeJSON(w, map[string]any{"ok": true, "changed": n})
 }
-
-var _ = json.Marshal

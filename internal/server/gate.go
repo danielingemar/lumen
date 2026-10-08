@@ -113,8 +113,20 @@ func (s *Server) gate(areas []string, write bool, h handler) http.Handler {
 			}
 		}
 		s.auditActing(r, id) // an operator inside a tenant: everything that changes something is on record
-		h(w, r, id)
+		s.serve(w, r, id, h)
 	})
+}
+
+// serve runs a handler and, if it changed something and went through, records it (who, what, from where).
+func (s *Server) serve(w http.ResponseWriter, r *http.Request, id edition.Identity, h handler) {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions || s.auditLog() == nil {
+		h(w, r, id)
+		return
+	}
+	rec, tap := &statusRec{ResponseWriter: w}, &bodyTap{ReadCloser: r.Body}
+	r.Body = tap
+	h(rec, r, id)
+	s.auditChange(r, id, rec.status(), tap)
 }
 
 // sessionOnly requires a username login (not an API key or API-key session), and, when area is set, that permission.
@@ -143,6 +155,6 @@ func (s *Server) sessionOnly(area string, write bool, h handler) http.Handler {
 			return
 		}
 		s.auditActing(r, id) // changes made by an operator inside a tenant are on record, also those that need a real login
-		h(w, r, id)
+		s.serve(w, r, id, h)
 	})
 }
