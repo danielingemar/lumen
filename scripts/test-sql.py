@@ -207,6 +207,8 @@ try:
     r = run(Q["series gauge hosts both"]); check("a metric limited to a group of hosts: h1+h2 summed", len(r) == 1 and near(r[0]["v"], 0.8), r)
     r = run(Q["series gauge hosts one and a stranger"]); check("another tenant's host in the group is never reached (only h1 = 0.2)", len(r) == 1 and near(r[0]["v"], 0.2), r)
     r = run(Q["series gauge hosts none"]); check("a metric limited to a group with no hosts is empty", r == [], r)
+    r = run(Q["health disks"]); check("the disks of ClickHouse: name, free and total space", len(r) >= 1 and all(int(x["total"]) >= int(x["free"]) > 0 for x in r), r)
+    r = run(Q["health tables"]); check("what takes the space: the tables, biggest first, the telemetry tables among them", len(r) >= 1 and any(x["name"].endswith("otel_spans") or x["name"].endswith("otel_logs") for x in r) and [int(x["bytes"]) for x in r] == sorted([int(x["bytes"]) for x in r], reverse=True), r)
     r = run(Q["traces service and operation filter"]); check("service + operation that do not match = nothing", r == [], r)
 except Exception as e:
     print("FAIL exception:", str(e)[:600]); fail += 1

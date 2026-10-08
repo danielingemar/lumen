@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/danielingemar/lumen/internal/health"
 	"io"
 	"net/http"
 	"net/url"
@@ -273,4 +274,44 @@ func (e *ES) List(ctx context.Context, coll string, filter map[string]string, li
 		out = append(out, h.doc())
 	}
 	return out, nil
+}
+
+// Health asks Elasticsearch how it is: the state of the cluster and what each node says about its disk.
+func (e *ES) Health(ctx context.Context) (health.ES, error) {
+	var h health.ES
+	code, b, err := e.do(ctx, "GET", "/_cluster/health", nil)
+	if err != nil {
+		return h, err
+	}
+	if code == 401 || code == 403 {
+		return h, fmt.Errorf("elasticsearch rejected the credentials (HTTP %d)", code)
+	}
+	if code != 200 {
+		return h, fmt.Errorf("elasticsearch answered HTTP %d: %s", code, snippet(b))
+	}
+	var c struct {
+		Status     string `json:"status"`
+		Unassigned int    `json:"unassigned_shards"`
+	}
+	if err := json.Unmarshal(b, &c); err != nil {
+		return h, fmt.Errorf("elasticsearch gave an answer that is not JSON")
+	}
+	h.Status, h.Unassigned, h.Nodes = c.Status, c.Unassigned, []health.ESNode{}
+	// the disk, as Elasticsearch itself sees it (this is what its 85 / 90 / 95 percent limits are measured against)
+	if code, b, err = e.do(ctx, "GET", "/_cat/allocation?format=json&bytes=b", nil); err == nil && code == 200 {
+		var rows []map[string]string
+		if json.Unmarshal(b, &rows) == nil {
+			for _, r := range rows {
+				if r["node"] == "" || r["node"] == "UNASSIGNED" || r["disk.total"] == "" {
+					continue
+				}
+				n := health.ESNode{Name: r["node"]}
+				n.Total, _ = strconv.ParseUint(r["disk.total"], 10, 64)
+				n.Avail, _ = strconv.ParseUint(r["disk.avail"], 10, 64)
+				n.DiskPercent, _ = strconv.ParseFloat(r["disk.percent"], 64)
+				h.Nodes = append(h.Nodes, n)
+			}
+		}
+	}
+	return h, nil
 }

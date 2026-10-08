@@ -135,6 +135,9 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, id edition.Identity)
 		groupName = "Administrator (dev mode)"
 	}
 	me := map[string]any{"user": id.User, "tenant": id.Tenant, "session": id.Session, "via_key": id.ViaKey, "group": group, "group_name": groupName, "perms": id.Perms, "archive_enabled": id.Can(perm.Backups, false), "version": buildinfo.Version}
+	if s.health != nil && s.ownsInstallation(id.Tenant) && !id.Acting && id.Can(perm.Settings, false) {
+		me["health"] = true // the pages may show the health of Lumen itself
+	}
 	if id.Acting {
 		me["acting"] = map[string]any{"tenant": id.Tenant, "operator": id.Operator, "until": id.ActingUntil.UTC().Format(time.RFC3339), "write": id.ActingWrite}
 	}

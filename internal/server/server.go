@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/danielingemar/lumen/internal/health"
 	"io"
 	"log/slog"
 	"net/http"
@@ -41,6 +42,7 @@ type Server struct {
 	lic                *license.Manager
 	owner              string
 	ten                *Tenancy
+	health             *health.Monitor
 	bkInfo             BackupInfo
 	snaps              snapCache
 	facetCache         facetCache
@@ -89,6 +91,7 @@ func (s *Server) Handler() http.Handler {
 	s.alertRoutes(mux)
 	s.licenseRoutes(mux)
 	s.tenancyRoutes(mux)
+	s.healthRoutes(mux)
 	mux.Handle("POST /v1/traces", s.authed("ingest", s.ingestTraces))
 	mux.Handle("POST /v1/logs", s.authed("ingest", s.ingestLogs))
 	mux.Handle("POST /v1/metrics", s.authed("ingest", s.ingestMetrics))

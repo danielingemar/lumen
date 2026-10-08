@@ -537,14 +537,40 @@ async function boot(){
 }
 
 // ---- pages ----
+// ---- Lumen's own health: its disk, Elasticsearch and ClickHouse ----
+const diskBar=d=>{const u=Math.round(d.total?100*(1-d.free/d.total):0),c=u>=90?'var(--err,#c62828)':u>=80?'#d9822b':'#2e9d5b';
+  return el('div',{style:'display:flex;align-items:center;gap:8px'},el('div',{style:'flex:0 0 140px;height:8px;border-radius:4px;background:var(--line)'},el('div',{style:'width:'+u+'%;height:8px;border-radius:4px;background:'+c})),el('span',{class:u>=80?'err':'mut'},u+'% full'),el('span',{class:'mut'},fmtBytes(d.free)+' free of '+fmtBytes(d.total)))};
+function healthProblems(r){return (r.problems||[]).map(p=>el('div',{class:p.level==='critical'?'errbox':'warnbox',style:'margin:8px 0'},el('b',{},p.text),el('div',{style:'margin-top:4px;font-size:13px'},p.advice)))}
+async function homeHealth(){
+  if(!(S.me&&S.me.health))return null;
+  let h;try{h=await api('/api/v1/health')}catch{return null}
+  const r=h.report;if(!r||!(r.problems||[]).length)return null;
+  return el('div',{style:'margin-bottom:14px'},el('h2',{style:'margin-bottom:4px'},'Lumen itself needs attention'),healthProblems(r),el('a',{href:'#/settings',class:'btn ghost sm'},'See the details'))}
+async function healthCard(view){
+  if(!(S.me&&S.me.health))return;
+  const card=el('div',{class:'card',style:'max-width:760px;margin-top:14px'});view.append(card);
+  const draw=async(refresh)=>{let h;try{h=await api('/api/v1/health'+(refresh?'?refresh=1':''))}catch(e){card.replaceChildren(el('h2',{style:'margin-top:0'},'Lumen\'s own health'),el('p',{class:'err'},e.message));return}
+    const r=h.report,badge={ok:['HEALTHY','up'],warning:['NEEDS ATTENTION','pending'],critical:['ACT NOW','down']}[r.overall]||['',''];
+    const sec=(t,body)=>el('div',{style:'margin-top:14px'},el('b',{},t),body);
+    card.replaceChildren(el('div',{class:'bar'},el('h2',{style:'margin:0'},'Lumen\'s own health ',el('span',{class:'badge '+badge[1],style:'vertical-align:middle'},badge[0])),el('span',{class:'sp'}),el('span',{class:'mut'},'checked '+ago(r.at)),el('button',{class:'btn ghost sm',onclick:()=>draw(true)},'Check now')),
+      healthProblems(r),
+      el('p',{class:'help'},'Lumen warns at '+h.warn+'% and treats '+h.crit+'% as urgent. Set an alert rule for it under Alerts, Rules, Starter rules (“Lumen: …”), so that you are told by message and not only when you look here.'),
+      sec('Where Lumen keeps its files',(r.disks||[]).length?el('table',{},(r.disks||[]).map(d=>el('tr',{},el('td',{},d.name),el('td',{class:'mono mut'},d.path),el('td',{},diskBar(d))))):el('p',{class:'mut'},'Not measured here.')),
+      r.elasticsearch?sec('Elasticsearch (users, dashboards, settings)',el('div',{},el('p',{style:'margin:4px 0'},r.elasticsearch.error?el('span',{class:'err'},'Cannot be reached: '+r.elasticsearch.error):[el('span',{class:'badge '+({green:'up',yellow:'pending',red:'down'}[r.elasticsearch.status]||'info')},(r.elasticsearch.status||'?').toUpperCase()),r.elasticsearch.unassigned_shards?el('span',{class:'mut'},'  '+r.elasticsearch.unassigned_shards+' shard(s) without a place'):null]),
+        (r.elasticsearch.nodes||[]).length?el('table',{},(r.elasticsearch.nodes||[]).map(n=>el('tr',{},el('td',{},'node '+n.name),el('td',{},diskBar({total:n.total,free:n.avail}))))):null)):null,
+      r.clickhouse?sec('ClickHouse (traces, logs, metrics)',el('div',{},r.clickhouse.error?el('p',{class:'err'},'Cannot be reached: '+r.clickhouse.error):null,
+        (r.clickhouse.disks||[]).length?el('table',{},(r.clickhouse.disks||[]).map(d=>el('tr',{},el('td',{},'disk '+d.name),el('td',{},diskBar(d))))):null,
+        (r.clickhouse.tables||[]).length?el('div',{},el('p',{class:'help',style:'margin:10px 0 4px'},'What takes the space, biggest first (the system tables are Clickhouse\'s own logs; they grow too):'),el('table',{},(r.clickhouse.tables||[]).map(t=>el('tr',{},el('td',{class:'mono'},t.name),el('td',{class:'mut'},fmtBytes(t.bytes)))))):null)):null)};
+  await draw(false)}
 async function homePage(){
   setTitle('Home');const view=$('#view');
   const [svcs,dash]=await Promise.all([rows('/api/v1/services',{from:new Date(Date.now()-864e5).toISOString(),to:new Date().toISOString()}).catch(()=>[]),rows('/api/v1/dashboards').catch(()=>[])]);
   const statusRow=()=>{if(!(can('hosts')||can('metrics')))return null;
     return el('div',{},el('h2',{},'Status right now'),el('div',{class:'grid'},['alerts_firing','nc_up','nc_down','host_up','host_down','svc_down','container_down'].filter(k=>k!=='alerts_firing'||can('alerts')).map(k=>{const body=el('div',{class:'body',style:'min-height:70px'});
       loadPanel({type:'stat',h:1,q:{src:'status',status:k}},body,win());return el('div',{class:'panel',style:'--w:2'},el('header',{},el('span',{class:'t'},STATUS_KINDS[k][0])),body)})))};
+  const hh=await homeHealth();
   view.replaceChildren(
-    statusRow(),
+    hh,statusRow(),
     el('h2',{},'Dashboards'),
     el('div',{class:'cards'},dash.slice(0,6).map(d=>el('div',{class:'card',onclick:()=>location.hash='#/d/'+d.id},el('h3',{},d.name),el('p',{},d.description||'Updated '+ago(d.updated)))),
       can('dashboards',true)?el('div',{class:'card',onclick:()=>location.hash='#/dashboards'},el('h3',{},'+ New dashboard'),el('p',{},'Start from a template or build your own')):null),
@@ -1034,9 +1060,11 @@ const chips=l=>Object.entries(l||{}).map(([k,v])=>el('span',{class:'chip',style:
 const kvText=m=>Object.entries(m||{}).map(([k,v])=>k+'='+v).join('\n');
 function parseKV(t,what){const o={};for(const ln of lines(t)){const i=ln.indexOf('=');if(i<1||i===ln.length-1)throw new Error('Each line in '+what+' must look like label=value ("'+ln+'" does not).');o[ln.slice(0,i).trim()]=ln.slice(i+1).trim()}return o}
 const STATUS_TEXT={host_down:'a host is down (its agent stopped reporting)',instance_down:'a Nextcloud instance is down',service_down:'a service is failed or not running',container_down:'a Docker container is not running'};
+const LUMEN_STATUS_TEXT={lumen_disk:'a disk that Lumen lives on is too full',lumen_elasticsearch:'Elasticsearch is not healthy',lumen_clickhouse:'ClickHouse cannot be reached or its disk is too full'};
+const statusText=r=>r.status==='lumen_disk'?'a disk that Lumen lives on is more than '+(r.threshold||80)+'% full':r.status==='lumen_clickhouse'?'ClickHouse cannot be reached or its disk is more than '+(r.threshold||90)+'% full':r.status==='lumen_elasticsearch'?(r.threshold===2?'Elasticsearch is red or cannot be reached':'Elasticsearch is not green'):(STATUS_TEXT[r.status]||r.status);
 function ruleText(r){
   const win=r.window_sec?Math.round(r.window_sec/60)+' min':'',inG=r.group?' (hosts in “'+r.group+'”)':'';
-  if(r.kind==='status')return (STATUS_TEXT[r.status]||r.status)+inG;
+  if(r.kind==='status')return statusText(r)+(String(r.status).startsWith('lumen_')?'':inG);
   if(r.kind==='log')return 'log lines'+(r.service?' from '+r.service:'')+(r.log_severity?' ('+r.log_severity+')':'')+(r.contains?' containing "'+r.contains+'"':'')+' '+r.op+' '+r.threshold+' in '+win+(r.group_by?' per '+r.group_by:'');
   return (r.reduce||'avg')+'('+r.metric+') '+r.op+' '+r.threshold+' over '+win+(r.group_by?' per '+r.group_by:'')+((r.filters||[]).length?' where '+r.filters.map(f=>f.k+'='+f.v).join(', '):'')+inG;
 }
@@ -1073,7 +1101,11 @@ function ruleDialog(rule,again){
     nodata:sel([['ok','Treat as fine'],['alert','Raise an alert'],['keep','Keep the last state']],R.no_data),ann:el('textarea',{style:'min-height:54px'},R.annotation||''),labels:el('textarea',{style:'min-height:48px',placeholder:'team=ops'},kvText(R.labels)),en:el('input',{type:'checkbox',checked:R.enabled})};
   const k=el('div',{class:'form',style:'margin-top:8px'});let mf={};
   const drawKind=async()=>{const kind=f.kind.value;mf={};
-    if(kind==='status'){mf.status=sel(Object.entries(STATUS_TEXT),R.status||'host_down');k.replaceChildren(el('label',{},'Alert when'),mf.status);return}
+    if(kind==='status'){const all=Object.assign({},STATUS_TEXT,S.me&&S.me.health?LUMEN_STATUS_TEXT:{});mf.status=sel(Object.entries(all),R.status||'host_down',()=>drawLimit());
+      mf.limit=el('input',{type:'number',step:'any',min:1,max:100,style:'width:90px',value:R.threshold||80});mf.esl=sel([['1','not green (yellow or red)'],['2','red or unreachable']],String(R.threshold||1));
+      const lim=el('div',{}),limLabel=el('label',{},'Limit');
+      const drawLimit=()=>{const st=mf.status.value,disk=st==='lumen_disk'||st==='lumen_clickhouse';lim.replaceChildren(...(disk?['Disk ',mf.limit,' % full or more']:st==='lumen_elasticsearch'?['When it is ',mf.esl]:[]));limLabel.style.display=lim.style.display=(disk||st==='lumen_elasticsearch')?'':'none';if(disk&&!R.threshold)mf.limit.value=st==='lumen_disk'?80:90};
+      k.replaceChildren(el('label',{},'Alert when'),mf.status,limLabel,lim);drawLimit();return}
     mf.op=sel(['>','>=','<','<=','==','!='],R.op);mf.th=el('input',{type:'number',step:'any',value:R.threshold,style:'width:110px'});mf.win=sel([[1,'1 min'],[5,'5 min'],[10,'10 min'],[30,'30 min'],[60,'1 hour']],Math.round(R.window_sec/60));
     if(kind==='metric'){
       let names=[];try{names=await rows('/api/v1/metrics/names',{from:new Date(Date.now()-7*864e5).toISOString(),to:new Date().toISOString()})}catch{}
@@ -1086,7 +1118,7 @@ function ruleDialog(rule,again){
     else{mf.service=el('input',{value:R.service||'',placeholder:'any'});mf.host=el('input',{value:R.host||'',placeholder:'any'});mf.sev=sel([['','any severity'],'ERROR','WARN','INFO','DEBUG'],R.log_severity||'');mf.contains=el('input',{value:R.contains||'',placeholder:'contains text'});mf.group=sel([['','one alert'],['service','one per source'],['severity','one per severity']],R.group_by||'');
       k.replaceChildren(el('label',{},'Log lines from'),el('div',{style:'display:flex;gap:8px;flex-wrap:wrap'},mf.service,mf.host,mf.sev,mf.contains),el('label',{},'Alert when the number of lines'),el('div',{style:'display:flex;gap:8px;align-items:center;flex-wrap:wrap'},'in',mf.win,'is',mf.op,mf.th),el('label',{},'Split'),mf.group)}};
   const build=()=>{const kind=f.kind.value,b={name:f.name.value.trim(),kind,group:f.hostgroup.value,severity:f.sev.value,for_sec:Math.max(0,Math.round(+f.forMin.value*60)),interval_sec:+f.interval.value,no_data:f.nodata.value,annotation:f.ann.value.trim(),labels:parseKV(f.labels.value,'Labels'),enabled:f.en.checked};
-    if(kind==='status')b.status=mf.status.value;
+    if(kind==='status'){b.status=mf.status.value;if(b.status==='lumen_disk'||b.status==='lumen_clickhouse')b.threshold=+mf.limit.value;if(b.status==='lumen_elasticsearch')b.threshold=+mf.esl.value}
     else{b.op=mf.op.value;b.threshold=+mf.th.value;b.window_sec=+mf.win.value*60;
       if(kind==='metric'){b.metric=mf.metric.value.trim();b.reduce=mf.reduce.value;b.group_by=mf.group.value.trim();b.filters=Object.entries(parseKV(mf.filters.value,'Only where')).map(([k_,v])=>({k:k_,v}))}
       else{b.service=mf.service.value.trim();b.host=mf.host.value.trim();b.log_severity=mf.sev.value;b.contains=mf.contains.value.trim();b.group_by=mf.group.value}}
@@ -1341,6 +1373,7 @@ async function settingsPage(){
   drawPrev();
   await licenseCard(view,w);
   await tenantCards(view,w);
+  await healthCard(view);
 }
 boot();
 </script></body></html>

@@ -3,7 +3,9 @@ package alerts
 import (
 	"context"
 	"fmt"
+	"github.com/danielingemar/lumen/internal/health"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/danielingemar/lumen/internal/model"
@@ -24,7 +26,13 @@ type StatusSource interface {
 type Evaluator struct {
 	Q  Querier
 	St StatusSource
-	G  GroupSource // resolves a host group to its hosts; without it a rule that names a group sees no hosts
+	H  HealthSource // Lumen's own health, for the rules about the disk, Elasticsearch and ClickHouse
+	G  GroupSource  // resolves a host group to its hosts; without it a rule that names a group sees no hosts
+}
+
+// HealthSource gives the health of Lumen itself. It is only for the owner of the installation: for anyone else the report is empty.
+type HealthSource interface {
+	Health(ctx context.Context, tenant string) (health.Report, error)
 }
 
 // GroupSource says which hosts are in a host group.
@@ -70,6 +78,16 @@ func logQuery(r Rule, from, to time.Time, hosts []string) model.SeriesQuery {
 func (e *Evaluator) Eval(ctx context.Context, rule Rule, now time.Time) (samples []Sample, noData bool, err error) {
 	switch rule.Kind {
 	case KindStatus:
+		if strings.HasPrefix(rule.Status, "lumen_") {
+			if e.H == nil {
+				return nil, false, fmt.Errorf("the health of Lumen itself cannot be read here")
+			}
+			rep, err := e.H.Health(ctx, rule.Tenant)
+			if err != nil {
+				return nil, false, err
+			}
+			return healthSamples(rule.Status, rule.Threshold, rep), false, nil
+		}
 		sum, err := e.St.Summary(ctx, rule.Tenant)
 		if err != nil {
 			return nil, false, err
@@ -223,4 +241,56 @@ func (e *Evaluator) Backtest(ctx context.Context, rule Rule, from, to time.Time)
 		}
 	}
 	return out, nil
+}
+
+// healthSamples lists what is wrong with Lumen itself right now. What is fine is not listed, which resolves an alert.
+func healthSamples(kind string, threshold float64, r health.Report) []Sample {
+	var out []Sample
+	add := func(l map[string]string) { out = append(out, Sample{Labels: l, Value: 1, Firing: true}) }
+	disk := func(d health.Disk, l map[string]string) {
+		if d.Total > 0 && d.UsedPct() >= threshold {
+			l["used"] = fmt.Sprintf("%.0f%%", d.UsedPct())
+			add(l)
+		}
+	}
+	switch kind {
+	case "lumen_disk": // every disk anything of Lumen's lives on, as each of them sees it
+		for _, d := range r.Disks {
+			disk(d, map[string]string{"disk": d.Name, "path": d.Path})
+		}
+		if r.CH != nil {
+			for _, d := range r.CH.Disks {
+				disk(d, map[string]string{"disk": "ClickHouse " + d.Name})
+			}
+		}
+		if r.ES != nil {
+			for _, n := range r.ES.Nodes {
+				disk(health.Disk{Total: n.Total, Free: n.Avail}, map[string]string{"disk": "Elasticsearch " + n.Name})
+			}
+		}
+	case "lumen_elasticsearch":
+		if r.ES == nil {
+			break
+		}
+		switch {
+		case r.ES.Err != "":
+			add(map[string]string{"component": "elasticsearch", "problem": "cannot be reached"})
+		case r.ES.Status == "red":
+			add(map[string]string{"component": "elasticsearch", "state": "red"})
+		case r.ES.Status == "yellow" && threshold <= 1:
+			add(map[string]string{"component": "elasticsearch", "state": "yellow"})
+		}
+	case "lumen_clickhouse":
+		if r.CH == nil {
+			break
+		}
+		if r.CH.Err != "" {
+			add(map[string]string{"component": "clickhouse", "problem": "cannot be reached"})
+		}
+		for _, d := range r.CH.Disks {
+			disk(d, map[string]string{"component": "clickhouse", "disk": d.Name})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return fmt.Sprint(out[i].Labels) < fmt.Sprint(out[j].Labels) })
+	return out
 }

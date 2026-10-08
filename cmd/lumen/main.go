@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/danielingemar/lumen/internal/health"
 	"log/slog"
 	"net/http"
 	"os"
@@ -103,6 +104,18 @@ func main() {
 			go ten.Off.Run(bg, t.ID)
 		}
 	}
+	// Lumen looks at itself: the disk it writes to (the file system under the data and backup folders is the one under Docker's
+	// volumes), Elasticsearch if it is used, and ClickHouse
+	src := health.Sources{Paths: map[string]string{"data": cfg.DataDir}, CH: ch}
+	if cfg.BackupDir != "" {
+		src.Paths["backups"] = cfg.BackupDir
+	}
+	if es, ok := backend.(interface {
+		Health(context.Context) (health.ES, error)
+	}); ok {
+		src.ES = es
+	}
+	app.WithHealth(health.New(src, cfg.DiskWarn, cfg.DiskCrit))
 	lic := license.NewManager(backend, license.EmbeddedKeys(), cfg.LicenseFile)
 	lic.Load()
 	app.WithLicense(lic).WithOwnerTenant(cfg.AdminTenant)
@@ -118,7 +131,7 @@ func main() {
 	}()
 	log.Info("licence", "state", string(lic.State()), "trusted_keys", len(license.EmbeddedKeys()))
 	if cfg.Alerts {
-		eng := &alerts.Engine{License: lic, DB: backend, Box: box, Eval: &alerts.Evaluator{Q: ch, St: app, G: app}, Guard: alerts.Guard{AllowPrivate: cfg.AlertAllowPrivate},
+		eng := &alerts.Engine{License: lic, DB: backend, Box: box, Eval: &alerts.Evaluator{Q: ch, St: app, G: app, H: app}, Guard: alerts.Guard{AllowPrivate: cfg.AlertAllowPrivate},
 			PublicURL: cfg.PublicURL, Log: log, GroupWait: cfg.AlertGroupWait, RepeatEvery: cfg.AlertRepeat}
 		app.WithAlerts(eng)
 		go eng.Run(bg)

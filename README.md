@@ -278,6 +278,20 @@ Each channel can be limited to some importances (for example only critical) and 
 
 **What is not there yet:** rules on traces (error rate, latency), escalation policies and on-call schedules, recurring maintenance windows, message templates, assigning an alert to a person, and metrics about the alert engine itself. See the [design](docs/design/alerting.md). A single server runs the evaluation; there is no high-availability mode yet.
 
+## Lumen watches itself
+
+The failure that is worst for an observability tool is its own disk filling up: Elasticsearch stops creating indices at 85 percent and refuses writes at 95, ClickHouse goes read-only, and the first sign is a page that says “unavailable”. So Lumen looks at itself:
+
+- **The disk it writes to.** The file system under the data and backup folders, which in a container is the disk under Docker's volumes. Both warn at **80 percent** and are urgent at **90** (`LUMEN_DISK_WARN`, `LUMEN_DISK_CRIT`).
+- **Elasticsearch** (when it holds the settings): green, yellow or red, shards without a place, and the disk as Elasticsearch itself sees it.
+- **ClickHouse:** whether it can be reached, its disks, and **what takes the space**, biggest tables first, with ClickHouse's own system tables (query and trace logs), which grow without anyone looking.
+
+**Where you see it:** a box on the Home page, with what to do, as soon as something is wrong (and nothing when all is well); and a card in **Settings** with the details and a *Check now* button. It is shown to whoever runs the installation (the owner tenant in a multi-tenant setup), never to customers.
+
+**Where you are told:** under *Alerts, Rules, Starter rules* there are five “Lumen: …” rules (a disk more than 80 or 90 percent full, Elasticsearch not green, Elasticsearch red, ClickHouse unreachable or full). Add them with your channels and you get a message at 80 percent, not when the cluster has turned red. They work even when ClickHouse is the thing that is down, because they do not read from it. A rule limit is set in the rule (the disk percentage; for Elasticsearch “not green” or “red”).
+
+API: `GET /api/v1/health` (`?refresh=1` looks again; the answer is otherwise kept for 30 seconds).
+
 ## Host groups
 
 A **host group** is a name you put on hosts, so that you can look at, and alert on, some of your machines together: all the web servers, everything that belongs to one customer, production against test. A host can be in **several** groups. There is no separate list of groups to keep in step: a group exists as long as a host is in it.

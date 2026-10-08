@@ -3,6 +3,8 @@ package docstore
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -189,5 +191,29 @@ func TestTheNewCollectionsRoundTripInEveryBackend(t *testing.T) {
 				t.Fatalf("%s %s: %v", name, coll, err)
 			}
 		}
+	}
+}
+
+func TestElasticsearchHealthIsReadFromTheCluster(t *testing.T) {
+	ts, fake := estest.New()
+	defer ts.Close()
+	es := NewES(ESConfig{URL: ts.URL, User: "elastic", Password: "pw", Prefix: "t"})
+	h, err := es.Health(context.Background())
+	if err != nil || h.Status != "green" || len(h.Nodes) != 1 || h.Nodes[0].Name != "es-node-1" || h.Nodes[0].DiskPercent != 40 || h.Nodes[0].Total != 107374182400 || h.Nodes[0].Avail != 42949672960 {
+		t.Fatalf("the node that has no disk figures (the unassigned shards) is not listed: %+v %v", h, err)
+	}
+	fake.ClusterStatus, fake.Unassigned, fake.DiskPercent, fake.DiskAvail = "red", 2, "94", "5368709120"
+	h, _ = es.Health(context.Background())
+	if h.Status != "red" || h.Unassigned != 2 || h.Nodes[0].DiskPercent != 94 || h.Nodes[0].Avail != 5368709120 {
+		t.Fatalf("%+v", h)
+	}
+	// credentials that are refused, and a server that is not there, are errors the page can say something about
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "no", 401) }))
+	defer bad.Close()
+	if _, err := NewES(ESConfig{URL: bad.URL, User: "x", Password: "y", Prefix: "t"}).Health(context.Background()); err == nil || !strings.Contains(err.Error(), "rejected the credentials") {
+		t.Fatalf("%v", err)
+	}
+	if _, err := NewES(ESConfig{URL: "http://127.0.0.1:1", User: "x", Password: "y", Prefix: "t"}).Health(context.Background()); err == nil {
+		t.Fatal("unreachable")
 	}
 }

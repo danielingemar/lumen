@@ -99,6 +99,9 @@ func TestDumpForEngine(t *testing.T) {
 		}
 		add("series "+src+" group", sp.SQL, sp.Params)
 	}
+	hd, _ := hdQueries()
+	add("health disks", hd[0], map[string]string{})
+	add("health tables", hd[1], map[string]string{})
 	// backup, archive, retention and up/down queries
 	day := time.Now().UTC()
 	for _, tb := range tables {

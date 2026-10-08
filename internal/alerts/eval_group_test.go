@@ -2,6 +2,7 @@ package alerts
 
 import (
 	"context"
+	"github.com/danielingemar/lumen/internal/health"
 	"strings"
 	"testing"
 	"time"
@@ -115,5 +116,108 @@ func TestTheGroupOfARuleIsChecked(t *testing.T) {
 	none := Rule{Name: "r", Kind: KindStatus, Status: "host_down"}
 	if err := none.Normalize(); err != nil || none.Group != "" {
 		t.Fatal("no group is fine")
+	}
+}
+
+type fakeHealth struct{ r health.Report }
+
+func (f fakeHealth) Health(_ context.Context, tenant string) (health.Report, error) {
+	if tenant != "owner" { // only the owner of the installation sees it
+		return health.Report{}, nil
+	}
+	return f.r, nil
+}
+
+func TestRulesAboutLumenItself(t *testing.T) {
+	const gb = 1 << 30
+	rep := health.Report{
+		Disks: []health.Disk{{Name: "data", Path: "/data", Total: 100 * gb, Free: 8 * gb}}, // 92%
+		ES:    &health.ES{Status: "red", Nodes: []health.ESNode{{Name: "n1", Total: 100 * gb, Avail: 12 * gb}}},
+		CH:    &health.CH{Disks: []health.Disk{{Name: "default", Total: 100 * gb, Free: 30 * gb}}},
+	}
+	ev := &Evaluator{H: fakeHealth{rep}, Q: &captureQ{}, St: fixedStatus{}}
+	run := func(status string, thr float64, tenant string) []string {
+		s, _, err := ev.Eval(context.Background(), Rule{Kind: KindStatus, Status: status, Threshold: thr, Tenant: tenant}, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, x := range s {
+			out = append(out, x.Labels["disk"]+x.Labels["component"]+x.Labels["state"]+x.Labels["problem"])
+		}
+		return out
+	}
+	if got := strings.Join(run("lumen_disk", 80, "owner"), "|"); got != "Elasticsearch n1|data" && got != "data|Elasticsearch n1" {
+		t.Fatalf("at 80 percent the data disk (92) and Elasticsearch's view (88) are both too full: %q", got)
+	}
+	if got := run("lumen_disk", 90, "owner"); len(got) != 1 || got[0] != "data" {
+		t.Fatalf("at 90 percent only the data disk: %v", got)
+	}
+	if got := run("lumen_disk", 95, "owner"); len(got) != 0 {
+		t.Fatalf("%v", got)
+	}
+	if got := run("lumen_elasticsearch", 2, "owner"); len(got) != 1 || got[0] != "elasticsearchred" {
+		t.Fatalf("%v", got)
+	}
+	rep.ES.Status = "yellow"
+	ev.H = fakeHealth{rep}
+	if got := run("lumen_elasticsearch", 2, "owner"); len(got) != 0 {
+		t.Fatalf("yellow is not red: %v", got)
+	}
+	if got := run("lumen_elasticsearch", 1, "owner"); len(got) != 1 || got[0] != "elasticsearchyellow" {
+		t.Fatalf("but it is not green: %v", got)
+	}
+	rep.ES = &health.ES{Err: "refused"}
+	ev.H = fakeHealth{rep}
+	if got := run("lumen_elasticsearch", 2, "owner"); len(got) != 1 || !strings.Contains(got[0], "cannot be reached") {
+		t.Fatalf("an Elasticsearch that cannot be reached is a problem at every level: %v", got)
+	}
+	if got := run("lumen_clickhouse", 90, "owner"); len(got) != 0 {
+		t.Fatalf("ClickHouse is fine at 70 percent: %v", got)
+	}
+	rep.CH = &health.CH{Err: "refused"}
+	ev.H = fakeHealth{rep}
+	if got := run("lumen_clickhouse", 90, "owner"); len(got) != 1 || !strings.Contains(got[0], "cannot be reached") {
+		t.Fatalf("%v", got)
+	}
+	// an installation without Elasticsearch has nothing to say about it
+	rep.ES = nil
+	ev.H = fakeHealth{rep}
+	if got := run("lumen_elasticsearch", 1, "owner"); len(got) != 0 {
+		t.Fatalf("%v", got)
+	}
+	// nobody but the owner is told about the installation
+	if got := run("lumen_disk", 10, "someone-else"); len(got) != 0 {
+		t.Fatalf("%v", got)
+	}
+	// without a source the rule says why it cannot be checked, instead of looking fine
+	if _, _, err := (&Evaluator{}).Eval(context.Background(), Rule{Kind: KindStatus, Status: "lumen_disk", Threshold: 80}, time.Now()); err == nil {
+		t.Fatal("an error that is shown on the rule")
+	}
+}
+
+func TestRulesAboutLumenAreChecked(t *testing.T) {
+	r := Rule{Name: "d", Kind: KindStatus, Status: "lumen_disk"}
+	if err := r.Normalize(); err != nil || r.Threshold != 80 {
+		t.Fatalf("a disk rule defaults to 80 percent: %v %v", err, r.Threshold)
+	}
+	for status, thr := range map[string]float64{"lumen_disk": 120, "lumen_clickhouse": -5, "lumen_elasticsearch": 3} {
+		bad := Rule{Name: "x", Kind: KindStatus, Status: status, Threshold: thr}
+		if bad.Normalize() == nil {
+			t.Errorf("%s %v must be refused", status, thr)
+		}
+	}
+	e := Rule{Name: "e", Kind: KindStatus, Status: "lumen_elasticsearch"}
+	if err := e.Normalize(); err != nil || e.Threshold != 1 {
+		t.Fatalf("%v %v", err, e.Threshold)
+	}
+	have := map[string]bool{}
+	for _, tpl := range Templates() {
+		have[tpl.Name] = true
+	}
+	for _, n := range []string{"Lumen: a disk is more than 80% full", "Lumen: a disk is more than 90% full", "Lumen: Elasticsearch is not green", "Lumen: Elasticsearch is red", "Lumen: ClickHouse cannot be reached or is full"} {
+		if !have[n] {
+			t.Errorf("template %q", n)
+		}
 	}
 }

@@ -46,7 +46,14 @@ func (s *Server) alertRoutes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/v1/alerts/rules/{id}", s.need(perm.Alerts, true, s.deleteRule))
 	mux.Handle("POST /api/v1/alerts/backtest", s.need(perm.Alerts, false, s.backtest))
 	mux.Handle("GET /api/v1/alerts/templates", s.need(perm.Alerts, false, func(w http.ResponseWriter, r *http.Request, id edition.Identity) {
-		writeJSON(w, map[string]any{"data": alerts.Templates()})
+		out := []alerts.Rule{}
+		for _, t := range alerts.Templates() {
+			if lumenRule(t.Status) && !(s.health != nil && s.ownsInstallation(id.Tenant)) {
+				continue // the rules about Lumen itself are for whoever runs it
+			}
+			out = append(out, t)
+		}
+		writeJSON(w, map[string]any{"data": out})
 	}))
 	mux.Handle("GET /api/v1/alerts/silences", s.need(perm.Alerts, false, func(w http.ResponseWriter, r *http.Request, id edition.Identity) {
 		writeJSON(w, map[string]any{"data": s.alerts.ListSilences(id.Tenant)})
@@ -133,6 +140,10 @@ func (s *Server) putRule(pathID string) handler {
 			return
 		}
 		in := body.Rule
+		if lumenRule(in.Status) && !(s.health != nil && s.ownsInstallation(id.Tenant)) {
+			writeErr(w, http.StatusForbidden, "rules about Lumen itself (its disk, Elasticsearch, ClickHouse) are for the tenant that runs the installation")
+			return
+		}
 		rid := ""
 		if pathID != "" {
 			rid = r.PathValue(pathID)

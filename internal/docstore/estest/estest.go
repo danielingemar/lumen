@@ -5,6 +5,7 @@ package estest
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,6 +28,12 @@ type Fake struct {
 	seq      int64
 	AuthSeen string
 	Mappings map[string]string // the body each index was created with, by index name
+	// what the health endpoints answer; the zero values are a healthy single node
+	ClusterStatus string
+	Unassigned    int
+	DiskPercent   string // "disk.percent" of the one node, as Elasticsearch writes it (a string)
+	DiskAvail     string
+	DiskTotal     string
 }
 
 // New starts a fake Elasticsearch. Close the returned server when done.
@@ -47,6 +54,28 @@ func (f *Fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	reply := func(code int, body string) { w.WriteHeader(code); w.Write([]byte(body)) }
 	if r.URL.Path == "/" {
 		reply(200, `{"version":{"number":"8.15.0"}}`)
+		return
+	}
+	switch r.URL.Path {
+	case "/_cluster/health":
+		st := f.ClusterStatus
+		if st == "" {
+			st = "green"
+		}
+		reply(200, fmt.Sprintf(`{"cluster_name":"docker-cluster","status":%q,"unassigned_shards":%d,"number_of_nodes":1}`, st, f.Unassigned))
+		return
+	case "/_cat/allocation":
+		dp, da, dt := f.DiskPercent, f.DiskAvail, f.DiskTotal
+		if dp == "" {
+			dp = "40"
+		}
+		if da == "" {
+			da = "42949672960"
+		}
+		if dt == "" {
+			dt = "107374182400"
+		}
+		reply(200, fmt.Sprintf(`[{"shards":"6","disk.indices":"1gb","disk.used":"40gb","disk.avail":%q,"disk.total":%q,"disk.percent":%q,"host":"172.18.0.2","ip":"172.18.0.2","node":"es-node-1"},{"shards":"1","node":"UNASSIGNED"}]`, da, dt, dp))
 		return
 	}
 	idx := parts[0]

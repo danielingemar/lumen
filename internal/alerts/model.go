@@ -72,7 +72,7 @@ type Rule struct {
 var (
 	ops        = map[string]bool{">": true, ">=": true, "<": true, "<=": true, "==": true, "!=": true}
 	reduces    = map[string]bool{"avg": true, "max": true, "min": true, "last": true, "sum": true}
-	statuses   = map[string]bool{"host_down": true, "instance_down": true, "service_down": true, "container_down": true}
+	statuses   = map[string]bool{"host_down": true, "instance_down": true, "service_down": true, "container_down": true, "lumen_disk": true, "lumen_elasticsearch": true, "lumen_clickhouse": true}
 	severities = map[string]bool{"critical": true, "warning": true, "info": true}
 	labelKeyRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_.-]{0,39}$`)
 )
@@ -164,7 +164,24 @@ func (r *Rule) Normalize() error {
 		}
 	case KindStatus:
 		if !statuses[r.Status] {
-			return fmt.Errorf("status must be host_down, instance_down, service_down or container_down")
+			return fmt.Errorf("status must be host_down, instance_down, service_down, container_down, lumen_disk, lumen_elasticsearch or lumen_clickhouse")
+		}
+		// the rules about Lumen itself use the threshold: how full a disk may be (percent), or how bad Elasticsearch may be (1 = not green, 2 = red)
+		switch r.Status {
+		case "lumen_disk", "lumen_clickhouse":
+			if r.Threshold == 0 {
+				r.Threshold = map[string]float64{"lumen_disk": 80, "lumen_clickhouse": 90}[r.Status]
+			}
+			if r.Threshold < 1 || r.Threshold > 100 {
+				return fmt.Errorf("the disk limit is a percentage between 1 and 100")
+			}
+		case "lumen_elasticsearch":
+			if r.Threshold == 0 {
+				r.Threshold = 1
+			}
+			if r.Threshold != 1 && r.Threshold != 2 {
+				return fmt.Errorf("for Elasticsearch the limit is 1 (not green) or 2 (red)")
+			}
 		}
 		r.NoData = "ok"
 	case KindLog:
