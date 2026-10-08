@@ -290,6 +290,8 @@ The failure that is worst for an observability tool is its own disk filling up: 
 
 **Where you are told:** under *Alerts, Rules, Starter rules* there are five “Lumen: …” rules (a disk more than 80 or 90 percent full, Elasticsearch not green, Elasticsearch red, ClickHouse unreachable or full). Add them with your channels and you get a message at 80 percent, not when the cluster has turned red. They work even when ClickHouse is the thing that is down, because they do not read from it. A rule limit is set in the rule (the disk percentage; for Elasticsearch “not green” or “red”).
 
+A disk that Lumen, Elasticsearch and ClickHouse share is **one** problem, with every part that lives on it named. A yellow Elasticsearch names the indices that have no place; on a single node these are copies waiting for a second node, which is harmless, and Lumen takes the copies off its own indices when it starts (only on a cluster of one node, and only its own indices).
+
 API: `GET /api/v1/health` (`?refresh=1` looks again; the answer is otherwise kept for 30 seconds).
 
 ## Host groups

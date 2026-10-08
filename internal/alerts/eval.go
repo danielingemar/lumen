@@ -254,19 +254,9 @@ func healthSamples(kind string, threshold float64, r health.Report) []Sample {
 		}
 	}
 	switch kind {
-	case "lumen_disk": // every disk anything of Lumen's lives on, as each of them sees it
-		for _, d := range r.Disks {
-			disk(d, map[string]string{"disk": d.Name, "path": d.Path})
-		}
-		if r.CH != nil {
-			for _, d := range r.CH.Disks {
-				disk(d, map[string]string{"disk": "ClickHouse " + d.Name})
-			}
-		}
-		if r.ES != nil {
-			for _, n := range r.ES.Nodes {
-				disk(health.Disk{Total: n.Total, Free: n.Avail}, map[string]string{"disk": "Elasticsearch " + n.Name})
-			}
+	case "lumen_disk": // every disk anything of Lumen's lives on, once (Lumen, Elasticsearch and ClickHouse usually share one)
+		for _, m := range health.MergeDisks(health.Views(r)) {
+			disk(m.Disk, map[string]string{"disk": strings.Join(m.Who, " + ")})
 		}
 	case "lumen_elasticsearch":
 		if r.ES == nil {

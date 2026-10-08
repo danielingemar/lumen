@@ -53,10 +53,13 @@ func TestElasticsearchAndClickHouse(t *testing.T) {
 	r.ES.Status = "red"
 	r.ES.Nodes[0] = ESNode{Name: "n1", Avail: 5 * gb, Total: 100 * gb}
 	ps = Evaluate(r, 80, 90)
-	if len(ps) != 2 || ps[0].Level != "critical" || Overall(ps) != "critical" || !strings.Contains(ps[0].Advice, "disk") {
-		t.Fatalf("red comes first, and Elasticsearch's own view of its disk is a problem too: %+v", ps)
+	if len(ps) != 2 || Overall(ps) != "critical" || ps[0].Level != "critical" || ps[1].Level != "critical" {
+		t.Fatalf("%+v", ps)
 	}
-	if !strings.Contains(ps[1].Text, "Elasticsearch's own view") || ps[1].Component != "elasticsearch" {
+	if ps[0].Component != "disk" || !strings.Contains(ps[0].Text, "The disk used by Elasticsearch (node n1) is 95% full") {
+		t.Fatalf("the disk comes first, since it is usually the cause, and is Elasticsearch's own view of it: %+v", ps[0])
+	}
+	if ps[1].Component != "elasticsearch" || !strings.Contains(ps[1].Text, "is red") || !strings.Contains(ps[1].Advice, "disk") {
 		t.Fatalf("%+v", ps[1])
 	}
 	r.ES = &ES{Err: "connection refused"}
@@ -66,7 +69,7 @@ func TestElasticsearchAndClickHouse(t *testing.T) {
 		t.Fatalf("%+v", ps)
 	}
 	r.ES, r.CH = nil, &CH{Disks: []Disk{disk("default", 95)}}
-	if ps = Evaluate(r, 80, 90); len(ps) != 1 || ps[0].Level != "critical" || ps[0].Component != "clickhouse" || !strings.Contains(ps[0].Text, "ClickHouse's disk default") {
+	if ps = Evaluate(r, 80, 90); len(ps) != 1 || ps[0].Level != "critical" || ps[0].Component != "disk" || !strings.Contains(ps[0].Text, "ClickHouse (disk default)") {
 		t.Fatalf("%+v", ps)
 	}
 	if Overall(nil) != "ok" || Overall([]Problem{{Level: "warning"}}) != "warning" {
@@ -152,5 +155,49 @@ func TestAnErrorDoesNotCarryTheAddress(t *testing.T) {
 	m.Statfs = func(string) (uint64, uint64, error) { return 0, 0, errors.New("x") }
 	if r := m.Refresh(context.Background()); r.CH == nil || strings.Contains(r.CH.Err, "http://") || !strings.Contains(r.CH.Err, "connection refused") {
 		t.Fatalf("%+v", r.CH)
+	}
+}
+
+func TestTheSameDiskIsOneProblemHoweverManyPartsLiveOnIt(t *testing.T) {
+	// what a real installation showed: Lumen, Elasticsearch and ClickHouse all on one 70 GB disk with 11.1 GB left
+	total, free := uint64(70*gb), uint64(11.1*gbf)
+	r := Report{
+		Disks: []Disk{{Name: "data", Path: "/data", Total: total, Free: free}},
+		ES:    &ES{Status: "green", Nodes: []ESNode{{Name: "b19155e62260", Total: total, Avail: free - 1<<20}}}, // measured a moment apart
+		CH:    &CH{Disks: []Disk{{Name: "default", Total: total, Free: free + 3<<20}}},
+	}
+	ps := Evaluate(r, 80, 90)
+	if len(ps) != 1 {
+		t.Fatalf("one disk, one problem (it was three): %+v", ps)
+	}
+	for _, want := range []string{"Lumen's data (/data)", "Elasticsearch (node b19155e62260)", "ClickHouse (disk default)", "84% full (11.1 GB free of 70 GB)"} {
+		if !strings.Contains(ps[0].Text, want) {
+			t.Errorf("%q is missing from %q", want, ps[0].Text)
+		}
+	}
+	// a different disk is a different problem
+	r.CH.Disks = append(r.CH.Disks, Disk{Name: "cold", Total: 200 * gb, Free: 10 * gb})
+	if ps = Evaluate(r, 80, 90); len(ps) != 2 {
+		t.Fatalf("%+v", ps)
+	}
+	if m := MergeDisks(Views(r)); len(m) != 2 || len(m[0].Who) != 3 {
+		t.Fatalf("%+v", m)
+	}
+}
+
+func TestYellowSaysWhichIndicesAndWhatItMeans(t *testing.T) {
+	e := &ES{Status: "yellow", Unassigned: 2, UnassignedIndices: []string{"lumen-agent_updates (replica)", "lumen-tenants (replica)"}, Nodes: []ESNode{{Name: "n1"}}}
+	ps := Evaluate(Report{ES: e}, 80, 90)
+	if len(ps) != 1 || !strings.Contains(ps[0].Text, "lumen-agent_updates (replica), lumen-tenants (replica)") || !strings.Contains(ps[0].Advice, "number_of_replicas") || !strings.Contains(ps[0].Advice, "Nothing is lost") {
+		t.Fatalf("copies on a single node: harmless, and how to make it green: %+v", ps)
+	}
+	e.UnassignedIndices = []string{"lumen-logs (primary)"}
+	if ps = Evaluate(Report{ES: e}, 80, 90); !strings.Contains(ps[0].Advice, "allocation/explain") || strings.Contains(ps[0].Advice, "Nothing is lost") {
+		t.Fatalf("a primary without a place is not harmless: %+v", ps)
+	}
+	e.UnassignedIndices = []string{"x (replica)"}
+	e.Nodes = []ESNode{{Name: "n1"}, {Name: "n2"}}
+	if ps = Evaluate(Report{ES: e}, 80, 90); strings.Contains(ps[0].Advice, "Nothing is lost") {
+		t.Fatalf("with two nodes a copy that has no place is a real problem: %+v", ps)
 	}
 }

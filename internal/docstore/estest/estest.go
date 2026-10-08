@@ -34,6 +34,9 @@ type Fake struct {
 	DiskPercent   string // "disk.percent" of the one node, as Elasticsearch writes it (a string)
 	DiskAvail     string
 	DiskTotal     string
+	Nodes         int                 // number_of_nodes; 0 means one
+	ShardRows     []map[string]string // what _cat/shards answers (index, prirep, state)
+	SettingsPuts  []string            // the index patterns that had their settings changed, and to what
 }
 
 // New starts a fake Elasticsearch. Close the returned server when done.
@@ -56,13 +59,26 @@ func (f *Fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(200, `{"version":{"number":"8.15.0"}}`)
 		return
 	}
+	if r.Method == "PUT" && strings.HasSuffix(r.URL.Path, "/_settings") {
+		body, _ := io.ReadAll(r.Body)
+		f.SettingsPuts = append(f.SettingsPuts, strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/"), "/_settings")+" "+string(body))
+		reply(200, `{"acknowledged":true}`)
+		return
+	}
 	switch r.URL.Path {
 	case "/_cluster/health":
-		st := f.ClusterStatus
+		st, n := f.ClusterStatus, f.Nodes
 		if st == "" {
 			st = "green"
 		}
-		reply(200, fmt.Sprintf(`{"cluster_name":"docker-cluster","status":%q,"unassigned_shards":%d,"number_of_nodes":1}`, st, f.Unassigned))
+		if n == 0 {
+			n = 1
+		}
+		reply(200, fmt.Sprintf(`{"cluster_name":"docker-cluster","status":%q,"unassigned_shards":%d,"number_of_nodes":%d}`, st, f.Unassigned, n))
+		return
+	case "/_cat/shards":
+		b, _ := json.Marshal(f.ShardRows)
+		reply(200, string(b))
 		return
 	case "/_cat/allocation":
 		dp, da, dt := f.DiskPercent, f.DiskAvail, f.DiskTotal

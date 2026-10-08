@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -145,7 +146,25 @@ func (e *ES) EnsureIndices(ctx context.Context) error {
 			return err
 		}
 	}
+	e.settleReplicas(ctx)
 	return nil
+}
+
+// settleReplicas takes the copies off Lumen's own indices when the cluster is a single node. A copy (a replica) cannot live
+// on the node that has the original, so it would wait for ever and keep the cluster yellow. It is best effort: it changes
+// only Lumen's own indices, and never on a cluster with more than one node, where copies are what protects the data.
+func (e *ES) settleReplicas(ctx context.Context) {
+	code, b, err := e.do(ctx, "GET", "/_cluster/health", nil)
+	if err != nil || code != 200 {
+		return
+	}
+	var c struct {
+		Nodes int `json:"number_of_nodes"`
+	}
+	if json.Unmarshal(b, &c) != nil || c.Nodes != 1 {
+		return
+	}
+	e.do(ctx, "PUT", "/"+e.index("*")+"/_settings", map[string]any{"index": map[string]any{"number_of_replicas": 0}})
 }
 
 func (e *ES) Ping(ctx context.Context) error {
@@ -297,6 +316,28 @@ func (e *ES) Health(ctx context.Context) (health.ES, error) {
 		return h, fmt.Errorf("elasticsearch gave an answer that is not JSON")
 	}
 	h.Status, h.Unassigned, h.Nodes = c.Status, c.Unassigned, []health.ESNode{}
+	if c.Unassigned > 0 { // which indices, and whether it is a primary (data that cannot be used) or a copy waiting for a second node
+		if code, b, err := e.do(ctx, "GET", "/_cat/shards?format=json&h=index,prirep,state", nil); err == nil && code == 200 {
+			var rows []map[string]string
+			seen := map[string]bool{}
+			if json.Unmarshal(b, &rows) == nil {
+				for _, r := range rows {
+					if r["state"] != "UNASSIGNED" || len(h.UnassignedIndices) >= 10 {
+						continue
+					}
+					kind := "replica"
+					if r["prirep"] == "p" {
+						kind = "primary"
+					}
+					if l := r["index"] + " (" + kind + ")"; !seen[l] {
+						seen[l] = true
+						h.UnassignedIndices = append(h.UnassignedIndices, l)
+					}
+				}
+			}
+			sort.Strings(h.UnassignedIndices)
+		}
+	}
 	// the disk, as Elasticsearch itself sees it (this is what its 85 / 90 / 95 percent limits are measured against)
 	if code, b, err = e.do(ctx, "GET", "/_cat/allocation?format=json&bytes=b", nil); err == nil && code == 200 {
 		var rows []map[string]string

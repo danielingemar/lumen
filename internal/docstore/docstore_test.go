@@ -217,3 +217,43 @@ func TestElasticsearchHealthIsReadFromTheCluster(t *testing.T) {
 		t.Fatal("unreachable")
 	}
 }
+
+func TestYellowNamesTheIndicesThatHaveNoPlace(t *testing.T) {
+	ts, fake := estest.New()
+	defer ts.Close()
+	es := NewES(ESConfig{URL: ts.URL, User: "elastic", Password: "pw", Prefix: "lumen"})
+	fake.ClusterStatus, fake.Unassigned = "yellow", 2
+	fake.ShardRows = []map[string]string{
+		{"index": "lumen-agent_updates", "prirep": "r", "state": "UNASSIGNED"},
+		{"index": "lumen-agent_updates", "prirep": "p", "state": "STARTED"},
+		{"index": "lumen-tenants", "prirep": "r", "state": "UNASSIGNED"},
+		{"index": "lumen-logs", "prirep": "p", "state": "UNASSIGNED"},
+	}
+	h, err := es.Health(context.Background())
+	if err != nil || strings.Join(h.UnassignedIndices, ",") != "lumen-agent_updates (replica),lumen-logs (primary),lumen-tenants (replica)" {
+		t.Fatalf("%v %v", h.UnassignedIndices, err)
+	}
+	fake.ClusterStatus, fake.Unassigned, fake.ShardRows = "green", 0, nil
+	if h, _ = es.Health(context.Background()); len(h.UnassignedIndices) != 0 {
+		t.Fatal("nothing to name when all have a place")
+	}
+}
+
+func TestOnASingleNodeLumensIndicesAreToldToHaveNoCopies(t *testing.T) {
+	ts, fake := estest.New()
+	defer ts.Close()
+	es := NewES(ESConfig{URL: ts.URL, User: "elastic", Password: "pw", Prefix: "lumen"})
+	if err := es.EnsureIndices(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.SettingsPuts) != 1 || !strings.HasPrefix(fake.SettingsPuts[0], "lumen-* ") || !strings.Contains(fake.SettingsPuts[0], `"number_of_replicas":0`) {
+		t.Fatalf("on one node, only Lumen's own indices (by their prefix): %v", fake.SettingsPuts)
+	}
+	// on a cluster of several nodes the copies are what protects the data: they are left alone
+	ts2, fake2 := estest.New()
+	defer ts2.Close()
+	fake2.Nodes = 3
+	if err := NewES(ESConfig{URL: ts2.URL, User: "elastic", Password: "pw", Prefix: "lumen"}).EnsureIndices(context.Background()); err != nil || len(fake2.SettingsPuts) != 0 {
+		t.Fatalf("%v %v", err, fake2.SettingsPuts)
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -39,10 +40,12 @@ type ESNode struct {
 
 // ES is the state of the Elasticsearch cluster that holds the settings.
 type ES struct {
-	Status     string   `json:"status"` // green | yellow | red
-	Unassigned int      `json:"unassigned_shards"`
-	Nodes      []ESNode `json:"nodes"`
-	Err        string   `json:"error,omitempty"` // set when it could not be asked
+	Status     string `json:"status"` // green | yellow | red
+	Unassigned int    `json:"unassigned_shards"`
+	// the indices that have shards without a place, as "name (replica)" or "name (primary)"; empty when there are none
+	UnassignedIndices []string `json:"unassigned_indices,omitempty"`
+	Nodes             []ESNode `json:"nodes"`
+	Err               string   `json:"error,omitempty"` // set when it could not be asked
 }
 
 // Table is a table of the telemetry store and how much disk it uses.
@@ -94,13 +97,78 @@ func Size(n uint64) string {
 
 const diskAdvice = "Elasticsearch stops creating indices at 85 percent and refuses writes at 95; ClickHouse needs room to merge and goes read-only when the disk is full. Free space (docker builder prune -af is safe), shorten the retention, or make the disk bigger."
 
-func diskProblem(d Disk, warn, crit float64, whose string) *Problem {
+// View is a disk as one of the parts sees it.
+type View struct {
+	Who  string
+	Disk Disk
+}
+
+// Merged is one disk, with every part that sees it. Lumen's files, Elasticsearch and ClickHouse usually live on the same
+// disk, and it must be one problem, not three.
+type Merged struct {
+	Who  []string
+	Disk Disk
+}
+
+// MergeDisks puts the views that are the same disk together: the same size and the same room left, give or take half a gigabyte
+// (each part measures at a slightly different moment).
+func MergeDisks(views []View) []Merged {
+	const g = 1 << 30
+	key := func(d Disk) [2]int64 { return [2]int64{int64((d.Total + g/2) / g), int64((d.Free + g/2) / g)} }
+	var out []Merged
+	idx := map[[2]int64]int{}
+	for _, v := range views {
+		if v.Disk.Total == 0 {
+			continue
+		}
+		k := key(v.Disk)
+		if i, ok := idx[k]; ok {
+			out[i].Who = append(out[i].Who, v.Who)
+			continue
+		}
+		idx[k] = len(out)
+		out = append(out, Merged{Who: []string{v.Who}, Disk: v.Disk})
+	}
+	return out
+}
+
+func joinWho(w []string) string {
+	switch len(w) {
+	case 1:
+		return w[0]
+	case 2:
+		return w[0] + " and " + w[1]
+	}
+	return strings.Join(w[:len(w)-1], ", ") + " and " + w[len(w)-1]
+}
+
+// Views lists every disk the report knows of, each as the part that measured it sees it.
+func Views(r Report) []View {
+	var v []View
+	for _, d := range r.Disks {
+		v = append(v, View{"Lumen's " + d.Name + " (" + d.Path + ")", d})
+	}
+	if r.ES != nil {
+		for _, n := range r.ES.Nodes {
+			v = append(v, View{"Elasticsearch (node " + n.Name + ")", Disk{Total: n.Total, Free: n.Avail}})
+		}
+	}
+	if r.CH != nil {
+		for _, d := range r.CH.Disks {
+			v = append(v, View{"ClickHouse (disk " + d.Name + ")", d})
+		}
+	}
+	return v
+}
+
+func diskProblem(m Merged, warn, crit float64) *Problem {
+	d := m.Disk
 	u := d.UsedPct()
 	if d.Total == 0 || u < warn {
 		return nil
 	}
-	p := &Problem{Component: "disk", Subject: d.Name, Level: "warning", Advice: diskAdvice,
-		Text: fmt.Sprintf("%s is %.0f%% full (%s free of %s).", whose, u, Size(d.Free), Size(d.Total))}
+	p := &Problem{Component: "disk", Subject: m.Who[0], Level: "warning", Advice: diskAdvice,
+		Text: fmt.Sprintf("The disk used by %s is %.0f%% full (%s free of %s).", joinWho(m.Who), u, Size(d.Free), Size(d.Total))}
 	if u >= crit {
 		p.Level = "critical"
 	}
@@ -110,8 +178,8 @@ func diskProblem(d Disk, warn, crit float64, whose string) *Problem {
 // Evaluate turns a report into problems. warn and crit are percentages of a full disk.
 func Evaluate(r Report, warn, crit float64) []Problem {
 	var out []Problem
-	for _, d := range r.Disks {
-		if p := diskProblem(d, warn, crit, "The disk under "+d.Path+" (where Lumen keeps its "+d.Name+")"); p != nil {
+	for _, m := range MergeDisks(Views(r)) {
+		if p := diskProblem(m, warn, crit); p != nil {
 			out = append(out, *p)
 		}
 	}
@@ -120,34 +188,40 @@ func Evaluate(r Report, warn, crit float64) []Problem {
 		case r.ES.Err != "":
 			out = append(out, Problem{Component: "elasticsearch", Subject: "elasticsearch", Level: "critical", Text: "Elasticsearch cannot be reached: " + r.ES.Err + ". Settings, users and dashboards are unavailable until it is back.", Advice: "docker compose logs elasticsearch, and look at the disk first."})
 		case r.ES.Status == "red":
-			out = append(out, Problem{Component: "elasticsearch", Subject: "elasticsearch", Level: "critical", Text: "Elasticsearch is red: some of its data cannot be read or written.", Advice: "Most often the disk is over its limit, so a new index got no place. Free space first; then check the shards with GET /_cluster/allocation/explain."})
+			out = append(out, Problem{Component: "elasticsearch", Subject: "elasticsearch", Level: "critical", Text: "Elasticsearch is red: some of its data cannot be read or written." + unassignedText(r.ES), Advice: "Most often the disk is over its limit, so a new index got no place. Free space first; then check the shards with GET /_cluster/allocation/explain."})
 		case r.ES.Status == "yellow":
-			out = append(out, Problem{Component: "elasticsearch", Subject: "elasticsearch", Level: "warning", Text: fmt.Sprintf("Elasticsearch is yellow: %d shard(s) have no place to live.", r.ES.Unassigned), Advice: "On a single node this is usual for an index that wants a replica; Lumen's own indices have none. Check the disk if it is new."})
-		}
-		for _, n := range r.ES.Nodes {
-			if n.Total == 0 {
-				continue
-			}
-			d := Disk{Name: "Elasticsearch node " + n.Name, Path: "the node's data path", Total: n.Total, Free: n.Avail}
-			if p := diskProblem(d, warn, crit, "Elasticsearch's own view of its disk ("+n.Name+")"); p != nil {
-				p.Component, p.Subject = "elasticsearch", "disk "+n.Name
-				out = append(out, *p)
-			}
+			out = append(out, Problem{Component: "elasticsearch", Subject: "elasticsearch", Level: "warning", Text: fmt.Sprintf("Elasticsearch is yellow: %d shard(s) have no place to live.", r.ES.Unassigned) + unassignedText(r.ES), Advice: yellowAdvice(r.ES)})
 		}
 	}
-	if r.CH != nil {
-		if r.CH.Err != "" {
-			out = append(out, Problem{Component: "clickhouse", Subject: "clickhouse", Level: "critical", Text: "ClickHouse cannot be reached: " + r.CH.Err + ". Traces, logs and metrics cannot be stored or read.", Advice: "docker compose logs clickhouse, and look at the disk first."})
-		}
-		for _, d := range r.CH.Disks {
-			if p := diskProblem(d, warn, crit, "ClickHouse's disk "+d.Name); p != nil {
-				p.Component, p.Subject = "clickhouse", "disk "+d.Name
-				out = append(out, *p)
-			}
-		}
+	if r.CH != nil && r.CH.Err != "" {
+		out = append(out, Problem{Component: "clickhouse", Subject: "clickhouse", Level: "critical", Text: "ClickHouse cannot be reached: " + r.CH.Err + ". Traces, logs and metrics cannot be stored or read.", Advice: "docker compose logs clickhouse, and look at the disk first."})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Level == "critical" && out[j].Level != "critical" })
 	return out
+}
+
+func unassignedText(e *ES) string {
+	if len(e.UnassignedIndices) == 0 {
+		return ""
+	}
+	return " Without a place: " + strings.Join(e.UnassignedIndices, ", ") + "."
+}
+
+// yellowAdvice says what yellow means here. A shard without a place that is a copy (a replica) needs a second node to live
+// on, and on a single node it never gets one: harmless, but it keeps the cluster yellow.
+func yellowAdvice(e *ES) string {
+	if len(e.UnassignedIndices) > 0 {
+		replicas := true
+		for _, x := range e.UnassignedIndices {
+			if !strings.HasSuffix(x, "(replica)") {
+				replicas = false
+			}
+		}
+		if replicas && len(e.Nodes) <= 1 {
+			return "These are copies (replicas) that wait for a second node, which a single-node cluster does not have. Nothing is lost. To make it green: PUT /INDEX/_settings with {\"index\":{\"number_of_replicas\":0}} (Lumen does this for its own indices when it starts)."
+		}
+	}
+	return "Check why with GET /_cluster/allocation/explain; a full disk is the usual reason."
 }
 
 // Overall is the worst level of a set of problems.

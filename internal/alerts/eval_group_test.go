@@ -147,10 +147,10 @@ func TestRulesAboutLumenItself(t *testing.T) {
 		}
 		return out
 	}
-	if got := strings.Join(run("lumen_disk", 80, "owner"), "|"); got != "Elasticsearch n1|data" && got != "data|Elasticsearch n1" {
+	if got := strings.Join(run("lumen_disk", 80, "owner"), "|"); got != "Elasticsearch (node n1)|Lumen's data (/data)" {
 		t.Fatalf("at 80 percent the data disk (92) and Elasticsearch's view (88) are both too full: %q", got)
 	}
-	if got := run("lumen_disk", 90, "owner"); len(got) != 1 || got[0] != "data" {
+	if got := run("lumen_disk", 90, "owner"); len(got) != 1 || got[0] != "Lumen's data (/data)" {
 		t.Fatalf("at 90 percent only the data disk: %v", got)
 	}
 	if got := run("lumen_disk", 95, "owner"); len(got) != 0 {
@@ -219,5 +219,18 @@ func TestRulesAboutLumenAreChecked(t *testing.T) {
 		if !have[n] {
 			t.Errorf("template %q", n)
 		}
+	}
+}
+
+func TestTheSameDiskIsOneSampleInTheRule(t *testing.T) {
+	const gb = 1 << 30
+	rep := health.Report{
+		Disks: []health.Disk{{Name: "data", Path: "/data", Total: 70 * gb, Free: 11 * gb}},
+		ES:    &health.ES{Status: "green", Nodes: []health.ESNode{{Name: "n1", Total: 70 * gb, Avail: 11 * gb}}},
+		CH:    &health.CH{Disks: []health.Disk{{Name: "default", Total: 70 * gb, Free: 11 * gb}}},
+	}
+	got := healthSamples("lumen_disk", 80, rep)
+	if len(got) != 1 || !strings.Contains(got[0].Labels["disk"], "Elasticsearch") || !strings.Contains(got[0].Labels["disk"], "ClickHouse") || !strings.Contains(got[0].Labels["disk"], "/data") {
+		t.Fatalf("one alert for one disk, with every part that lives on it named: %+v", got)
 	}
 }
