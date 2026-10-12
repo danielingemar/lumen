@@ -70,6 +70,8 @@ type Report struct {
 	UserBasis string    `json:"user_basis"`
 	DataBasis string    `json:"data_basis"`
 	GBUnit    string    `json:"gb_unit"`
+	DataMode  string    `json:"data_mode"`     // stored | traffic: what the GB price is charged on
+	Traffic   string    `json:"traffic_count"` // sent | both (when the data is charged by traffic)
 	Prorate   bool      `json:"prorate"`
 	Invoices  []Invoice `json:"invoices"`
 	Totals    []Total   `json:"totals"`
@@ -152,6 +154,11 @@ func Build(cfg Config, period string, months []Month, known []Known, now time.Ti
 // The number of users is the one on the last day (users hardly change, and the invoice is for how many there are when it is
 // made), unless the configuration says otherwise.
 func BuildRange(cfg Config, fromDay, toDay string, months []Month, known []Known, now time.Time) (Report, error) {
+	return BuildRangeT(cfg, fromDay, toDay, months, nil, known, now)
+}
+
+// BuildRangeT is BuildRange with the traffic of containers, for a configuration that charges the data by traffic.
+func BuildRangeT(cfg Config, fromDay, toDay string, months []Month, traffic []TrafficMonth, known []Known, now time.Time) (Report, error) {
 	first, last, err := ParseRange(fromDay, toDay)
 	if err != nil {
 		return Report{}, err
@@ -164,7 +171,7 @@ func BuildRange(cfg Config, fromDay, toDay string, months []Month, known []Known
 	period := fromDay + " to " + toDay
 	rep := Report{Period: period, From: fromDay, To: toDay, Days: nDays,
 		Complete:  now.UTC().After(last.AddDate(0, 0, 1)) || now.UTC().Equal(last.AddDate(0, 0, 1)),
-		UserBasis: cfg.UserBasis, DataBasis: cfg.DataBasis, GBUnit: cfg.GBUnit, Prorate: cfg.Prorate, Invoices: []Invoice{}, Totals: []Total{},
+		UserBasis: cfg.UserBasis, DataBasis: cfg.DataBasis, GBUnit: cfg.GBUnit, DataMode: cfg.DataMode, Traffic: cfg.Traffic, Prorate: cfg.Prorate, Invoices: []Invoice{}, Totals: []Total{},
 		Generated: now.UTC().Format(time.RFC3339)}
 	if !rep.Complete {
 		rep.Warnings = append(rep.Warnings, "The period is not over: this is the basis so far, and it changes until the last day.")
@@ -269,6 +276,13 @@ func BuildRange(cfg Config, fromDay, toDay string, months []Month, known []Known
 		}
 		ln.Users = round3(ua.value(cfg.UserBasis))
 		ln.GB = round3(bytes.value(cfg.DataBasis) / unit)
+		trafficMode := cfg.DataMode == Traffic
+		matched := 0
+		if trafficMode {
+			var total float64
+			total, matched = trafficOf(traffic, p.Containers, rep.From, rep.To, cfg.Traffic == Both)
+			ln.GB = round3(total / unit)
+		}
 		if len(days) == 0 {
 			ln.Warnings = append(ln.Warnings, "Nothing was reported in this period, so nothing is charged. Is the agent running, and is the instance added?")
 		} else {
@@ -276,7 +290,12 @@ func BuildRange(cfg Config, fromDay, toDay string, months []Month, known []Known
 			if ua.n == 0 {
 				ln.Warnings = append(ln.Warnings, "The number of users is not reported (needs a serverinfo token or an administrator login on the instance).")
 			}
-			if bytes.n == 0 {
+			switch {
+			case trafficMode && len(p.Containers) == 0:
+				ln.Warnings = append(ln.Warnings, "No container is chosen for this instance, so no traffic is charged (Prices & customers, Containers).")
+			case trafficMode && matched == 0:
+				ln.Warnings = append(ln.Warnings, "No traffic was recorded for its containers in this period. Is the container name spelled as Docker has it, and does the agent on that machine have access to Docker? An agent that runs as a container needs the Docker socket mounted into it (-v /var/run/docker.sock:/var/run/docker.sock).")
+			case !trafficMode && bytes.n == 0:
 				ln.Warnings = append(ln.Warnings, "The data used is not reported: it needs an administrator login (user and app password) on the instance, with the Provisioning API enabled.")
 			}
 			if !cfg.Prorate && len(days) < nDays && rep.Complete {
@@ -288,7 +307,11 @@ func BuildRange(cfg Config, fromDay, toDay string, months []Month, known []Known
 			num, den = int64(len(days)), int64(nDays)
 		}
 		ln.UserAmount = amount(milli(ln.Users), up, c.Decimals, num, den)
-		ln.DataAmount = amount(milli(ln.GB), gp, c.Decimals, num, den)
+		if trafficMode { // traffic is what was sent on the days that have it: there is nothing to share out over the month
+			ln.DataAmount = amount(milli(ln.GB), gp, c.Decimals, 1, 1)
+		} else {
+			ln.DataAmount = amount(milli(ln.GB), gp, c.Decimals, num, den)
+		}
 		ln.Gross = ln.UserAmount + ln.DataAmount
 		ln.Discount = percentOf(ln.Gross, discD)
 		ln.Net = ln.Gross - ln.Discount
@@ -351,6 +374,45 @@ func BuildRange(cfg Config, fromDay, toDay string, months []Month, known []Known
 		rep.Warnings = append(rep.Warnings, "No prices are set yet, so every amount is zero.")
 	}
 	return rep, nil
+}
+
+// trafficOf adds up the bytes the named containers sent (and received) on the days from..to. A name is "container" (on any
+// machine) or "host/container". matched is how many of the stored containers were found, so that a misspelled name is told apart
+// from a container that was quiet.
+func trafficOf(months []TrafficMonth, names []string, from, to string, both bool) (float64, int) {
+	var total float64
+	matched := 0
+	for _, m := range months {
+		hit := false
+		for _, n := range names {
+			host, c := "", n
+			if h, rest, ok := strings.Cut(n, "/"); ok {
+				host, c = h, rest
+			}
+			if c == m.Container && (host == "" || host == m.Host) {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			continue
+		}
+		seen := false
+		for day, d := range m.Days {
+			if day < from || day > to {
+				continue
+			}
+			seen = true
+			total += d.Sent
+			if both {
+				total += d.Received
+			}
+		}
+		if seen {
+			matched++
+		}
+	}
+	return total, matched
 }
 
 func round3(f float64) float64 { return math.Round(f*1000) / 1000 }

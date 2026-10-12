@@ -65,3 +65,66 @@ func (c *ClickHouse) InstanceUsage(ctx context.Context, tenant string, from, to 
 }
 
 var _ billing.Source = (*ClickHouse)(nil)
+
+// containerTrafficSQL is what each container sent and received on each UTC day. The agent reports counters that start at zero
+// when a container starts, so a day is the sum of the steps between one reading and the one before it, and a reading that is
+// lower than the one before it means a restart: the new counter is then all new traffic. It reads one hour before the window
+// to have the reading before the first one, so that the first step of a day is not lost.
+const containerTrafficSQL = "SELECT host, container, day, dir, sum(d) AS v FROM (" +
+	"SELECT attrs['host'] AS host, attrs['container'] AS container, attrs['direction'] AS dir, toString(toDate(ts, 'UTC')) AS day, " +
+	"if(value >= p, value - p, value) AS d FROM (" +
+	"SELECT ts, attrs, value, lagInFrame(value, 1, value) OVER (PARTITION BY attrs['host'], attrs['container'], attrs['direction'] " +
+	"ORDER BY ts ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS p FROM otel_metrics " +
+	"WHERE tenant = {tenant:String} AND name = 'container_network_bytes' AND attrs['container'] != '' " +
+	"AND ts >= {pre:DateTime64(9)} AND ts < {to:DateTime64(9)}) WHERE ts >= {from:DateTime64(9)}) " +
+	"GROUP BY host, container, day, dir ORDER BY host, container, day, dir LIMIT 1000000 FORMAT JSONEachRow"
+
+func buildContainerTrafficQuery(tenant string, from, to time.Time) (string, map[string]string) {
+	f, t := window(from, to)
+	pre, _ := window(from.Add(-time.Hour), to)
+	return containerTrafficSQL, map[string]string{"tenant": tenant, "from": f, "pre": pre, "to": t}
+}
+
+// ContainerTraffic is what the traffic of the containers is billed from. It filters on the tenant, like every method here.
+func (c *ClickHouse) ContainerTraffic(ctx context.Context, tenant string, from, to time.Time) ([]billing.TrafficSample, error) {
+	q, p := buildContainerTrafficQuery(tenant, from, to)
+	rows, err := c.run(ctx, q, p)
+	if err != nil {
+		return nil, err
+	}
+	type key struct{ host, container, day string }
+	idx := map[key]int{}
+	var out []billing.TrafficSample
+	for _, r := range rows {
+		var x struct {
+			Host      string      `json:"host"`
+			Container string      `json:"container"`
+			Day       string      `json:"day"`
+			Dir       string      `json:"dir"`
+			V         json.Number `json:"v"`
+		}
+		if json.Unmarshal(r, &x) != nil {
+			continue
+		}
+		v, err := strconv.ParseFloat(x.V.String(), 64)
+		if err != nil || v != v || v < 0 {
+			continue
+		}
+		k := key{x.Host, x.Container, x.Day}
+		i, ok := idx[k]
+		if !ok {
+			i = len(out)
+			idx[k] = i
+			out = append(out, billing.TrafficSample{Host: x.Host, Container: x.Container, Day: x.Day})
+		}
+		switch x.Dir {
+		case "transmit":
+			out[i].Sent = v
+		case "receive":
+			out[i].Received = v
+		}
+	}
+	return out, nil
+}
+
+var _ billing.TrafficSource = (*ClickHouse)(nil)

@@ -798,13 +798,13 @@ async function machinesPage(){
     else if(kind==='docker'){const dl=el('input',{type:'checkbox',checked:true}),res=el('div',{});
       const d=()=>{const lg=dl.checked;res.replaceChildren(cmdBox('Docker',`docker run -d --name lumen-agent --restart unless-stopped --hostname "$(hostname)" \\\n  -e LUMEN_AGENT_URL=${shq(o)} -e LUMEN_AGENT_API_KEY=${shq(K())}${lg?' \\\n  -e LUMEN_AGENT_DOCKER_LOGS=1 -v /var/lib/docker/containers:/var/lib/docker/containers:ro':''} \\\n  alpine:3.20 sh -c ${shq('wget -qO- '+o+'/install/agent-docker.sh | sh')}`,'Downloads and verifies the agent when the container starts. Nothing to build.'),el('p',{class:'help'},'This container agent reports the host metrics and logs. For up/down status of Docker containers and systemd services, use the Linux install above (with --docker).'),el('p',{class:'mut'},'Remove with: docker rm -f lumen-agent. CPU, memory and load are host-wide values.'))};
       dl.onchange=d;box.append(el('label',{},dl,' also ship Docker container logs'),res);d()}
-    else if(kind==='nextcloud'){const i={u:el('input',{placeholder:'https://cloud.example.com',size:30}),t:el('input',{placeholder:'serverinfo token',size:24}),n:el('input',{placeholder:'name (e.g. ks)',size:14,value:'nextcloud'}),l:el('input',{placeholder:'path to nextcloud.log (optional)',size:30})},res=el('div',{});
+    else if(kind==='nextcloud'){const i={u:el('input',{placeholder:'https://cloud.example.com',size:30}),t:el('input',{placeholder:'serverinfo token',size:24}),n:el('input',{placeholder:'name (e.g. ks)',size:14,value:'nextcloud'}),l:el('input',{placeholder:'path to nextcloud.log (optional)',size:30})},res=el('div',{}),dk=el('input',{type:'checkbox',onchange:()=>d()});
       const d=()=>{const u=i.u.value.trim(),t=i.t.value.trim(),n=i.n.value.trim()||'nextcloud',l=i.l.value.trim();
         if(!u){res.replaceChildren(el('p',{class:'mut'},'Fill in the Nextcloud URL to get the commands.'));return}
         res.replaceChildren(cmdBox('On a Linux machine',`curl -fsSL ${o}/install/agent.sh | sudo sh -s -- --key ${shq(K())} --no-host-metrics --nextcloud ${shq(u)}${t?' --nextcloud-token '+shq(t):''} --nextcloud-name ${shq(n)}${l?' --nextcloud-log '+shq(l):''}`,'The agent can run anywhere that can reach the Nextcloud URL. Drop --no-host-metrics to also monitor that machine.'),
-          cmdBox('Or as a Docker container',`docker run -d --name lumen-agent-nc-${n.replace(/[^\w.-]/g,'')} --restart unless-stopped \\\n  -e LUMEN_AGENT_URL=${shq(o)} -e LUMEN_AGENT_API_KEY=${shq(K())} -e LUMEN_AGENT_HOST_METRICS=false -e LUMEN_AGENT_HOSTNAME=${shq('check-'+n.replace(/[^\w.-]/g,''))} \\\n  -e LUMEN_AGENT_NEXTCLOUD_URL=${shq(u)} -e LUMEN_AGENT_NEXTCLOUD_SERVICE=${shq(n)}${t?' \\\n  -e LUMEN_AGENT_NEXTCLOUD_TOKEN='+shq(t):''} \\\n  alpine:3.20 sh -c ${shq('wget -qO- '+o+'/install/agent-docker.sh | sh')}`))};
+          cmdBox('Or as a Docker container',`docker run -d --name lumen-agent-nc-${n.replace(/[^\w.-]/g,'')} --restart unless-stopped${dk.checked?' \\\n  -v /var/run/docker.sock:/var/run/docker.sock':''} \\\n  -e LUMEN_AGENT_URL=${shq(o)} -e LUMEN_AGENT_API_KEY=${shq(K())} -e LUMEN_AGENT_HOST_METRICS=false -e LUMEN_AGENT_HOSTNAME=${shq('check-'+n.replace(/[^\w.-]/g,''))} \\\n  -e LUMEN_AGENT_NEXTCLOUD_URL=${shq(u)} -e LUMEN_AGENT_NEXTCLOUD_SERVICE=${shq(n)}${t?' \\\n  -e LUMEN_AGENT_NEXTCLOUD_TOKEN='+shq(t):''} \\\n  alpine:3.20 sh -c ${shq('wget -qO- '+o+'/install/agent-docker.sh | sh')}`))};
       Object.values(i).forEach(x=>x.oninput=d);
-      box.append(el('div',{class:'msg info'},'Tip: add instances on the ',el('a',{href:'#/instances'},'Instances'),' page instead. You can fix a typo there without touching the machine. The commands below are an alternative that keeps the settings on the machine itself.'),el('p',{class:'mut'},'Monitors one Nextcloud instance from the outside: availability, version, maintenance mode, users, files, shares, apps, database size and PHP cache. Create a token on the Nextcloud server first:'),el('pre',{class:'code'},"occ config:app:set serverinfo token --value 'A_LONG_RANDOM_STRING'"),el('div',{class:'bar'},Object.values(i)),res);d()}
+      box.append(el('label',{class:'mut',style:'display:block;margin-bottom:8px',title:'Without it a container cannot see the other containers on the machine'},dk,' Also report this machine\'s Docker containers (needed to bill on network traffic): gives the agent container access to Docker'),el('div',{class:'msg info'},'Tip: add instances on the ',el('a',{href:'#/instances'},'Instances'),' page instead. You can fix a typo there without touching the machine. The commands below are an alternative that keeps the settings on the machine itself.'),el('p',{class:'mut'},'Monitors one Nextcloud instance from the outside: availability, version, maintenance mode, users, files, shares, apps, database size and PHP cache. Create a token on the Nextcloud server first:'),el('pre',{class:'code'},"occ config:app:set serverinfo token --value 'A_LONG_RANDOM_STRING'"),el('div',{class:'bar'},Object.values(i)),res);d()}
     else{box.append(el('p',{class:'mut'},'Loading…'));
       fetch('/download/SHA256SUMS').then(r=>r.ok?r.text():Promise.reject()).then(t=>{const rs=t.trim().split('\n').map(l=>l.trim().split(/\s+/)).filter(x=>x.length===2);
         box.replaceChildren(el('table',{},el('tr',{},['File','SHA-256',''].map(x=>el('th',{},x))),rs.map(([h,f])=>el('tr',{},el('td',{},f),el('td',{class:'mono mut'},h.slice(0,16)+'…'),el('td',{},el('a',{href:'/download/'+encodeURIComponent(f)},'Download'))))),
@@ -1177,7 +1177,7 @@ async function billingReport(body,info){
     let rep;try{rep=await api('/api/v1/billing/report',{from:fromI.value,to:toI.value})}catch(er){out.replaceChildren(el('div',{class:'errbox'},er.message));return}
     printAll.onclick=()=>printBasis(rep,rep.invoices);out.replaceChildren(billingReportView(rep,info))};
   fromI.onchange=toI.onchange=draw;
-  body.replaceChildren(el('p',{class:'help',style:'margin-top:0'},'What each customer owes for a period you choose, from one day to another (both included): users and stored data of every Nextcloud instance, priced as set under ',el('a',{href:'#/billing/prices'},'Prices & customers'),'. The prices are for the whole period, so pick the days you invoice, for example the 1st to the last day of the month. Users are counted on the last day of the period. This is the basis for an invoice, not an invoice: copy it into your invoicing program, or export it.'),
+  body.replaceChildren(el('p',{class:'help',style:'margin-top:0'},'What each customer owes for a period you choose, from one day to another (both included): users and stored data (or network traffic) of every Nextcloud instance, priced as set under ',el('a',{href:'#/billing/prices'},'Prices & customers'),'. The prices are for the whole period, so pick the days you invoice, for example the 1st to the last day of the month. Users are counted on the last day of the period. This is the basis for an invoice, not an invoice: copy it into your invoicing program, or export it.'),
     el('div',{class:'bar',style:'flex-wrap:wrap'},el('label',{},'From '),fromI,el('label',{},' to '),toI,quick,el('span',{class:'sp'}),el('label',{class:'mut',title:'Semicolons between columns and a decimal comma, which is what a Swedish Excel expects'},sv,' Swedish spreadsheet format'),dl,printAll),out);
   await draw();
 }
@@ -1191,7 +1191,7 @@ function billingReportView(rep,info){
     el('div',{class:'mut'},'Net '+money(t.net,t.currency,t.decimals)+' · VAT '+money(t.vat,t.currency,t.decimals))))));
   rep.invoices.forEach(inv=>kids.push(invoiceCard(rep,inv)));
   if(rep.excluded)kids.push(el('p',{class:'help'},rep.excluded+' instance'+(rep.excluded===1?' is':'s are')+' marked as not invoiced.'));
-  kids.push(el('p',{class:'help'},'Users are charged on '+basisText(rep.user_basis)+', stored data on '+basisText(rep.data_basis)+' (1 '+(rep.gb_unit==='gib'?'GiB = 2³⁰':'GB = 10⁹')+' bytes)'+(rep.prorate?'; an instance that reported part of the month is charged for those days only':'')+'. Stored data is what the accounts\' files take, as Nextcloud counts them against the quota.'));
+  kids.push(el('p',{class:'help'},'Users are charged on '+basisText(rep.user_basis)+', '+(rep.data_mode==='traffic'?'network traffic as what the chosen containers '+(rep.traffic_count==='both'?'sent and received':'sent'):'stored data on '+basisText(rep.data_basis))+' (1 '+(rep.gb_unit==='gib'?'GiB = 2³⁰':'GB = 10⁹')+' bytes)'+(rep.prorate?'; an instance that reported part of the month is charged for those days only':'')+(rep.data_mode==='traffic'?'. Traffic is everything the containers put on the network, which also means to the database and other containers on the same Docker network, not only to users or to storage.':'. Stored data is what the accounts\' files take, as Nextcloud counts them against the quota.')));
   return el('div',{},kids);
 }
 function invoiceCard(rep,inv){
@@ -1206,7 +1206,7 @@ function invoiceCard(rep,inv){
   const foot=(label,v,bold)=>el('tr',{},el('td',{colspan:6,style:'text-align:right'+(bold?';font-weight:600':'')},label),el('td',{style:r+(bold?';font-weight:600':'')},m(v)));
   return el('div',{class:'card',style:'margin-bottom:14px;padding:14px 0 0'},
     el('div',{class:'bar',style:'margin:0 16px 8px'},el('b',{style:'font-size:15px'},inv.customer),el('span',{class:'pill'},inv.currency),el('span',{class:'sp'}),el('button',{class:'btn ghost sm',onclick:()=>printBasis(rep,[inv])},'Print basis')),
-    el('div',{style:'overflow-x:auto'},el('table',{},el('tr',{},['Instance','Users','Stored data','Users','Stored data','Discount','Net'].map((x,i)=>el('th',{style:i>0?'text-align:right':''},x))),rows,
+    el('div',{style:'overflow-x:auto'},el('table',{},el('tr',{},['Instance','Users',rep.data_mode==='traffic'?'Traffic':'Stored data','Users',rep.data_mode==='traffic'?'Traffic':'Stored data','Discount','Net'].map((x,i)=>el('th',{style:i>0?'text-align:right':''},x))),rows,
       foot('Net',inv.net),inv.vat_lines.map(v=>foot('VAT '+v.percent+'% of '+m(v.base),v.vat)),foot('Total',inv.total,true))));
 }
 // A clean page for printing (or saving as PDF): one section per customer, laid out like the lines of an invoice.
@@ -1218,7 +1218,7 @@ function printBasis(rep,list){
     inv.lines.forEach(l=>{
       const part=rep.prorate&&l.days_reported<rep.days?' (charged for '+l.days_reported+' of '+rep.days+' days)':'';
       lines.push(el('tr',{},el('td',{},'Users, '+basisWord(rep.user_basis)+' — '+l.name+part),el('td',{style:r},qtyTxt(l.users)),el('td',{style:r},l.user_price),el('td',{style:r},m(l.user_amount))));
-      lines.push(el('tr',{},el('td',{},'Stored data (GB), '+basisWord(rep.data_basis)+' — '+l.name+part),el('td',{style:r},qtyTxt(l.gb)),el('td',{style:r},l.gb_price),el('td',{style:r},m(l.data_amount))));
+      lines.push(el('tr',{},el('td',{},(rep.data_mode==='traffic'?'Network traffic (GB, '+(rep.traffic_count==='both'?'sent and received':'sent')+')':'Stored data (GB), '+basisWord(rep.data_basis))+' — '+l.name+(rep.data_mode==='traffic'?'':part)),el('td',{style:r},qtyTxt(l.gb)),el('td',{style:r},l.gb_price),el('td',{style:r},m(l.data_amount))));
       if(l.discount)lines.push(el('tr',{},el('td',{},'Discount '+l.discount_percent+'% — '+l.name),el('td'),el('td'),el('td',{style:r},'−'+m(l.discount))));
       if(l.note)lines.push(el('tr',{},el('td',{colspan:4,style:'font-size:11px'},l.name+': '+l.note)));
     });
@@ -1237,18 +1237,19 @@ const basisWord=b=>({peak:'peak',average:'average',end:'last day'}[b]||b);
 async function billingPrices(body,info){
   const w=can('billing',true),cfg=JSON.parse(JSON.stringify(info.config)),curs=info.currencies,byKey={};
   cfg.profiles.forEach(p=>byKey[p.key]=p);
-  const blank=key=>({key,customer:'',exclude:false,currency:'',user_price:'',gb_price:'',discount_percent:'',vat_percent:'',note:''});
+  const blank=key=>({key,customer:'',exclude:false,currency:'',user_price:'',gb_price:'',discount_percent:'',vat_percent:'',note:'',containers:[]});
   const rows=info.instances.map(i=>({inst:i,p:Object.assign(blank(i.key),byKey[i.key]||{})})),listed=new Set(rows.map(x=>x.p.key));
   const inp=(v,ph,sz)=>el('input',{value:v||'',placeholder:ph||'',size:sz||9,inputmode:'decimal',disabled:w?null:''});
   const sel=(opts,v)=>el('select',{disabled:w?null:''},opts.map(([k,t])=>el('option',{value:k,selected:k===v?'':null},t)));
   const f={currency:sel(curs.map(c=>[c.code,c.code+' — '+c.name+' ('+c.symbol+')']),cfg.currency),user:inp(cfg.user_price,'0.00'),gb:inp(cfg.gb_price,'0.00'),vat:inp(cfg.vat_percent,'0',6),
     ub:sel(BILL_BASIS,cfg.user_basis),db:sel(BILL_BASIS,cfg.data_basis),unit:sel([['gb','1 GB = 1,000,000,000 bytes (what disks are sold in)'],['gib','1 GiB = 1,073,741,824 bytes (what most tools show)']],cfg.gb_unit),
+    mode:sel([['stored','Stored data: what the accounts keep on the instance'],['traffic','Network traffic: what the instance\'s containers send']],cfg.data_mode||'stored'),tc:sel([['sent','Only what they send (out)'],['both','What they send and receive']],cfg.traffic_count||'sent'),
     prorate:el('input',{type:'checkbox',checked:cfg.prorate,disabled:w?null:''})};
   const num=s=>{const n=parseFloat(String(s).replace(',','.'));return isFinite(n)?n:0};
   const example=el('p',{class:'help'}),cc=el('span',{class:'mut'});
-  const preview=()=>{const c=f.currency.value;cc.textContent=c;const u=num(f.user.value),g=num(f.gb.value),v=num(f.vat.value),net=10*u+500*g;
-    example.textContent='Example: a customer with 10 users and 500 GB pays 10 × '+u.toFixed(2)+' + 500 × '+g.toFixed(2)+' = '+net.toFixed(2)+' '+c+' a month'+(v?', plus '+v+'% VAT = '+(net*(1+v/100)).toFixed(2)+' '+c:'')+'.'};
-  [f.currency,f.user,f.gb,f.vat].forEach(x=>{x.oninput=preview;x.onchange=preview});preview();
+  const preview=()=>{const c=f.currency.value;cc.textContent=c;const u=num(f.user.value),g=num(f.gb.value),v=num(f.vat.value),net=10*u+500*g,tr=f.mode.value==='traffic';
+    example.textContent='Example: a customer with 10 users and 500 GB '+(tr?'of traffic ':'')+'pays 10 × '+u.toFixed(2)+' + 500 × '+g.toFixed(2)+' = '+net.toFixed(2)+' '+c+' for the period'+(v?', plus '+v+'% VAT = '+(net*(1+v/100)).toFixed(2)+' '+c:'')+'.'};
+  [f.currency,f.user,f.gb,f.vat,f.mode].forEach(x=>{x.oninput=preview;x.onchange=preview});preview();
   const status=i=>{if(!i.registered)return el('span',{class:'mut'},'seen, not added under Instances');
     if(!i.users_days&&!i.data_days)return el('span',{class:'mut'},'nothing reported this month');
     if(!i.data_days)return el('span',{style:'color:var(--warn)'},i.has_login?'users only: the data used is not reported yet':'users only: add an administrator login under Instances to read the data used');
@@ -1257,31 +1258,32 @@ async function billingPrices(body,info){
   const drawRows=()=>tbody.replaceChildren(rows.map(x=>{const p=x.p;
     const cust=el('input',{value:p.customer,placeholder:x.inst.name,size:22,disabled:w?null:'',oninput:()=>{p.customer=cust.value}});
     const ex=el('input',{type:'checkbox',checked:p.exclude,disabled:w?null:'',onchange:()=>{p.exclude=ex.checked}});
-    const own=p.currency||p.user_price||p.gb_price||p.discount_percent||p.vat_percent||p.note;
+    const own=p.currency||p.user_price||p.gb_price||p.discount_percent||p.vat_percent||p.note||(p.containers&&p.containers.length);
     return el('tr',{},el('td',{},el('b',{},x.inst.name),el('div',{class:'mut mono',style:'font-size:12px'},x.inst.key)),el('td',{},cust),el('td',{style:'text-align:center'},ex),el('td',{},status(x.inst)),
       el('td',{style:'white-space:nowrap'},el('button',{class:'btn ghost sm',onclick:()=>profileDialog(x,drawRows)},w?'Own prices…':'Details'),own?el('span',{class:'pill',style:'margin-left:6px'},'own settings'):null))}));
   const profileDialog=(x,again)=>{
     const p=x.p,def=f.currency.value,pf={cur:sel([['','Same as the default ('+def+')']].concat(curs.map(c=>[c.code,c.code+' — '+c.name])),p.currency),u:inp(p.user_price,'default'),g:inp(p.gb_price,'default'),d:inp(p.discount_percent,'0'),v:inp(p.vat_percent,'default',6),
-      n:el('input',{value:p.note,size:40,maxlength:300,disabled:w?null:'',placeholder:'Shown on the basis, for example "Billed quarterly"'})};
+      n:el('input',{value:p.note,size:40,maxlength:300,disabled:w?null:'',placeholder:'Shown on the basis, for example "Billed quarterly"'}),
+      c:el('input',{value:(p.containers||[]).join(', '),size:40,disabled:w?null:'',placeholder:'nextcloud-ks, nextcloud-ks-web',list:'billing-containers'})};
     dialog('Settings for '+x.inst.name,el('div',{},el('p',{class:'help'},'Leave a field empty to use the default prices. A customer in another currency needs both prices in that currency. Instances with the same customer name are on one invoice.'),
-      el('div',{class:'form'},el('label',{},'Currency'),pf.cur,el('label',{},'Price per user and month'),pf.u,el('label',{},'Price per GB and month'),pf.g,el('label',{},'Discount, %'),pf.d,el('label',{},'VAT, %'),pf.v,el('label',{},'Note'),pf.n)),
-      [['Cancel',()=>{},'ghost'],w?['Done',()=>{Object.assign(p,{currency:pf.cur.value,user_price:pf.u.value.trim(),gb_price:pf.g.value.trim(),discount_percent:pf.d.value.trim(),vat_percent:pf.v.value.trim(),note:pf.n.value.trim()});again()}]:null].filter(Boolean))};
+      el('div',{class:'form'},el('label',{},'Currency'),pf.cur,el('label',{},'Price per user and month'),pf.u,el('label',{},'Price per GB and month'),pf.g,el('label',{},'Discount, %'),pf.d,el('label',{},'VAT, %'),pf.v,el('label',{},'Containers (traffic)'),el('div',{},pf.c,el('datalist',{id:'billing-containers'},(info.containers||[]).map(c=>el('option',{value:c.container},c.host+' · sent '+(c.sent/1e9).toFixed(2)+' GB in the last 30 days'))),el('div',{class:'help'},'The Docker containers whose network traffic is charged for this instance when the data is charged by traffic. Separate several with commas; "host/name" picks the one on that machine.')),el('label',{},'Note'),pf.n)),
+      [['Cancel',()=>{},'ghost'],w?['Done',()=>{Object.assign(p,{currency:pf.cur.value,user_price:pf.u.value.trim(),gb_price:pf.g.value.trim(),discount_percent:pf.d.value.trim(),vat_percent:pf.v.value.trim(),note:pf.n.value.trim(),containers:pf.c.value.split(',').map(x=>x.trim()).filter(Boolean)});again()}]:null].filter(Boolean))};
   drawRows();
   const msg=el('span',{class:'mut'});
   const collect=()=>{const profiles=[];
-    rows.forEach(({p})=>{if(p.customer.trim()||p.exclude||p.currency||p.user_price||p.gb_price||p.discount_percent||p.vat_percent||p.note.trim())profiles.push(Object.assign({},p,{customer:p.customer.trim()}))});
+    rows.forEach(({p})=>{if(p.customer.trim()||p.exclude||p.currency||p.user_price||p.gb_price||p.discount_percent||p.vat_percent||p.note.trim()||(p.containers&&p.containers.length))profiles.push(Object.assign({},p,{customer:p.customer.trim()}))});
     cfg.profiles.forEach(p=>{if(!listed.has(p.key))profiles.push(p)});
-    return{currency:f.currency.value,user_price:f.user.value.trim(),gb_price:f.gb.value.trim(),user_basis:f.ub.value,data_basis:f.db.value,gb_unit:f.unit.value,vat_percent:f.vat.value.trim(),prorate:f.prorate.checked,profiles}};
+    return{currency:f.currency.value,user_price:f.user.value.trim(),gb_price:f.gb.value.trim(),user_basis:f.ub.value,data_basis:f.db.value,gb_unit:f.unit.value,data_mode:f.mode.value,traffic_count:f.tc.value,vat_percent:f.vat.value.trim(),prorate:f.prorate.checked,profiles}};
   const save=el('button',{class:'btn',onclick:async()=>{save.disabled=true;msg.className='mut';msg.textContent='Saving…';
     try{await api('/api/v1/billing',{},{method:'PUT',body:collect()});msg.className='ok';msg.textContent='Saved.';setTimeout(()=>{if(msg.isConnected)billingPage('prices')},600)}catch(er){msg.className='err';msg.textContent=er.message}finally{save.disabled=false}}},'Save');
   const row=(l,c,h)=>[el('label',{},l),el('div',{},c,h?el('div',{class:'help'},h):null)];
   body.replaceChildren(
     el('div',{class:'card',style:'margin-bottom:14px'},el('h2',{style:'margin-top:0'},'Prices'),
       el('div',{class:'form'},row('Currency',f.currency,'Every price is in this currency. There is no conversion: a customer in another currency gets its own prices below.'),
-        row('Price per user and month',el('span',{},f.user,' ',cc)),row('Price per GB of data and month',el('span',{},f.gb,' ',cc)),row('VAT, %',f.vat,'Added to the net amount. Set 0 if you do not charge VAT, or give a customer abroad its own value.')),
+        row('Price per user and month',el('span',{},f.user,' ',cc)),row('Price per GB (of data or traffic)',el('span',{},f.gb,' ',cc)),row('VAT, %',f.vat,'Added to the net amount. Set 0 if you do not charge VAT, or give a customer abroad its own value.')),
       example),
     el('div',{class:'card',style:'margin-bottom:14px'},el('h2',{style:'margin-top:0'},'What is counted'),
-      el('div',{class:'form'},row('Users are charged on',f.ub,'Users that exist on the instance, as Nextcloud reports them.'),row('Data is charged on',f.db,'What the users\' files take, as Nextcloud counts it against their quota. It needs an administrator login on the instance.'),row('A gigabyte is',f.unit),
+      el('div',{class:'form'},row('Users are charged on',f.ub,'Users that exist on the instance, as Nextcloud reports them.'),row('The GB price is charged on',f.mode,'Stored data needs an administrator login on the instance. Network traffic is read from Docker on the machine that runs the containers (the agent needs access to Docker), and each instance needs its containers chosen under Customers, Own prices.'),row('Stored data is charged on',f.db,'What the users\' files take, as Nextcloud counts it against their quota, at the peak, the average or the last day of the period.'),row('Traffic counts',f.tc,'It is everything a container puts on the network: users, storage such as S3, and also the database and other containers on the same Docker network.'),row('A gigabyte is',f.unit),
         row('Part of a month',el('label',{},f.prorate,' Charge only the days an instance reported'),'Off: an instance that reported any day is charged for the whole month. On: a customer that started on the 22nd pays for the days since.'))),
     el('div',{class:'card',style:'margin-bottom:14px;padding:14px 0 0'},el('h2',{style:'margin:0 16px 4px'},'Customers'),
       el('p',{class:'help',style:'margin:0 16px 10px'},'Who each instance is invoiced to. Leave the customer empty to use the instance name. Tick "Not invoiced" for your own and test instances.'),

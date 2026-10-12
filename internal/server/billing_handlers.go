@@ -112,7 +112,34 @@ func (s *Server) getBilling(w http.ResponseWriter, r *http.Request, id edition.I
 		list = append(list, *v)
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
-	writeJSON(w, map[string]any{"config": cfg, "currencies": billing.Currencies, "instances": list, "periods": recentPeriods(now), "today": now.Format("2006-01-02")})
+	// the containers whose traffic is recorded, to pick from when an instance is given its containers
+	type container struct {
+		Host      string  `json:"host"`
+		Container string  `json:"container"`
+		Sent      float64 `json:"sent"`     // bytes in the last 30 days
+		Received  float64 `json:"received"` // bytes in the last 30 days
+	}
+	containers := []container{}
+	since := now.AddDate(0, 0, -30)
+	if tms, err := billing.TrafficIn(r.Context(), s.billing.DB, id.Tenant, since, now); err == nil {
+		for _, t := range tms {
+			c := container{Host: t.Host, Container: t.Container}
+			for day, d := range t.Days {
+				if day >= since.Format("2006-01-02") {
+					c.Sent += d.Sent
+					c.Received += d.Received
+				}
+			}
+			containers = append(containers, c)
+		}
+		sort.Slice(containers, func(i, j int) bool {
+			if containers[i].Container != containers[j].Container {
+				return containers[i].Container < containers[j].Container
+			}
+			return containers[i].Host < containers[j].Host
+		})
+	}
+	writeJSON(w, map[string]any{"config": cfg, "currencies": billing.Currencies, "instances": list, "containers": containers, "periods": recentPeriods(now), "today": now.Format("2006-01-02")})
 }
 
 func (s *Server) putBilling(w http.ResponseWriter, r *http.Request, id edition.Identity) {
@@ -158,7 +185,15 @@ func (s *Server) getBillingReport(w http.ResponseWriter, r *http.Request, id edi
 		writeErr(w, http.StatusServiceUnavailable, "the recorded usage could not be read: "+err.Error())
 		return
 	}
-	rep, err := billing.BuildRange(b.Svc.Get(id.Tenant), from, to, months, s.knownInstances(id.Tenant), now)
+	cfg := b.Svc.Get(id.Tenant)
+	var traffic []billing.TrafficMonth
+	if cfg.DataMode == billing.Traffic {
+		if traffic, err = billing.TrafficIn(r.Context(), b.DB, id.Tenant, f, t); err != nil {
+			writeErr(w, http.StatusServiceUnavailable, "the recorded traffic could not be read: "+err.Error())
+			return
+		}
+	}
+	rep, err := billing.BuildRangeT(cfg, from, to, months, traffic, s.knownInstances(id.Tenant), now)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return

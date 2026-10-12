@@ -19,7 +19,14 @@ import (
 	"github.com/danielingemar/lumen/internal/secretbox"
 )
 
-type usageSrc struct{ by map[string][]billing.Sample }
+type usageSrc struct {
+	by      map[string][]billing.Sample
+	traffic map[string][]billing.TrafficSample
+}
+
+func (u usageSrc) ContainerTraffic(ctx context.Context, tenant string, from, to time.Time) ([]billing.TrafficSample, error) {
+	return u.traffic[tenant], nil
+}
 
 func (u usageSrc) InstanceUsage(ctx context.Context, tenant string, from, to time.Time) ([]billing.Sample, error) {
 	return u.by[tenant], nil
@@ -45,7 +52,13 @@ func TestBillingPricesAndInvoiceBasis(t *testing.T) {
 		s = append(s, billing.Sample{Instance: "kund.example.com", Day: time.Date(2026, 10, d, 0, 0, 0, 0, time.UTC).Format("2006-01-02"),
 			DayUsage: billing.DayUsage{Users: fp(12), Bytes: fp(33.3333e9)}})
 	}
-	rec := &billing.Recorder{DB: f, Src: usageSrc{map[string][]billing.Sample{"acme": s}}, Tenants: func() []string { return []string{"acme"} }, Now: func() time.Time { return now }}
+	var tr []billing.TrafficSample
+	for d := 1; d <= 31; d++ {
+		day := time.Date(2026, 10, d, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
+		tr = append(tr, billing.TrafficSample{Host: "h1", Container: "kund-ab", Day: day, Sent: 10e9, Received: 2e9},
+			billing.TrafficSample{Host: "h1", Container: "someone-else", Day: day, Sent: 77e9})
+	}
+	rec := &billing.Recorder{DB: f, Src: usageSrc{by: map[string][]billing.Sample{"acme": s}, traffic: map[string][]billing.TrafficSample{"acme": tr}}, Tenants: func() []string { return []string{"acme"} }, Now: func() time.Time { return now }}
 	al := audit.New(f)
 	srv := New(&fakeStore{}, a, slog.New(slog.NewTextHandler(io.Discard, nil))).WithAuth(a).WithDashboards(dashboards.New(f)).WithRegistry(reg).WithAudit(al).
 		WithBilling(&Billing{Svc: billing.New(f), DB: f, Rec: rec, Now: func() time.Time { return now }})
@@ -130,6 +143,28 @@ func TestBillingPricesAndInvoiceBasis(t *testing.T) {
 		if c := code(ad, "GET", u+"/report?"+q, ""); c != 400 {
 			t.Fatalf("%s: %d", q, c)
 		}
+	}
+	// charged by traffic instead of stored data: the containers of the instance, 31 days of 10 GB sent
+	cfg = `{"currency":"SEK","user_price":"50","gb_price":"2","data_mode":"traffic","traffic_count":"sent","profiles":[{"key":"kund.example.com","containers":["kund-ab"]}]}`
+	if r, b := do(ad, "PUT", u, cfg); r.StatusCode != 200 || !strings.Contains(string(b), `"data_mode":"traffic"`) || !strings.Contains(string(b), `"containers":["kund-ab"]`) {
+		t.Fatalf("%d %s", r.StatusCode, b)
+	}
+	var trep billing.Report
+	_, b = do(ad, "GET", u+"/report?from=2026-10-01&to=2026-10-31", "")
+	json.Unmarshal(b, &trep)
+	if tl := trep.Invoices[0].Lines[0]; trep.DataMode != "traffic" || tl.GB != 310 || tl.DataAmount != 62000 || tl.UserAmount != 60000 || len(tl.Warnings) != 0 {
+		t.Fatalf("%+v %s", tl, b)
+	}
+	if _, b = do(ad, "GET", u+"/report?from=2026-10-01&to=2026-10-31&format=csv", ""); !strings.Contains(string(b), "traffic_gb") {
+		t.Fatalf("%s", b)
+	}
+	// the containers that were recorded are on offer when an instance is given its containers
+	_, b = do(ad, "GET", u, "")
+	if !strings.Contains(string(b), `"container":"kund-ab"`) || !strings.Contains(string(b), `"container":"someone-else"`) {
+		t.Fatalf("%s", b)
+	}
+	if c := code(ad, "PUT", u, `{"data_mode":"bytes"}`); c != 400 {
+		t.Fatalf("bad mode: %d", c)
 	}
 	// another tenant sees neither the prices nor the usage
 	if _, b = do(gx, "GET", u, ""); strings.Contains(string(b), `"currency":"SEK"`) || strings.Contains(string(b), "kund.example.com") {

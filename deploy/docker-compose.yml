@@ -23,7 +23,10 @@ services:
     environment:
       CLICKHOUSE_USER: default
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?run deploy/gen-env.sh first}
-    volumes: [chdata:/var/lib/clickhouse]
+    volumes:
+      - chdata:/var/lib/clickhouse
+      # ClickHouse's own diagnostic logs off: they filled a disk with tens of GB (see the file). ,z lets SELinux (RHEL) read it
+      - ./clickhouse/lumen.xml:/etc/clickhouse-server/config.d/lumen.xml:ro,z
     ulimits: { nofile: { soft: 262144, hard: 262144 } }
     restart: unless-stopped
     healthcheck:

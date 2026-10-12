@@ -22,15 +22,17 @@ const (
 
 // Config is one tenant's prices and rules. Prices are texts ("49.50") so that nothing is lost on the way through JSON.
 type Config struct {
-	Currency  string    `json:"currency"`    // what prices are in, unless a customer has its own currency
-	UserPrice string    `json:"user_price"`  // per user and month
-	GBPrice   string    `json:"gb_price"`    // per gigabyte of stored data and month
-	UserBasis string    `json:"user_basis"`  // peak | average | end
-	DataBasis string    `json:"data_basis"`  // peak | average | end
-	GBUnit    string    `json:"gb_unit"`     // gb (10^9 bytes, what a disk is sold in) | gib (2^30 bytes, what most tools show)
-	VAT       string    `json:"vat_percent"` // 0..100
-	Prorate   bool      `json:"prorate"`     // an instance that reported fewer days than the month is charged for those days
-	Profiles  []Profile `json:"profiles"`    // per instance: who the customer is, and exceptions
+	Currency  string    `json:"currency"`      // what prices are in, unless a customer has its own currency
+	UserPrice string    `json:"user_price"`    // per user and month
+	GBPrice   string    `json:"gb_price"`      // per gigabyte of stored data and month
+	UserBasis string    `json:"user_basis"`    // peak | average | end
+	DataBasis string    `json:"data_basis"`    // peak | average | end
+	GBUnit    string    `json:"gb_unit"`       // gb (10^9 bytes, what a disk is sold in) | gib (2^30 bytes, what most tools show)
+	DataMode  string    `json:"data_mode"`     // what the GB price is charged on: stored (data kept on the instance) | traffic (bytes its containers send)
+	Traffic   string    `json:"traffic_count"` // for traffic: sent (what the containers send) | both (sent and received)
+	VAT       string    `json:"vat_percent"`   // 0..100
+	Prorate   bool      `json:"prorate"`       // an instance that reported fewer days than the month is charged for those days
+	Profiles  []Profile `json:"profiles"`      // per instance: who the customer is, and exceptions
 }
 
 // Profile is what is special about one instance. Everything but Key is optional.
@@ -44,14 +46,28 @@ type Profile struct {
 	Discount  string `json:"discount_percent"`
 	VAT       string `json:"vat_percent"` // empty: the default (0 for a customer abroad, for example)
 	Note      string `json:"note"`
+	// Containers are the Docker containers whose network traffic is charged for this instance when the data is charged by
+	// traffic: "nextcloud-ks", or "host/nextcloud-ks" for the one on that machine. Several are added up (the web server and
+	// the app of one customer, say).
+	Containers []string `json:"containers,omitempty"`
 }
 
 var keyRe = regexp.MustCompile(`^[A-Za-z0-9_.:\[\]-]{1,255}$`)
 
 // Default is the configuration before anybody has set anything: nothing is charged.
 func Default() Config {
-	return Config{Currency: "EUR", UserPrice: "0.00", GBPrice: "0.00", UserBasis: End, DataBasis: Peak, GBUnit: "gb", VAT: "0.00", Profiles: []Profile{}}
+	return Config{Currency: "EUR", UserPrice: "0.00", GBPrice: "0.00", UserBasis: End, DataBasis: Peak, GBUnit: "gb", DataMode: Stored, Traffic: Sent, VAT: "0.00", Profiles: []Profile{}}
 }
+
+// What the price per GB is charged on.
+const (
+	Stored  = "stored"  // the data the accounts keep on the instance
+	Traffic = "traffic" // the bytes the instance's containers put on the network
+	Sent    = "sent"    // traffic: only what the containers send
+	Both    = "both"    // traffic: sent and received
+)
+
+var containerRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}(/[A-Za-z0-9][A-Za-z0-9_.:-]{0,127})?$`)
 
 func okBasis(b string) bool { return b == Peak || b == Average || b == End }
 
@@ -94,6 +110,18 @@ func (c Config) Clean() (Config, error) {
 	if c.GBUnit != "gb" && c.GBUnit != "gib" {
 		return c, fmt.Errorf("the unit must be gb or gib")
 	}
+	if c.DataMode == "" {
+		c.DataMode = d.DataMode
+	}
+	if c.DataMode != Stored && c.DataMode != Traffic {
+		return c, fmt.Errorf("the data must be charged by stored data or by traffic")
+	}
+	if c.Traffic == "" {
+		c.Traffic = d.Traffic
+	}
+	if c.Traffic != Sent && c.Traffic != Both {
+		return c, fmt.Errorf("traffic must be counted as sent, or as sent and received")
+	}
 	if len(c.Profiles) > 5000 {
 		return c, fmt.Errorf("at most 5000 instances can have their own settings")
 	}
@@ -134,6 +162,22 @@ func (c Config) Clean() (Config, error) {
 			}
 			*f = n.String()
 		}
+		var cs []string
+		have := map[string]bool{}
+		for _, x := range p.Containers {
+			if x = strings.TrimSpace(x); x == "" || have[x] {
+				continue
+			}
+			if !containerRe.MatchString(x) {
+				return c, fmt.Errorf("%s: %q is not a container name (a name, or host/name)", p.Key, x)
+			}
+			have[x] = true
+			cs = append(cs, x)
+		}
+		if len(cs) > 20 {
+			return c, fmt.Errorf("%s: at most 20 containers per instance", p.Key)
+		}
+		p.Containers = cs
 		if p.Discount, err = pct(p.Discount, p.Key+": the discount"); err != nil {
 			return c, err
 		}

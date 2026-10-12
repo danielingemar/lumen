@@ -37,7 +37,7 @@ func WriteCSV(w io.Writer, r Report, view, locale string) error {
 		cw.Flush()
 		return cw.Error()
 	}
-	cw.Write([]string{"period", "customer", "instance", "currency", "users", "user_price", "users_amount", "storage_" + r.GBUnit, "gb_price", "storage_amount",
+	cw.Write([]string{"period", "customer", "instance", "currency", "users", "user_price", "users_amount", dataHead(r) + r.GBUnit, "gb_price", dataHead(r) + "amount",
 		"discount_percent", "discount", "net", "vat_percent", "days_reported", "note"})
 	for _, in := range r.Invoices {
 		for _, l := range in.Lines {
@@ -48,6 +48,14 @@ func WriteCSV(w io.Writer, r Report, view, locale string) error {
 	}
 	cw.Flush()
 	return cw.Error()
+}
+
+// dataHead is the start of the names of the columns of the data: what the GB price is charged on.
+func dataHead(r Report) string {
+	if r.DataMode == Traffic {
+		return "traffic_"
+	}
+	return "storage_"
 }
 
 func trim3(f float64) string {

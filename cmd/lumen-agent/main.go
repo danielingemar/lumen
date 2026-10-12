@@ -152,7 +152,7 @@ func start(ctx context.Context, wg *sync.WaitGroup, cfg agent.Config, snd *agent
 		host := &agent.Host{Service: cfg.HostService}
 		tick := time.NewTicker(time.Duration(cfg.IntervalSeconds) * time.Second)
 		defer tick.Stop()
-		var lastSvc time.Time
+		var lastSvc, lastNet time.Time
 		lastWarn := map[string]string{}
 		warn := func(what string, err error) { // log a problem once, and again only if it changes
 			m := ""
@@ -191,6 +191,18 @@ func start(ctx context.Context, wg *sync.WaitGroup, cfg agent.Config, snd *agent
 						err = nil
 					}
 					warn("docker", err)
+					for i := range pts {
+						pts[i].Service = cfg.HostService
+					}
+					add(pts)
+				}
+				if cfg.ContainersOn() && time.Since(lastNet) >= 5*time.Minute { // the counters are for invoicing: a few minutes is plenty
+					lastNet = time.Now()
+					pts, err := agent.CollectContainerNetwork(ctx, "", now)
+					if errors.Is(err, agent.ErrNoDocker) {
+						err = nil
+					}
+					warn("docker network", err)
 					for i := range pts {
 						pts[i].Service = cfg.HostService
 					}

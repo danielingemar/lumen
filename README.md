@@ -161,7 +161,7 @@ Agents report their own health (`service.name=lumen-agent`): uptime, items sent,
 - Agents fetch `GET /api/v1/agent/config?host=NAME` (API key only) every 60 s and restart their collectors when it changes. Nothing to edit on the machines. Settings from the agent's local config and flags still work and are merged; an instance defined in the UI replaces a local one with the same URL.
 - **Safety:** log paths that come from the server are only read if they are under `/var/log`, `/var/lib/docker/containers`, `/var/lib/docker/volumes`, `/var/www`, `/srv`, `/mnt` or `/opt`, and never contain `..`. Otherwise a UI user could make every agent read `/etc/shadow`. Change it per machine with `allowed_log_dirs` in the agent config (`["*"]` allows all). Paths in the local config file are always trusted. Refused paths show as a warning on the host.
 - Nextcloud tokens are stored **encrypted** (AES-GCM, key from `LUMEN_SECRET_KEY`) and never shown again in the UI (only "set"). They are sent to the agent that needs them, hence HTTPS.
-- **Services:** systemd units that are running or failed, plus watched ones, as `system_service_up`. **Containers:** `container_up` through the Docker Engine API on the local socket.
+- **Services:** systemd units that are running or failed, plus watched ones, as `system_service_up`. **Containers:** `container_up` through the Docker Engine API on the local socket, and every five minutes `container_network_bytes` (bytes sent and received since each running container started, used for [billing by traffic](#billing-for-nextcloud-instances)).
 
 ## Nextcloud monitoring
 
@@ -322,6 +322,19 @@ By default backups go to `LUMEN_BACKUP_DIR` (`/backup`, a Docker volume). Under 
 
 API: `GET /api/v1/backup-location`, `POST /api/v1/backup-location/check`, `PUT /api/v1/backup-location` (`{"dir": ""}` goes back to the default).
 
+## ClickHouse's own logs
+
+By default ClickHouse writes a very detailed log of itself into tables in its `system` database (`text_log`, `trace_log`, `metric_log` and more). They are for debugging ClickHouse, not for Lumen, and they have no limit: on one installation, a few weeks gave 18 GB of `text_log` and 10 GB of `trace_log` next to 33 MB of real telemetry, and the disk filled up. `deploy/docker-compose.yml` now mounts `deploy/clickhouse/lumen.xml`, which switches the big ones off (`query_log` and `part_log`, which are small, are kept). **Lumen warns** on the Home page and under Settings when these tables take more than 2 GB and more than your telemetry.
+
+On an installation from before this, switch them off by updating, and empty what is already there:
+
+```bash
+sudo docker compose -f deploy/docker-compose.yml up -d        # recreates ClickHouse with the setting
+for t in text_log trace_log metric_log asynchronous_metric_log processors_profile_log opentelemetry_span_log query_thread_log query_views_log; do
+  sudo docker compose -f deploy/docker-compose.yml exec clickhouse clickhouse-client -q "DROP TABLE IF EXISTS system.$t SYNC"
+done
+```
+
 ## Lumen watches itself
 
 The failure that is worst for an observability tool is its own disk filling up: Elasticsearch stops creating indices at 85 percent and refuses writes at 95, ClickHouse goes read-only, and the first sign is a page that says “unavailable”. So Lumen looks at itself:
@@ -356,6 +369,7 @@ Under **Billing** you set what you charge and get, for any period you choose, wh
 - **Two prices, both chosen by you:** a price **per user and month** and a price **per gigabyte of stored data and month**. Prices are decimals (`49.50`, `0.125`); a comma is accepted.
 - **Currency:** SEK, EUR, USD, GBP, NOK, DKK, CHF, ISK, PLN, CZK, CAD, AUD, NZD, JPY, CNY and INR. A customer can have a currency of its own (then both prices in that currency are set for it). There is no conversion: every invoice is in one currency and the totals are added up per currency.
 - **What is counted:** the users and the data the accounts' files take, as the Nextcloud instance reports them (the same numbers as on the instance page; they need the serverinfo token or an administrator login). The **users are counted on the last day of the period** (they hardly change, and an invoice is for how many there are when it is made); you can instead charge the highest number of any day or the average. The data is charged on the peak of the period by default, and can also be the average or the last day. Data is counted in GB (10^9 bytes) or GiB (2^30).
+- **Stored data or network traffic:** the GB price can be charged on the data the accounts keep on the instance (the default), or on the **network traffic of the instance's containers** instead. For traffic, the agent on the machine that runs the containers reads Docker's counters of bytes sent and received per container every five minutes (the agent needs access to Docker, as for the container list; an agent that itself runs as a container needs the Docker socket mounted into it, `-v /var/run/docker.sock:/var/run/docker.sock`, which *Add a machine → Nextcloud → Docker* adds when you tick the box), and Lumen adds up the steps per day; a container that is restarted starts its counter again at zero, which is taken care of. Under **Prices & customers**, give each instance its containers (for example `nextcloud-ks`, or `host/nextcloud-ks` for the one on that machine; several are added up) and choose whether only what they **send** is charged or sent and received. Know what it counts: a container's counter is everything it puts on the network, so it includes the traffic to users and to external storage such as S3, but also to the database and other containers on the same Docker network, and a container on the host's own network has no counter. Traffic cannot be told apart by destination. Traffic is not shared out over the month: the days that were recorded are charged.
 - **Customers:** instances with the same customer name are on one invoice. Per instance you can set a discount, another VAT rate, a note, or mark it **not invoiced** (your own and test instances). VAT is stated per rate, as an invoice does. An instance that reported only part of the month can be charged for those days (*prorate*).
 - **Money is exact:** amounts are whole öre/cents, rounded once per line, half up. The report warns about instances that reported nothing, or without users or data (the token is missing, for example).
 - **Reports:** for any days from one date to another (both included; at most a year), with buttons for this month, last month and the last 30 days, as a table, as **CSV per customer** or **per instance**, or a clean page to print or save as PDF. The prices are for the whole period you pick, so pick the days you invoice (the 1st to the last day of the month, say). A period that has not ended is marked as not final.

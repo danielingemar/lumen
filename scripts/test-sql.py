@@ -53,6 +53,22 @@ metrics += [dict(tenant="acme", ts=ts(-5), name="nextcloud_users", type="gauge",
             dict(tenant="acme", ts=ts(-5), name="nextcloud_users", type="gauge", service="nc", value=77, attrs={}),
             dict(tenant="other", ts=ts(-5), name="nextcloud_users", type="gauge", service="nc", value=999, attrs={"instance": "kund.example.com"})]
 bill_day = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+# the traffic of containers: counters that start again at zero when a container restarts. Yesterday (UTC) at fixed times, and
+# one reading just before midnight two days ago, which is the reading before the first one of yesterday.
+_now = datetime.datetime.now(datetime.timezone.utc)
+_y = (_now - datetime.timedelta(days=1)).replace(hour=12, minute=0, second=0, microsecond=0)
+def at(dt): return dt.strftime("%Y-%m-%d %H:%M:%S.") + "%09d" % (dt.microsecond * 1000)
+traffic_day = _y.strftime("%Y-%m-%d")
+def tr(tenant, when, host, cont, direction, v):
+    return dict(tenant=tenant, ts=at(when), name="container_network_bytes", type="sum", service="host", value=v, attrs={"host": host, "container": cont, "direction": direction})
+before = _y.replace(hour=0, minute=0) - datetime.timedelta(minutes=10)
+for i, v in enumerate([1000, 1500, 2000, 300, 800]):   # 300 is a restart: everything counted since is new traffic
+    metrics.append(tr("acme", _y + datetime.timedelta(minutes=5 * i), "h1", "nextcloud-ks", "transmit", v))
+metrics += [tr("acme", before, "h1", "nextcloud-ks", "transmit", 900), tr("acme", before, "h1", "nextcloud-ks", "receive", 40),
+            tr("acme", _y, "h1", "nextcloud-ks", "receive", 50), tr("acme", _y + datetime.timedelta(minutes=20), "h1", "nextcloud-ks", "receive", 80),
+            tr("acme", _y, "h2", "nextcloud-ks", "transmit", 100), tr("acme", _y + datetime.timedelta(minutes=5), "h2", "nextcloud-ks", "transmit", 160),
+            tr("other", _y, "h1", "nextcloud-ks", "transmit", 5), tr("other", _y + datetime.timedelta(minutes=5), "h1", "nextcloud-ks", "transmit", 9e12),
+            dict(tenant="acme", ts=at(_y), name="container_network_bytes", type="sum", service="host", value=1e12, attrs={"host": "h1", "direction": "transmit"})]
 s.query("INSERT INTO otel_metrics FORMAT JSONEachRow\n" + "\n".join(json.dumps(x) for x in metrics))
 
 def run(q):
@@ -100,6 +116,14 @@ try:
     check("billing: highest users, enabled accounts and bytes of the day per instance; disabled accounts, other metrics, rows without an instance and other tenants are left out",
           got == {("kund.example.com", "nextcloud_users"): 10, ("kund.example.com", "nextcloud_storage_used_bytes"): 7e9, ("kund.example.com", "nextcloud_accounts"): 9, ("b.example.com", "nextcloud_users"): 2}
           and all(x["day"] == bill_day for x in r), r)
+
+    # ---- billing: the traffic of containers per day, reset-proof
+    r = run(Q["billing traffic"])
+    got = {(x["host"], x["container"], x["dir"]): float(x["v"]) for x in r if x["day"] == traffic_day}
+    other_days = [x for x in r if x["day"] != traffic_day]  # the reading before midnight is the first of its own day: it has no step before it
+    check("billing traffic: steps between readings, a restart counts the new counter, the reading before the day is the baseline, hosts and tenants are kept apart, rows without a container are left out",
+          got == {("h1", "nextcloud-ks", "transmit"): 1900, ("h1", "nextcloud-ks", "receive"): 40, ("h2", "nextcloud-ks", "transmit"): 60}
+          and all(float(x["v"]) == 0 for x in other_days), r)
 
     # ---- retention: the TTL check reads create_table_query; ClickHouse prints INTERVAL 30 DAY as toIntervalDay(30)
     r = run(Q["ttl check"]); cq = r[0]["create_table_query"]

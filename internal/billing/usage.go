@@ -10,7 +10,10 @@ import (
 	"github.com/danielingemar/lumen/internal/docstore"
 )
 
-const usageColl = "billing_usage"
+const (
+	usageColl   = "billing_usage"
+	trafficColl = "billing_traffic"
+)
 
 // DayUsage is what one instance used on one UTC day: the highest number seen. A nil field was not reported that day.
 type DayUsage struct {
@@ -158,7 +161,8 @@ func (r *Recorder) Record(ctx context.Context, tenant string, back time.Duration
 			return err
 		}
 	}
-	return nil
+	// the traffic of the containers; an engine that cannot answer it must not stop the users and data from being kept
+	return r.recordTraffic(ctx, tenant, from, now.Add(time.Minute), now)
 }
 
 // Months returns what is recorded for a month ("2026-10") of one tenant.
@@ -186,6 +190,103 @@ func MonthsIn(ctx context.Context, db docstore.Backend, tenant string, from, to 
 			return nil, err
 		}
 		out = append(out, part...)
+	}
+	return out, nil
+}
+
+// TrafficDay is the bytes one container sent and received on one UTC day.
+type TrafficDay struct {
+	Sent     float64 `json:"sent"`
+	Received float64 `json:"received"`
+}
+
+// TrafficMonth is one container's days of one month, kept like the usage of an instance, so that an invoice can be made
+// after the telemetry has expired.
+type TrafficMonth struct {
+	Tenant    string                `json:"tenant"`
+	Host      string                `json:"host"`
+	Container string                `json:"container"`
+	Month     string                `json:"month"`
+	Days      map[string]TrafficDay `json:"days"`
+	Updated   time.Time             `json:"updated"`
+}
+
+// TrafficSample is one container's traffic on one day as the database of telemetry answers (already added up from the
+// counters, which start again at zero when a container is restarted).
+type TrafficSample struct {
+	Host, Container, Day string
+	Sent, Received       float64
+}
+
+// TrafficSource is a Source that can also tell about the traffic of containers.
+type TrafficSource interface {
+	ContainerTraffic(ctx context.Context, tenant string, from, to time.Time) ([]TrafficSample, error)
+}
+
+func trafficID(tenant, host, container, month string) string {
+	return tenant + "|" + host + "|" + container + "|" + month
+}
+
+// recordTraffic merges the days read into the stored months. A day that is read again is replaced.
+func (r *Recorder) recordTraffic(ctx context.Context, tenant string, from, to time.Time, now time.Time) error {
+	src, ok := r.Src.(TrafficSource)
+	if !ok {
+		return nil
+	}
+	samples, err := src.ContainerTraffic(ctx, tenant, from, to)
+	if err != nil {
+		return err
+	}
+	type k struct{ host, container, month string }
+	groups := map[k][]TrafficSample{}
+	for _, s := range samples {
+		if s.Container == "" || len(s.Day) != 10 {
+			continue
+		}
+		groups[k{s.Host, s.Container, s.Day[:7]}] = append(groups[k{s.Host, s.Container, s.Day[:7]}], s)
+	}
+	for g, list := range groups {
+		id := trafficID(tenant, g.host, g.container, g.month)
+		m := TrafficMonth{Tenant: tenant, Host: g.host, Container: g.container, Month: g.month, Days: map[string]TrafficDay{}}
+		if doc, err := r.DB.Get(ctx, trafficColl, id); err == nil {
+			var old TrafficMonth
+			if doc.Decode(&old) == nil && old.Days != nil {
+				m.Days = old.Days
+			}
+		}
+		before := map[string]TrafficDay{}
+		for d, v := range m.Days {
+			before[d] = v
+		}
+		for _, s := range list {
+			m.Days[s.Day] = TrafficDay{Sent: s.Sent, Received: s.Received}
+		}
+		if reflect.DeepEqual(before, m.Days) {
+			continue
+		}
+		m.Updated = now
+		if err := r.DB.Put(ctx, trafficColl, id, m, ""); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// TrafficIn returns what is recorded for the days from..to of one tenant: one document per container and month it touches.
+func TrafficIn(ctx context.Context, db docstore.Backend, tenant string, from, to time.Time) ([]TrafficMonth, error) {
+	var out []TrafficMonth
+	for m := time.Date(from.Year(), from.Month(), 1, 0, 0, 0, 0, time.UTC); !m.After(to); m = m.AddDate(0, 1, 0) {
+		month := m.Format("2006-01")
+		docs, err := db.List(ctx, trafficColl, map[string]string{"tenant": tenant, "month": month}, 10000)
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range docs {
+			var t TrafficMonth
+			if d.Decode(&t) == nil && t.Tenant == tenant && t.Month == month {
+				out = append(out, t)
+			}
+		}
 	}
 	return out, nil
 }

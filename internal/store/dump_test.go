@@ -123,6 +123,8 @@ func TestDumpForEngine(t *testing.T) {
 	add("latest", q, pr)
 	bq, bp := buildInstanceUsageQuery("acme", now.Add(-48*time.Hour), now.Add(time.Hour))
 	add("billing usage", bq, bp)
+	tq, tp := buildContainerTrafficQuery("acme", now.Add(-48*time.Hour), now.Add(time.Hour))
+	add("billing traffic", tq, tp)
 	add("ttl check", ttlQuery, map[string]string{"db": "lumen", "t": "otel_logs"})
 	b, _ := json.Marshal(map[string]any{"ddl": schema(30), "archive_ddl": archiveSchema(), "ttl_alter": ttlAlter(tables[1], 14), "queries": qs})
 	os.WriteFile(out, b, 0o644)

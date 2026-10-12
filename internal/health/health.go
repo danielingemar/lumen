@@ -196,6 +196,11 @@ func Evaluate(r Report, warn, crit float64) []Problem {
 	if r.CH != nil && r.CH.Err != "" {
 		out = append(out, Problem{Component: "clickhouse", Subject: "clickhouse", Level: "critical", Text: "ClickHouse cannot be reached: " + r.CH.Err + ". Traces, logs and metrics cannot be stored or read.", Advice: "docker compose logs clickhouse, and look at the disk first."})
 	}
+	if r.CH != nil && r.CH.Err == "" {
+		if p := systemLogsProblem(r.CH.Tables); p != nil {
+			out = append(out, *p)
+		}
+	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Level == "critical" && out[j].Level != "critical" })
 	return out
 }
@@ -360,4 +365,30 @@ func reason(err error) string {
 		return ue.Err.Error()
 	}
 	return err.Error()
+}
+
+// systemLogsLimit is how much of ClickHouse's own diagnostic logs (database "system") is worth a warning. They are for
+// debugging ClickHouse and Lumen has no use for them, but by default they grow without a limit.
+const systemLogsLimit = 2 << 30
+
+// systemLogsProblem warns when the tables ClickHouse keeps about itself take more than the limit and more than the telemetry.
+func systemLogsProblem(tables []Table) *Problem {
+	var sys, own uint64
+	var names []string
+	for _, t := range tables {
+		if strings.HasPrefix(t.Name, "system.") {
+			sys += t.Bytes
+			if t.Bytes >= 100<<20 && len(names) < 3 {
+				names = append(names, t.Name)
+			}
+		} else {
+			own += t.Bytes
+		}
+	}
+	if sys < systemLogsLimit || sys < own {
+		return nil
+	}
+	return &Problem{Component: "clickhouse", Subject: "clickhouse logs", Level: "warning",
+		Text:   fmt.Sprintf("ClickHouse's own logs take %s (%s), more than the telemetry (%s). They are for debugging ClickHouse and are not used by Lumen.", Size(sys), strings.Join(names, ", "), Size(own)),
+		Advice: "Switch them off with deploy/clickhouse/lumen.xml (mounted by deploy/docker-compose.yml; see the README, \"ClickHouse's own logs\"), then empty them: TRUNCATE TABLE system.text_log, and the same for system.trace_log."}
 }

@@ -201,3 +201,25 @@ func TestYellowSaysWhichIndicesAndWhatItMeans(t *testing.T) {
 		t.Fatalf("with two nodes a copy that has no place is a real problem: %+v", ps)
 	}
 }
+
+func TestClickHousesOwnLogsAreWarnedAboutWhenTheyOutgrowTheTelemetry(t *testing.T) {
+	big := &CH{Tables: []Table{{"system.text_log", 18 * gb}, {"system.trace_log", 10 * gb}, {"system.metric_log", 200 << 20}, {"lumen.otel_metrics", 30 << 20}}}
+	ps := Evaluate(Report{CH: big}, 80, 90)
+	if len(ps) != 1 || ps[0].Level != "warning" || ps[0].Component != "clickhouse" || !strings.Contains(ps[0].Text, "system.text_log") || !strings.Contains(ps[0].Text, "more than the telemetry") || !strings.Contains(ps[0].Advice, "lumen.xml") {
+		t.Fatalf("%+v", ps)
+	}
+	// small logs, or big telemetry, are nothing to warn about
+	for _, ok := range []*CH{
+		{Tables: []Table{{"system.text_log", 300 << 20}, {"lumen.otel_metrics", 30 << 20}}},
+		{Tables: []Table{{"system.text_log", 3 * gb}, {"lumen.otel_metrics", 20 * gb}}},
+		{Tables: []Table{{"lumen.otel_metrics", 20 * gb}}},
+	} {
+		if ps := Evaluate(Report{CH: ok}, 80, 90); len(ps) != 0 {
+			t.Errorf("%+v", ps)
+		}
+	}
+	// ClickHouse that cannot be reached is the problem, not its logs
+	if ps := Evaluate(Report{CH: &CH{Err: "refused", Tables: big.Tables}}, 80, 90); len(ps) != 1 || ps[0].Level != "critical" {
+		t.Fatalf("%+v", ps)
+	}
+}
