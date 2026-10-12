@@ -62,6 +62,14 @@ type davInfo struct {
 }
 
 type deepState struct {
+	// Login refused (401) or too many attempts (429): asking again every minute only makes Nextcloud's brute-force
+	// protection stricter, and then every request from this machine is slowed down and refused. So after a refusal the
+	// requests that log in are paused, for longer each time, until the credentials are changed.
+	creds               string
+	infoFails, admFails int
+	infoHold, admHold   time.Time
+	downStreak          int // checks in a row where status.php did not answer
+
 	cronAt, tlsAt, davAt time.Time
 	cron                 cronInfo
 	cronErr              error
@@ -72,6 +80,70 @@ type deepState struct {
 	usageAt              time.Time
 	usage                usageInfo
 	usageErr             error
+}
+
+// downAfter is how many checks in a row must fail before an instance is reported as down: one slow or lost answer (a
+// restart of the agent's own collection, a busy server) is not an outage. At the usual 15 seconds that is 45 seconds.
+var downAfter = 3
+
+const (
+	holdFirst = 5 * time.Minute
+	holdMax   = 30 * time.Minute
+)
+
+// refusedBy says whether err is Nextcloud refusing the login (401) or limiting the requests (429), and which of the two.
+func refusedBy(err error) (refused, limited bool) {
+	if err == nil {
+		return false, false
+	}
+	m := err.Error()
+	limited = strings.Contains(m, "HTTP 429")
+	return limited || strings.Contains(m, "HTTP 401"), limited
+}
+
+func holdTime(fails int) time.Duration {
+	d := holdFirst
+	for i := 1; i < fails && d < holdMax; i++ {
+		d *= 2
+	}
+	if d > holdMax {
+		d = holdMax
+	}
+	return d
+}
+
+// deepFor returns the state kept for one instance. A change of token, user or password starts it afresh, so a login that
+// has just been corrected is tried at once and not after the pause.
+func deepFor(base string, t NextcloudTarget) *deepState {
+	deep.mu.Lock()
+	defer deep.mu.Unlock()
+	st := deep.m[base]
+	if st == nil {
+		st = &deepState{}
+		deep.m[base] = st
+	}
+	if key := t.Token + "\x00" + t.Username + "\x00" + t.Password; st.creds != key {
+		*st = deepState{creds: key}
+	}
+	return st
+}
+
+// refusal records that a request that logs in was refused, and pauses those requests. admin says which kind it was
+// (the administrator login or the serverinfo token); a 429 is about the address, so it pauses both.
+func (st *deepState) refusal(err error, admin bool) {
+	refused, limited := refusedBy(err)
+	if !refused {
+		return
+	}
+	now := time.Now()
+	if admin || limited {
+		st.admFails++
+		st.admHold = now.Add(holdTime(st.admFails))
+	}
+	if !admin || limited {
+		st.infoFails++
+		st.infoHold = now.Add(holdTime(st.infoFails))
+	}
 }
 
 var deep = struct {
@@ -301,13 +373,7 @@ func collectDeep(ctx context.Context, t NextcloudTarget, nowNs int64, up bool) (
 		now = time.Unix(nowNs, 0)
 	}
 	wall := time.Now()
-	deep.mu.Lock()
-	st := deep.m[base]
-	if st == nil {
-		st = &deepState{}
-		deep.m[base] = st
-	}
-	deep.mu.Unlock()
+	st := deepFor(base, t)
 
 	var pts []Point
 	var firstErr error
@@ -318,10 +384,12 @@ func collectDeep(ctx context.Context, t NextcloudTarget, nowNs int64, up bool) (
 	}
 	admin := t.Username != "" && t.Password != ""
 
+	held := func() bool { return time.Now().Before(st.admHold) }
 	if admin && up {
-		if wall.Sub(st.cronAt) >= cronEvery {
+		if wall.Sub(st.cronAt) >= cronEvery && !held() {
 			st.cron, st.cronErr = fetchCron(ctx, base, t.Username, t.Password)
 			st.cronAt = wall
+			st.refusal(st.cronErr, true)
 		}
 		if st.cronErr == nil {
 			pts = append(pts,
@@ -331,9 +399,10 @@ func collectDeep(ctx context.Context, t NextcloudTarget, nowNs int64, up bool) (
 				pt("nextcloud_cron_mode", 1, inst(map[string]string{"mode": st.cron.mode})))
 		}
 		note(st.cronErr)
-		if wall.Sub(st.davAt) >= davEvery {
+		if wall.Sub(st.davAt) >= davEvery && !held() {
 			st.dav, st.davErr = fetchDAV(ctx, base, t.Username, t.Password)
 			st.davAt = wall
+			st.refusal(st.davErr, true)
 		}
 		if st.davErr == nil || st.dav.took > 0 {
 			ok := 0.0
@@ -346,9 +415,10 @@ func collectDeep(ctx context.Context, t NextcloudTarget, nowNs int64, up bool) (
 			}
 		}
 		note(st.davErr)
-		if wall.Sub(st.usageAt) >= usageEvery {
+		if wall.Sub(st.usageAt) >= usageEvery && !held() {
 			st.usage, st.usageErr = fetchUsage(ctx, base, t.Username, t.Password)
 			st.usageAt = wall
+			st.refusal(st.usageErr, true)
 		}
 		if st.usageErr == nil && !st.usage.partial { // a lower bound would under-bill, so it is not reported
 			pts = append(pts,
@@ -358,6 +428,12 @@ func collectDeep(ctx context.Context, t NextcloudTarget, nowNs int64, up bool) (
 		}
 		if st.usageErr != errNoAccountList {
 			note(st.usageErr)
+		}
+		if held() { // say so on the instance instead of repeating the refused request
+			firstErr = fmt.Errorf("paused until %s after Nextcloud refused the login or limited the requests (brute-force protection): %w", st.admHold.Format("15:04"), firstNonNil(st.cronErr, st.davErr, st.usageErr))
+		}
+		if st.cronErr == nil && st.davErr == nil {
+			st.admFails = 0
 		}
 	}
 	if u.Scheme == "https" {
@@ -378,6 +454,15 @@ func collectDeep(ctx context.Context, t NextcloudTarget, nowNs int64, up bool) (
 		note(st.tlsErr)
 	}
 	return pts, firstErr
+}
+
+func firstNonNil(errs ...error) error {
+	for _, e := range errs {
+		if e != nil {
+			return e
+		}
+	}
+	return fmt.Errorf("refused")
 }
 
 // boolAt reads a true/false value.

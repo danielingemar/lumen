@@ -121,6 +121,7 @@ func TestBackgroundJobsAreReadWithAnAdminLogin(t *testing.T) {
 }
 
 func TestBackgroundJobsNeedAnAdminAndSayWhy(t *testing.T) {
+	downAfterOne(t)
 	f, ts := newFake(t)
 	nowNs := time.Now().UnixNano()
 	// a serverinfo token cannot read them, and that is not an error: it is just not available
@@ -291,6 +292,97 @@ func TestCertificateExpiry(t *testing.T) {
 		t.Fatal("http: no certificate points")
 	}
 	if _, err := collectDeep(context.Background(), NextcloudTarget{URL: "https://127.0.0.1:1"}, now, true); err == nil || !strings.Contains(err.Error(), "cannot read the TLS certificate") {
+		t.Fatalf("%v", err)
+	}
+}
+
+// downAfterOne makes the first failed check count as down, for tests of one check.
+func downAfterOne(t *testing.T) {
+	t.Helper()
+	old := downAfter
+	downAfter = 1
+	t.Cleanup(func() { downAfter = old })
+}
+
+func TestOneFailedCheckIsNotAnOutage(t *testing.T) {
+	f, ts := newFake(t)
+	tgt := NextcloudTarget{URL: ts.URL, Service: "ks"}
+	up := func() (float64, bool) {
+		pts, _ := CollectNextcloud(context.Background(), tgt, time.Now().UnixNano())
+		p, ok := byName(pts)["nextcloud_up"]
+		return p.Value, ok
+	}
+	f.statusErr = true
+	for i := 1; i < downAfter; i++ { // the first failures say nothing about availability
+		if _, ok := up(); ok {
+			t.Fatalf("failed check %d of %d must not report down yet", i, downAfter)
+		}
+	}
+	if v, ok := up(); !ok || v != 0 {
+		t.Fatalf("after %d failed checks in a row it is down: %v %v", downAfter, v, ok)
+	}
+	f.statusErr = false // one good answer starts the count again
+	if v, ok := up(); !ok || v != 1 {
+		t.Fatalf("%v %v", v, ok)
+	}
+	f.statusErr = true
+	if _, ok := up(); ok {
+		t.Fatal("the count starts over after an answer")
+	}
+}
+
+func TestACancelledCheckSendsNothing(t *testing.T) {
+	_, ts := newFake(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	pts, err := CollectNextcloud(ctx, NextcloudTarget{URL: ts.URL}, time.Now().UnixNano())
+	if len(pts) != 0 || err == nil {
+		t.Fatalf("a collection that was cut off is not an outage: %+v %v", pts, err)
+	}
+}
+
+func TestARefusedLoginIsNotRepeated(t *testing.T) {
+	f, ts := newFake(t)
+	f.provCode = 401
+	tgt := NextcloudTarget{URL: ts.URL, Username: "u", Password: "wrong"}
+	cron := "/ocs/v2.php/apps/provisioning_api/api/v1/config/apps/core/lastcron"
+	var err error
+	for i := 0; i < 6; i++ {
+		_, err = CollectNextcloud(context.Background(), tgt, time.Now().UnixNano())
+		deep.mu.Lock() // time passes: the check would be due again each time
+		for _, st := range deep.m {
+			st.cronAt, st.davAt, st.usageAt = time.Time{}, time.Time{}, time.Time{}
+		}
+		deep.mu.Unlock()
+	}
+	if n := f.hits[cron]; n != 1 {
+		t.Fatalf("after Nextcloud refused the login it is not asked again until the pause is over: %d requests", n)
+	}
+	if err == nil || !strings.Contains(err.Error(), "paused") || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("the instance page must say why: %v", err)
+	}
+	// a corrected password is tried at once
+	f.provCode = 0
+	f.lastcron = fmt.Sprint(time.Now().Unix())
+	tgt.Password = "right"
+	pts, _ := CollectNextcloud(context.Background(), tgt, time.Now().UnixNano())
+	if byName(pts)["nextcloud_cron_age_seconds"].Name == "" || f.hits[cron] != 2 {
+		t.Fatalf("a new login must not wait for the old pause: %d", f.hits[cron])
+	}
+}
+
+func TestTooManyRequestsPausesServerinfoToo(t *testing.T) {
+	f, ts := newFake(t)
+	f.provCode = 429 // Nextcloud limits the address: it applies to every kind of request
+	tgt := NextcloudTarget{URL: ts.URL, Token: "tok", Username: "u", Password: "p"}
+	CollectNextcloud(context.Background(), tgt, time.Now().UnixNano())
+	info := "/ocs/v2.php/apps/serverinfo/api/v1/info"
+	before := f.hits[info]
+	_, err := CollectNextcloud(context.Background(), tgt, time.Now().UnixNano())
+	if f.hits[info] != before {
+		t.Fatalf("serverinfo must not be asked while the address is limited: %d -> %d", before, f.hits[info])
+	}
+	if err == nil || !strings.Contains(err.Error(), "paused") {
 		t.Fatalf("%v", err)
 	}
 }

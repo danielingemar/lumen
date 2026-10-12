@@ -139,13 +139,36 @@ var ncMetrics = []ncMetric{
 // hide the availability signal.
 func CollectNextcloud(ctx context.Context, t NextcloudTarget, now int64) ([]Point, error) {
 	pts, err := collectCore(ctx, t, now)
+	if ctx.Err() != nil { // the collection is being stopped (settings changed, agent stopping): that is not a failed check
+		return nil, ctx.Err()
+	}
 	up := false
 	for _, p := range pts {
 		if p.Name == "nextcloud_up" && p.Value >= 1 {
 			up = true
 		}
 	}
+	// One failed check is not an outage: "down" is reported after downAfter in a row. Until then nothing is sent for
+	// availability, and the instance keeps its last state (it turns down by itself if the agent stops reporting).
+	st := deepFor(strings.TrimRight(t.URL, "/"), t)
+	if up {
+		st.downStreak = 0
+	} else {
+		st.downStreak++
+		if st.downStreak < downAfter {
+			kept := pts[:0]
+			for _, p := range pts {
+				if p.Name != "nextcloud_up" {
+					kept = append(kept, p)
+				}
+			}
+			pts = kept
+		}
+	}
 	extra, xerr := collectDeep(ctx, t, now, up)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if err == nil {
 		err = xerr
 	}
@@ -206,6 +229,10 @@ func collectCore(ctx context.Context, t NextcloudTarget, now int64) ([]Point, er
 		}
 	}
 	infoURL := base + "/ocs/v2.php/apps/serverinfo/api/v1/info?format=json"
+	ds := deepFor(base, t)
+	if until := ds.infoHold; time.Now().Before(until) {
+		return append(pts, pt("nextcloud_info", 1, info)), fmt.Errorf("serverinfo is paused until %s after Nextcloud refused the token or limited the requests (brute-force protection); fix the token or login and save it again", until.Format("15:04"))
+	}
 	if wantFullInfo(base, time.Now()) {
 		// the apps and the update check as well; if that is refused or too slow the ordinary answer is still got
 		body, code, _, err = ncGet(ctx, infoURL+"&skipApps=false&skipUpdate=false", auth)
@@ -223,8 +250,16 @@ func collectCore(ctx context.Context, t NextcloudTarget, now int64) ([]Point, er
 		if code == 401 || code == 403 {
 			hint = " (check the serverinfo token, or the admin user/app password)"
 		}
-		return append(pts, pt("nextcloud_info", 1, info)), fmt.Errorf("serverinfo returned HTTP %d%s", code, hint)
+		if code == 429 {
+			hint = " (Nextcloud's brute-force protection is limiting this machine, usually after refused logins; add its address to the whitelist or reset it with occ security:bruteforce:reset)"
+		}
+		ferr := fmt.Errorf("serverinfo returned HTTP %d%s", code, hint)
+		if code == 401 || code == 429 {
+			ds.refusal(ferr, false)
+		}
+		return append(pts, pt("nextcloud_info", 1, info)), ferr
 	}
+	ds.infoFails = 0
 	var si map[string]any
 	if json.Unmarshal(body, &si) != nil {
 		return append(pts, pt("nextcloud_info", 1, info)), fmt.Errorf("serverinfo did not return JSON")

@@ -218,14 +218,6 @@ func start(ctx context.Context, wg *sync.WaitGroup, cfg agent.Config, snd *agent
 				}
 				add(pts)
 			}
-			for _, nc := range cfg.Nextcloud {
-				pts, err := agent.CollectNextcloud(ctx, nc, now)
-				self.ObserveScrape(nc.URL, err)
-				if err != nil {
-					log.Warn("nextcloud poll problem", "url", nc.URL, "err", err)
-				}
-				add(pts)
-			}
 			if cfg.SelfOn() {
 				add(self.Collect(agent.SelfService, now))
 			}
@@ -248,6 +240,57 @@ func start(ctx context.Context, wg *sync.WaitGroup, cfg agent.Config, snd *agent
 			}
 		}
 	}()
+
+	// Every Nextcloud instance is checked in its own goroutine. A slow or unreachable instance (a request can take 20
+	// seconds, and there are several per check) must not hold up the host's own metrics or the other instances: when it
+	// did, the host's heartbeat came too late and the machine was shown as down while it was running.
+	for _, nc := range cfg.Nextcloud {
+		nc := nc
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tick := time.NewTicker(time.Duration(cfg.IntervalSeconds) * time.Second)
+			defer tick.Stop()
+			var lastMsg string
+			var lastAt time.Time
+			for {
+				pts, err := agent.CollectNextcloud(ctx, nc, time.Now().UnixNano())
+				if ctx.Err() != nil { // being stopped: whatever was in flight was cut off, so it says nothing about the instance
+					return
+				}
+				self.ObserveScrape(nc.URL, err)
+				if err != nil { // the same problem is logged again only every ten minutes, not at every check
+					if m := err.Error(); m != lastMsg || time.Since(lastAt) >= 10*time.Minute {
+						log.Warn("nextcloud poll problem", "url", nc.URL, "err", m)
+						lastMsg, lastAt = m, time.Now()
+					}
+				} else {
+					lastMsg = ""
+				}
+				byService := map[string][]agent.Point{}
+				for _, p := range pts {
+					byService[p.Service] = append(byService[p.Service], p)
+				}
+				for svc, sp := range byService {
+					body, _ := agent.MetricsPayload(svc, hostname, sp)
+					if err := snd.Post(ctx, "/v1/metrics", body); err != nil {
+						if ctx.Err() != nil {
+							return
+						}
+						self.SendError("metrics")
+						log.Error("send metrics failed", "service", svc, "err", err)
+					} else {
+						self.Sent("metrics", len(sp))
+					}
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+				}
+			}
+		}()
+	}
 
 	var tailers []*agent.Tailer
 	for _, l := range cfg.Logs {

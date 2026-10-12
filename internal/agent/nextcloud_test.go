@@ -97,6 +97,7 @@ func TestNextcloudBadTokenStillReportsUp(t *testing.T) {
 }
 
 func TestNextcloudDownAndAvailabilityOnly(t *testing.T) {
+	downAfterOne(t)
 	pts, err := CollectNextcloud(context.Background(), NextcloudTarget{URL: "http://127.0.0.1:1"}, 1)
 	if err == nil {
 		t.Fatal("expected error")
