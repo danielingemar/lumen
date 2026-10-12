@@ -21,8 +21,10 @@ type Line struct {
 	DaysReported int      `json:"days_reported"`
 	UserPrice    string   `json:"user_price"`
 	GBPrice      string   `json:"gb_price"`
+	InstPrice    string   `json:"instance_price"`
 	UserAmount   int64    `json:"user_amount"`
 	DataAmount   int64    `json:"data_amount"`
+	InstAmount   int64    `json:"instance_amount"` // the fixed fee for the instance
 	Gross        int64    `json:"gross"`
 	DiscountPct  string   `json:"discount_percent"`
 	Discount     int64    `json:"discount"`
@@ -224,9 +226,13 @@ func BuildRangeT(cfg Config, fromDay, toDay string, months []Month, traffic []Tr
 			customer = name
 		}
 		cur := cfg.Currency
-		userPrice, gbPrice := cfg.UserPrice, cfg.GBPrice
+		userPrice, gbPrice, instPrice := cfg.UserPrice, cfg.GBPrice, cfg.InstancePrice
 		if p.Currency != "" {
 			cur = p.Currency
+			instPrice = "0.00" // the default fee is in the default currency
+		}
+		if p.InstancePrice != "" {
+			instPrice = p.InstancePrice
 		}
 		if p.UserPrice != "" {
 			userPrice = p.UserPrice
@@ -237,6 +243,7 @@ func BuildRangeT(cfg Config, fromDay, toDay string, months []Month, traffic []Tr
 		c, _ := Lookup(cur)
 		up, _ := ParseDec(userPrice)
 		gp, _ := ParseDec(gbPrice)
+		ip, _ := ParseDec(instPrice)
 		vat := cfg.VAT
 		if p.VAT != "" {
 			vat = p.VAT
@@ -265,7 +272,7 @@ func BuildRangeT(cfg Config, fromDay, toDay string, months []Month, traffic []Tr
 				days[day] = true
 			}
 		}
-		ln := Line{Key: key, Name: name, DaysReported: len(days), UserPrice: up.String(), GBPrice: gp.String(), DiscountPct: discD.String(),
+		ln := Line{Key: key, Name: name, DaysReported: len(days), UserPrice: up.String(), GBPrice: gp.String(), InstPrice: ip.String(), DiscountPct: discD.String(),
 			VATPercent: vatD.String(), Note: p.Note}
 		ua := users
 		switch {
@@ -312,7 +319,10 @@ func BuildRangeT(cfg Config, fromDay, toDay string, months []Month, traffic []Tr
 		} else {
 			ln.DataAmount = amount(milli(ln.GB), gp, c.Decimals, num, den)
 		}
-		ln.Gross = ln.UserAmount + ln.DataAmount
+		if len(days) > 0 { // an instance that reported nothing is not charged, the fee included
+			ln.InstAmount = amount(1000, ip, c.Decimals, num, den)
+		}
+		ln.Gross = ln.UserAmount + ln.DataAmount + ln.InstAmount
 		ln.Discount = percentOf(ln.Gross, discD)
 		ln.Net = ln.Gross - ln.Discount
 
@@ -370,7 +380,7 @@ func BuildRangeT(cfg Config, fromDay, toDay string, months []Month, traffic []Tr
 	for _, c := range tcur {
 		rep.Totals = append(rep.Totals, *totals[c])
 	}
-	if cfg.UserPrice == "0.00" && cfg.GBPrice == "0.00" && len(cfg.Profiles) == 0 {
+	if cfg.UserPrice == "0.00" && cfg.GBPrice == "0.00" && cfg.InstancePrice == "0.00" && len(cfg.Profiles) == 0 {
 		rep.Warnings = append(rep.Warnings, "No prices are set yet, so every amount is zero.")
 	}
 	return rep, nil

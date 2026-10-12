@@ -22,17 +22,20 @@ const (
 
 // Config is one tenant's prices and rules. Prices are texts ("49.50") so that nothing is lost on the way through JSON.
 type Config struct {
-	Currency  string    `json:"currency"`      // what prices are in, unless a customer has its own currency
-	UserPrice string    `json:"user_price"`    // per user and month
-	GBPrice   string    `json:"gb_price"`      // per gigabyte of stored data and month
-	UserBasis string    `json:"user_basis"`    // peak | average | end
-	DataBasis string    `json:"data_basis"`    // peak | average | end
-	GBUnit    string    `json:"gb_unit"`       // gb (10^9 bytes, what a disk is sold in) | gib (2^30 bytes, what most tools show)
-	DataMode  string    `json:"data_mode"`     // what the GB price is charged on: stored (data kept on the instance) | traffic (bytes its containers send)
-	Traffic   string    `json:"traffic_count"` // for traffic: sent (what the containers send) | both (sent and received)
-	VAT       string    `json:"vat_percent"`   // 0..100
-	Prorate   bool      `json:"prorate"`       // an instance that reported fewer days than the month is charged for those days
-	Profiles  []Profile `json:"profiles"`      // per instance: who the customer is, and exceptions
+	Currency  string `json:"currency"`   // what prices are in, unless a customer has its own currency
+	UserPrice string `json:"user_price"` // per user and month
+	GBPrice   string `json:"gb_price"`   // per gigabyte of stored data and month
+	// InstancePrice is a fixed fee per instance and period, on top of users and data: what a customer pays for having an
+	// instance at all (the server, the monitoring, the updates). Empty or 0: none.
+	InstancePrice string    `json:"instance_price"`
+	UserBasis     string    `json:"user_basis"`    // peak | average | end
+	DataBasis     string    `json:"data_basis"`    // peak | average | end
+	GBUnit        string    `json:"gb_unit"`       // gb (10^9 bytes, what a disk is sold in) | gib (2^30 bytes, what most tools show)
+	DataMode      string    `json:"data_mode"`     // what the GB price is charged on: stored (data kept on the instance) | traffic (bytes its containers send)
+	Traffic       string    `json:"traffic_count"` // for traffic: sent (what the containers send) | both (sent and received)
+	VAT           string    `json:"vat_percent"`   // 0..100
+	Prorate       bool      `json:"prorate"`       // an instance that reported fewer days than the month is charged for those days
+	Profiles      []Profile `json:"profiles"`      // per instance: who the customer is, and exceptions
 }
 
 // Profile is what is special about one instance. Everything but Key is optional.
@@ -43,9 +46,12 @@ type Profile struct {
 	Currency  string `json:"currency"` // another currency than the default: then both prices below are required
 	UserPrice string `json:"user_price"`
 	GBPrice   string `json:"gb_price"`
-	Discount  string `json:"discount_percent"`
-	VAT       string `json:"vat_percent"` // empty: the default (0 for a customer abroad, for example)
-	Note      string `json:"note"`
+	// InstancePrice is this customer's own fixed fee. Empty: the default fee. For a customer in another currency empty
+	// means no fee, since the default is in the default currency.
+	InstancePrice string `json:"instance_price"`
+	Discount      string `json:"discount_percent"`
+	VAT           string `json:"vat_percent"` // empty: the default (0 for a customer abroad, for example)
+	Note          string `json:"note"`
 	// Containers are the Docker containers whose network traffic is charged for this instance when the data is charged by
 	// traffic: "nextcloud-ks", or "host/nextcloud-ks" for the one on that machine. Several are added up (the web server and
 	// the app of one customer, say).
@@ -56,7 +62,7 @@ var keyRe = regexp.MustCompile(`^[A-Za-z0-9_.:\[\]-]{1,255}$`)
 
 // Default is the configuration before anybody has set anything: nothing is charged.
 func Default() Config {
-	return Config{Currency: "EUR", UserPrice: "0.00", GBPrice: "0.00", UserBasis: End, DataBasis: Peak, GBUnit: "gb", DataMode: Stored, Traffic: Sent, VAT: "0.00", Profiles: []Profile{}}
+	return Config{Currency: "EUR", UserPrice: "0.00", GBPrice: "0.00", InstancePrice: "0.00", UserBasis: End, DataBasis: Peak, GBUnit: "gb", DataMode: Stored, Traffic: Sent, VAT: "0.00", Profiles: []Profile{}}
 }
 
 // What the price per GB is charged on.
@@ -80,10 +86,13 @@ func (c Config) Clean() (Config, error) {
 	if _, ok := Lookup(c.Currency); !ok {
 		return c, fmt.Errorf("the currency %q is not one of the supported ones", c.Currency)
 	}
+	if strings.TrimSpace(c.InstancePrice) == "" { // a configuration saved before the fee existed
+		c.InstancePrice = d.InstancePrice
+	}
 	for _, p := range []struct {
 		what string
 		v    *string
-	}{{"the price per user", &c.UserPrice}, {"the price per GB", &c.GBPrice}} {
+	}{{"the price per user", &c.UserPrice}, {"the price per GB", &c.GBPrice}, {"the price per instance", &c.InstancePrice}} {
 		n, err := ParseDec(*p.v)
 		if err != nil {
 			return c, fmt.Errorf("%s: %w", p.what, err)
@@ -151,7 +160,7 @@ func (c Config) Clean() (Config, error) {
 				return c, fmt.Errorf("%s: a customer in another currency (%s) needs both prices in that currency; the default prices are in %s", p.Key, p.Currency, c.Currency)
 			}
 		}
-		for _, f := range []*string{&p.UserPrice, &p.GBPrice} {
+		for _, f := range []*string{&p.UserPrice, &p.GBPrice, &p.InstancePrice} {
 			if strings.TrimSpace(*f) == "" {
 				*f = ""
 				continue

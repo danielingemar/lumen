@@ -117,6 +117,23 @@ func TestBillingPricesAndInvoiceBasis(t *testing.T) {
 	if inv.Customer != "Kund Holding AB" || inv.Currency != "SEK" || inv.Net != 66667 || inv.VAT != 16667 || inv.Total != 83334 || inv.Lines[0].Name != "kund-ab" {
 		t.Fatalf("%+v", inv)
 	}
+	// a fixed fee per instance, the default one and the customer's own: it is saved, and it is on the invoice
+	fee := `{"currency":"SEK","user_price":"50","gb_price":"2","instance_price":"199","vat_percent":"25","profiles":[{"key":"kund.example.com","customer":"Kund Holding AB","instance_price":"149.50"}]}`
+	if r, b := do(ad, "PUT", u, fee); r.StatusCode != 200 || !strings.Contains(string(b), `"instance_price":"199.00"`) || !strings.Contains(string(b), `"instance_price":"149.50"`) {
+		t.Fatalf("%d %s", r.StatusCode, b)
+	}
+	r, b = do(ad, "GET", u+"/report?period=2026-10", "")
+	rep = billing.Report{}
+	json.Unmarshal(b, &rep)
+	if r.StatusCode != 200 || len(rep.Invoices) != 1 || rep.Invoices[0].Lines[0].InstAmount != 14950 || rep.Invoices[0].Net != 66667+14950 {
+		t.Fatalf("%d %s", r.StatusCode, b)
+	}
+	if c := code(ad, "PUT", u, `{"instance_price":"-1"}`); c != 400 {
+		t.Fatalf("a negative fee is refused: %d", c)
+	}
+	if r, b := do(ad, "PUT", u, cfg); r.StatusCode != 200 { // back to the prices the rest of the test expects
+		t.Fatalf("%d %s", r.StatusCode, b)
+	}
 	// files for a spreadsheet
 	r, b = do(ad, "GET", u+"/report?period=2026-10&format=csv&view=invoices&locale=sv", "")
 	if r.Header.Get("Content-Type") != "text/csv; charset=utf-8" || !strings.Contains(r.Header.Get("Content-Disposition"), "lumen-billing-2026-10-invoices.csv") ||

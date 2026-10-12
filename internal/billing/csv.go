@@ -38,11 +38,12 @@ func WriteCSV(w io.Writer, r Report, view, locale string) error {
 		return cw.Error()
 	}
 	cw.Write([]string{"period", "customer", "instance", "currency", "users", "user_price", "users_amount", dataHead(r) + r.GBUnit, "gb_price", dataHead(r) + "amount",
-		"discount_percent", "discount", "net", "vat_percent", "days_reported", "note"})
+		"instance_price", "instance_amount", "discount_percent", "discount", "net", "vat_percent", "days_reported", "note"})
 	for _, in := range r.Invoices {
 		for _, l := range in.Lines {
 			cw.Write([]string{r.Period, clean(in.Customer), clean(l.Name), in.Currency, num(trim3(l.Users)), num(l.UserPrice), money(l.UserAmount, in.Decimals),
-				num(trim3(l.GB)), num(l.GBPrice), money(l.DataAmount, in.Decimals), num(l.DiscountPct), money(l.Discount, in.Decimals), money(l.Net, in.Decimals),
+				num(trim3(l.GB)), num(l.GBPrice), money(l.DataAmount, in.Decimals),
+				num(l.InstPrice), money(l.InstAmount, in.Decimals), num(l.DiscountPct), money(l.Discount, in.Decimals), money(l.Net, in.Decimals),
 				num(l.VATPercent), fmt.Sprint(l.DaysReported), clean(l.Note)})
 		}
 	}
