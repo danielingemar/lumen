@@ -135,7 +135,8 @@ URL="$(sed -n 's/.*"url": *"\([^"]*\)".*/\1/p' "$CONF_DIR/config.json" | head -1
 printf '%s' "$URL" | grep -Eq '^https?://[A-Za-z0-9.:-]+$' || fail "cannot read a valid Lumen address from $CONF_DIR/config.json"
 case "$(uname -m)" in x86_64|amd64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; *) fail "unsupported CPU architecture";; esac
 NAME="lumen-agent-linux-$ARCH"
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# next to the installed binary, not in /tmp: /tmp is often mounted noexec (hardened systems), and then a downloaded file cannot be run to see what it is
+TMP="$(mktemp -d "$BIN_DIR/.lumen-update.XXXXXX" 2>/dev/null || mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 curl -fsSL --max-time 300 "$URL/download/$NAME" -o "$TMP/$NAME" || fail "download from $URL failed"
 curl -fsSL --max-time 60 "$URL/download/SHA256SUMS" -o "$TMP/SHA256SUMS" || fail "could not download the checksums"
 WANT="$(grep " $NAME\$" "$TMP/SHA256SUMS" | awk '{print $1}')"
@@ -144,7 +145,7 @@ HAVE="$(sha256sum "$TMP/$NAME" | awk '{print $1}')"
 CUR="$(sha256sum "$BIN_DIR/lumen-agent" 2>/dev/null | awk '{print $1}')"
 if [ "$CUR" = "$HAVE" ]; then log "this is already the version the server offers: nothing to do"; exit 0; fi
 chmod +x "$TMP/$NAME"
-NEWV="$("$TMP/$NAME" -version 2>/dev/null)" || fail "the downloaded agent does not run on this machine"
+NEWV="$("$TMP/$NAME" -version 2>&1)" || fail "the downloaded agent does not run on this machine: $NEWV"
 OLDV="$("$BIN_DIR/lumen-agent" -version 2>/dev/null || echo unknown)"
 cp -p "$BIN_DIR/lumen-agent" "$BIN_DIR/lumen-agent.previous" 2>/dev/null || true
 install -m 0755 "$TMP/$NAME" "$BIN_DIR/lumen-agent.new"
