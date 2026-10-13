@@ -109,3 +109,37 @@ func TestToolEndToEnd(t *testing.T) {
 		t.Fatal("unknown command")
 	}
 }
+
+func TestTrialCommand(t *testing.T) {
+	dir := t.TempDir()
+	keys := filepath.Join(dir, "keys")
+	if _, _, code := runTool(t, "keygen", "--id", "main", "--dir", keys); code != 0 {
+		t.Fatal("keygen")
+	}
+	lic := filepath.Join(dir, "trial.license")
+	out, e, code := runTool(t, "trial", "--key", filepath.Join(keys, "main.key"), "--customer", "Provet AB", "--out", lic)
+	if code != 0 || !strings.Contains(out, "Trial licence") || !strings.Contains(out, "enterprise+operator") {
+		t.Fatalf("%d %s %s", code, out, e)
+	}
+	pubText, _ := os.ReadFile(filepath.Join(keys, "main.pub"))
+	pub, _ := license.ParsePublicKey(string(pubText))
+	raw, _ := os.ReadFile(lic)
+	l, err := license.Parse(raw, license.Keys{"main": pub})
+	if err != nil || !l.Trial || !l.Has(license.Enterprise) || !l.Has(license.Operator) || !strings.HasPrefix(l.ID, "T-") {
+		t.Fatalf("%+v %v", l, err)
+	}
+	if d := l.DaysLeft(time.Now()); d < 29 || d > 30 {
+		t.Fatalf("a trial lasts 30 days: %d", d)
+	}
+	if l.State(l.Expires.AddDate(0, 0, 1)) != license.StateExpired {
+		t.Fatal("a trial must stop on its end date")
+	}
+	// it can be shortened or limited, and inspect says it is a trial
+	lic2 := filepath.Join(dir, "short.license")
+	if _, e, code := runTool(t, "trial", "--key", filepath.Join(keys, "main.key"), "--customer", "X", "--days", "14", "--hosts", "5", "--out", lic2); code != 0 {
+		t.Fatal(e)
+	}
+	if out, _, code := runTool(t, "inspect", lic2, "--pub", filepath.Join(keys, "main.pub")); code != 0 || !strings.Contains(out, "(TRIAL)") || !strings.Contains(out, "hosts     5") {
+		t.Fatalf("%d %s", code, out)
+	}
+}

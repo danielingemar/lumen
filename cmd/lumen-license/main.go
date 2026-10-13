@@ -28,6 +28,9 @@ const usage = `lumen-license: make signing keys and issue licences
   lumen-license issue   --key keys/main.key --key-id main --customer "ACME AB"
                         --editions enterprise[,operator] (--days 365 | --expires 2027-12-31) [--issued 2026-01-31]
                         [--hosts 50] [--tenants 10] [--id L-2026-001] [--out acme.license] [--ledger issued.jsonl]
+  lumen-license trial   --key keys/main.key --customer "ACME AB" [--days 30] [--editions enterprise,operator]
+                        [--hosts 50] [--tenants 10] [--out acme-trial.license] [--ledger issued.jsonl]
+                        a try-out licence: all features, 30 days, no grace period afterwards
   lumen-license inspect FILE [--pub keys/main.pub]
 `
 
@@ -42,6 +45,8 @@ func run(args []string, out, errw io.Writer) int {
 		err = keygen(args[1:], out)
 	case "issue":
 		err = issue(args[1:], out)
+	case "trial":
+		err = issue(append([]string{"--trial"}, args[1:]...), out)
 	case "inspect":
 		err = inspect(args[1:], out)
 	case "-h", "--help", "help":
@@ -115,9 +120,20 @@ func issue(args []string, out io.Writer) error {
 	tenants := fs.Int("tenants", 0, "soft limit of tenants (0 = none)")
 	id := fs.String("id", "", "licence id (default: made from the date and a random part)")
 	outFile := fs.String("out", "", "file to write (default: <customer>-<id>.license)")
+	trial := fs.Bool("trial", false, "a try-out licence: all editions, 30 days unless --days says otherwise, no grace period (the trial command)")
 	ledger := fs.String("ledger", "", "append a line about the licence to this file (your own record of what you issued)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	given := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	if *trial { // a trial is everything for a month, unless said otherwise
+		if !given["editions"] {
+			*editions = license.Enterprise + "," + license.Operator
+		}
+		if !given["days"] && !given["expires"] {
+			*days = 30
+		}
 	}
 	if *keyFile == "" {
 		return fmt.Errorf("--key is required")
@@ -160,9 +176,13 @@ func issue(args []string, out io.Writer) error {
 	if *id == "" {
 		b := make([]byte, 3)
 		_, _ = rand.Read(b)
-		*id = "L-" + now.Format("20060102") + "-" + hex.EncodeToString(b)
+		prefix := "L-"
+		if *trial {
+			prefix = "T-"
+		}
+		*id = prefix + now.Format("20060102") + "-" + hex.EncodeToString(b)
 	}
-	p := license.Payload{ID: *id, Customer: strings.TrimSpace(*customer), Issued: now, Expires: end, Limits: license.Limits{Hosts: *hosts, Tenants: *tenants}}
+	p := license.Payload{ID: *id, Customer: strings.TrimSpace(*customer), Issued: now, Expires: end, Limits: license.Limits{Hosts: *hosts, Tenants: *tenants}, Trial: *trial}
 	for _, e := range strings.Split(*editions, ",") {
 		if e = strings.TrimSpace(e); e != "" {
 			p.Editions = append(p.Editions, e)
@@ -180,7 +200,7 @@ func issue(args []string, out io.Writer) error {
 		return err
 	}
 	if *ledger != "" {
-		rec, _ := json.Marshal(map[string]any{"id": p.ID, "customer": p.Customer, "editions": p.Editions, "issued": p.Issued, "expires": p.Expires, "limits": p.Limits, "key_id": *keyID, "file": *outFile})
+		rec, _ := json.Marshal(map[string]any{"id": p.ID, "customer": p.Customer, "editions": p.Editions, "issued": p.Issued, "expires": p.Expires, "limits": p.Limits, "trial": p.Trial, "key_id": *keyID, "file": *outFile})
 		f, err := os.OpenFile(*ledger, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err != nil {
 			return err
@@ -190,8 +210,12 @@ func issue(args []string, out io.Writer) error {
 			return err
 		}
 	}
-	fmt.Fprintf(out, "Licence %s for %s written to %s\n  editions %s, valid until %s (%d days), hosts limit %s, tenants limit %s\n",
-		p.ID, p.Customer, *outFile, strings.Join(p.Editions, "+"), p.Expires.Format("2006-01-02"), int(p.Expires.Sub(now).Hours()/24), limit(p.Limits.Hosts), limit(p.Limits.Tenants))
+	kind := "Licence"
+	if p.Trial {
+		kind = "Trial licence"
+	}
+	fmt.Fprintf(out, "%s %s for %s written to %s\n  editions %s, valid until %s (%d days), hosts limit %s, tenants limit %s\n",
+		kind, p.ID, p.Customer, *outFile, strings.Join(p.Editions, "+"), p.Expires.Format("2006-01-02"), int(p.Expires.Sub(now).Hours()/24), limit(p.Limits.Hosts), limit(p.Limits.Tenants))
 	return nil
 }
 
@@ -243,8 +267,8 @@ func inspect(args []string, out io.Writer) error {
 		l = license.License{Payload: body, KeyID: f.KeyID}
 	}
 	now := time.Now()
-	fmt.Fprintf(out, "id        %s\ncustomer  %s\neditions  %s\nissued    %s\nexpires   %s (%s, %d days)\nhosts     %s\ntenants   %s\nkey       %s\n%s\n",
-		l.ID, l.Customer, strings.Join(l.Editions, ", "), l.Issued.Format("2006-01-02"), l.Expires.Format("2006-01-02 15:04 UTC"), l.State(now), l.DaysLeft(now), limit(l.Limits.Hosts), limit(l.Limits.Tenants), f.KeyID, verified)
+	fmt.Fprintf(out, "id        %s\ncustomer  %s%s\neditions  %s\nissued    %s\nexpires   %s (%s, %d days)\nhosts     %s\ntenants   %s\nkey       %s\n%s\n",
+		l.ID, l.Customer, map[bool]string{true: "  (TRIAL)"}[l.Trial], strings.Join(l.Editions, ", "), l.Issued.Format("2006-01-02"), l.Expires.Format("2006-01-02 15:04 UTC"), l.State(now), l.DaysLeft(now), limit(l.Limits.Hosts), limit(l.Limits.Tenants), f.KeyID, verified)
 	return nil
 }
 

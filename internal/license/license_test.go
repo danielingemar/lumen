@@ -285,3 +285,30 @@ func TestLicenceFileOverridesAndIsPickedUp(t *testing.T) {
 	}
 	_ = c
 }
+
+// A trial has no grace period and reminds a week before it ends, not a month.
+func TestTrialHasNoGrace(t *testing.T) {
+	issued := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	l := License{Payload: Payload{ID: "T-1", Customer: "x", Editions: []string{Enterprise}, Issued: issued, Expires: issued.AddDate(0, 0, 30), Trial: true}}
+	for name, c := range map[string]struct {
+		at     time.Time
+		state  State
+		active bool
+	}{
+		"day one":             {issued, StateValid, true},
+		"three weeks in":      {issued.AddDate(0, 0, 22), StateValid, true},
+		"a week before":       {issued.AddDate(0, 0, 24), StateExpiring, true},
+		"one second after":    {l.Expires.Add(time.Second), StateExpired, false},
+		"a day after the end": {l.Expires.AddDate(0, 0, 1), StateExpired, false},
+		"two weeks after":     {l.Expires.AddDate(0, 0, 14), StateExpired, false},
+	} {
+		if got := l.State(c.at); got != c.state || l.Active(c.at) != c.active {
+			t.Errorf("%s: state %s active %v, want %s %v", name, got, l.Active(c.at), c.state, c.active)
+		}
+	}
+	// the same dates on an ordinary licence keep the month of grace
+	l.Trial = false
+	if l.State(l.Expires.AddDate(0, 0, 14)) != StateGrace || !l.Active(l.Expires.AddDate(0, 0, 14)) {
+		t.Error("an ordinary licence keeps its grace period")
+	}
+}

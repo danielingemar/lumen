@@ -25,6 +25,8 @@ const (
 	Grace = 30 * 24 * time.Hour
 	// ExpiringSoon is when the interface starts to remind about the expiry.
 	ExpiringSoon = 30 * 24 * time.Hour
+	// A trial licence has no grace period (it would double the trial) and starts to remind a week before it ends.
+	TrialExpiringSoon = 7 * 24 * time.Hour
 
 	formatName = "lumen-license-1"
 	maxSize    = 16 << 10
@@ -49,6 +51,8 @@ type Payload struct {
 	Issued   time.Time `json:"issued"`
 	Expires  time.Time `json:"expires"`
 	Limits   Limits    `json:"limits"`
+	// Trial marks a try-out licence: it has no grace period and the interface says so.
+	Trial bool `json:"trial,omitempty"`
 }
 
 // File is the licence as stored on disk: the payload as signed (so nothing needs to be re-encoded to verify it),
@@ -163,12 +167,16 @@ const (
 )
 
 func (l License) State(now time.Time) State {
+	soon, grace := ExpiringSoon, Grace
+	if l.Trial {
+		soon, grace = TrialExpiringSoon, 0
+	}
 	switch {
-	case now.Before(l.Expires.Add(-ExpiringSoon)):
+	case now.Before(l.Expires.Add(-soon)):
 		return StateValid
 	case now.Before(l.Expires):
 		return StateExpiring
-	case now.Before(l.Expires.Add(Grace)):
+	case now.Before(l.Expires.Add(grace)):
 		return StateGrace
 	}
 	return StateExpired

@@ -49,7 +49,15 @@ go run ./cmd/lumen-license issue --key keys/main.key --customer "ACME AB" \
 - Send the customer the `.license` file. It is not secret, but it is made for them.
 - Check a file at any time with `go run ./cmd/lumen-license inspect acme.license --pub keys/main.pub`.
 
-A trial is a licence with a short end date (`--days 30`). A renewal is a new licence: the customer installs it over the old one.
+### Trial licences
+
+```bash
+go run ./cmd/lumen-license trial --key keys/main.key --customer "ACME AB" --ledger issued.jsonl
+```
+
+A trial is **every feature for 30 days** (`enterprise,operator`), made with one command. It has no grace period, so it stops on its end date, and the reminder starts a week before instead of a month. The interface calls it a trial. `--days`, `--editions`, `--hosts` and `--tenants` work as for `issue`. After the trial the installation is a Community edition again with all its data; installing a real licence switches everything back on at once.
+
+A renewal is a new licence: the customer installs it over the old one.
 
 ### Renewing, revoking, changing keys
 
@@ -66,9 +74,9 @@ A trial is a licence with a short end date (`--days 30`). A renewal is a new lic
 | State | What it means | Enterprise features |
 |---|---|---|
 | none | No licence: the Community edition | off |
-| valid | In force, more than 30 days left | on |
-| expiring | In force, 30 days or less left (amber reminder) | on |
-| grace | Ended less than 30 days ago (red reminder) | **still on** |
+| valid | In force, more than 30 days left (trial: more than 7) | on |
+| expiring | In force, 30 days or less left, 7 for a trial (amber reminder) | on |
+| grace | Ended less than 30 days ago (red reminder). A trial has no grace | **still on** |
 | expired | Ended more than 30 days ago (red reminder) | off |
 | cannot be used | A stored licence that no longer verifies (for example the build was changed to trust other keys); the reason is shown | off |
 

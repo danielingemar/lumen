@@ -152,6 +152,7 @@ type Info struct {
 	DaysLeft  int      `json:"days_left"`
 	Limits    Limits   `json:"limits"`
 	Source    string   `json:"source,omitempty"`
+	Trial     bool     `json:"trial,omitempty"`
 	Problem   string   `json:"problem,omitempty"`
 	Trusted   int      `json:"trusted_keys"`
 }
@@ -169,7 +170,10 @@ func (m *Manager) Info() Info {
 	l, now := *m.lic, m.Now()
 	in.State, in.Customer, in.ID, in.Editions, in.Limits, in.Source = l.State(now), l.Customer, l.ID, l.Editions, l.Limits, m.source
 	in.Issued, in.Expires, in.GraceEnds = l.Issued.Format(time.RFC3339), l.Expires.Format(time.RFC3339), l.Expires.Add(Grace).Format(time.RFC3339)
-	in.DaysLeft = l.DaysLeft(now)
+	in.DaysLeft, in.Trial = l.DaysLeft(now), l.Trial
+	if l.Trial {
+		in.GraceEnds = in.Expires
+	}
 	return in
 }
 

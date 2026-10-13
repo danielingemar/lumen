@@ -51,6 +51,14 @@ go run ./cmd/lumen-license issue --key keys/main.key --customer "ACME AB" \
 
 En provlicens är en licens med kort slutdatum (`--days 30`). En förnyelse är en ny licens: kunden installerar den över den gamla.
 
+### Provlicenser
+
+```bash
+go run ./cmd/lumen-license trial --key keys/main.key --customer "ACME AB" --ledger issued.jsonl
+```
+
+En provlicens är **alla funktioner i 30 dagar** (`enterprise,operator`), gjord med ett kommando. Den har ingen nådetid, så den slutar på slutdatumet, och påminnelsen börjar en vecka före i stället för en månad. Gränssnittet kallar den en provlicens. `--days`, `--editions`, `--hosts` och `--tenants` fungerar som för `issue`. Efter provet är installationen Community igen med all sin data; en riktig licens slår på allt på en gång.
+
 ### Förnya, återkalla, byta nycklar
 
 - **Förnya:** utfärda en ny licens och skicka den. Kunden installerar den under Inställningar (eller byter filen, se nedan).
