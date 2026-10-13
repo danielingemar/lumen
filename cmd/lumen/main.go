@@ -20,7 +20,6 @@ import (
 	"github.com/danielingemar/lumen/internal/buildinfo"
 	"github.com/danielingemar/lumen/internal/config"
 	"github.com/danielingemar/lumen/internal/dashboards"
-	"github.com/danielingemar/lumen/internal/edition"
 	"github.com/danielingemar/lumen/internal/install"
 	"github.com/danielingemar/lumen/internal/license"
 	"github.com/danielingemar/lumen/internal/metering"
@@ -180,7 +179,7 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
-		log.Info("lumen started", "addr", cfg.Addr, "edition", edition.Name, "version", buildinfo.Version)
+		log.Info("lumen started", "addr", cfg.Addr, "licence", string(lic.State()), "version", buildinfo.Version)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Error("server error", "err", err)
 			os.Exit(1)

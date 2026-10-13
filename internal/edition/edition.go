@@ -1,6 +1,6 @@
 // Package edition is the open-core seam. The community build ships the defaults below.
-// Enterprise features live under /ee (separate license, build tag "enterprise") and
-// replace these hooks from an init() function, so the open-source core never imports /ee.
+// Enterprise features live under /ee (separate license) and may replace these hooks from an init() function.
+// What a licence unlocks is decided at run time by internal/license, not by the build.
 package edition
 
 import (
@@ -8,9 +8,6 @@ import (
 	"net/http"
 	"time"
 )
-
-// Name is "community" or "enterprise".
-var Name = "community"
 
 // Identity is the authenticated caller. Tenant scopes every read and write.
 type Identity struct {

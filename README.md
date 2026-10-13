@@ -469,7 +469,6 @@ Backups are kept `LUMEN_BACKUP_RETENTION_DAYS` (**365**; `0` = forever). A faile
 | `LUMEN_ALERT_REPEAT` | `4h` | how often a firing alert is announced again until acknowledged |
 | `LUMEN_ADMIN_TENANT` | `main` | the tenant of the first administrator. In an installation with several tenants set it to `operator`: that tenant holds the operator console and owns the licence |
 | `LUMEN_LICENSE_FILE` | | path of a licence file (read at start and every minute, so a renewal can be dropped in); otherwise the licence saved under Settings is used |
-| `LUMEN_BUILD_TAGS` | | in `deploy/.env`, for the build: `enterprise` builds the Enterprise edition |
 | `LUMEN_SECRET_KEY` | | encrypts stored Nextcloud credentials (falls back to the session secret with a warning) |
 | `LUMEN_ELASTICSEARCH_URL` / `_USER` / `_PASSWORD` / `_API_KEY` / `_PREFIX` | / / / / `lumen` | document store; without a URL a JSON file in `LUMEN_DATA_DIR` (`/data`) is used |
 | `LUMEN_ADMIN_USER` / `_PASSWORD` / `_TENANT` | / / `main` | first admin, created at startup |
@@ -557,7 +556,7 @@ internal/backup       daily export, prune, load/unload of archive days
 internal/docstore     Elasticsearch client + JSON-file fallback (estest = fake ES, tests only)
 internal/dashboards   dashboards per tenant
 internal/edition      open-core hooks (auth, authorization)
-ee/                   enterprise features (commercial license, build tag "enterprise"): Jira, ServiceNow, PagerDuty, Opsgenie
+ee/                   enterprise features (commercial license, in every build, switched on by a licence): Jira, ServiceNow, PagerDuty, Opsgenie
 deploy/               compose file, preflight, secrets generator, RHEL-family Docker installer
 install.sh dev.sh     server installer / local test setup
 ```
@@ -565,7 +564,6 @@ install.sh dev.sh     server installer / local test setup
 ```bash
 make test          # go vet ./... && go test ./...
 make build         # bin/lumen and bin/lumen-agent
-make build-ee      # enterprise build
 ```
 
 The SQL (DDL, queries, backup export/import round trip, retention) is also run against a real ClickHouse engine:
@@ -585,7 +583,7 @@ Before you fork this into a product of your own: pick the final name and check i
 
 ## Editions and design documents
 
-Lumen is open core: a free **Community** edition, **Enterprise** for governance and scale, and an **Operator** add-on for running Lumen for customers or business units. The line between them is written down as a public charter, with promises such as "a released Community feature is never moved to a paid edition". These are **drafts** for discussion; nothing in them is implemented yet unless the text says *exists*. The licence mechanism itself exists: Enterprise features (today the Jira, ServiceNow, PagerDuty and Opsgenie channels) need a signed licence file that is checked **offline** inside Lumen, with a 30-day grace period and no data ever deleted. Without a licence Lumen is the Community edition. Install a licence under **Settings → Licence**, or point `LUMEN_LICENSE_FILE` at it. The Enterprise code is built with `LUMEN_BUILD_TAGS=enterprise`; the publisher's tool `lumen-license` makes keys and licences (see the licensing guide).
+Lumen is open core: a free **Community** edition, **Enterprise** for governance and scale, and an **Operator** add-on for running Lumen for customers or business units. The line between them is written down as a public charter, with promises such as "a released Community feature is never moved to a paid edition". These are **drafts** for discussion; nothing in them is implemented yet unless the text says *exists*. The licence mechanism itself exists: Enterprise features (today the Jira, ServiceNow, PagerDuty and Opsgenie channels) need a signed licence file that is checked **offline** inside Lumen, with a 30-day grace period and no data ever deleted. Without a licence Lumen is the Community edition. Install a licence under **Settings → Licence**, or point `LUMEN_LICENSE_FILE` at it. There is one build for everyone: the Enterprise code is in it and the licence switches it on, with no rebuild. The publisher's tool `lumen-license` makes keys and licences (see the licensing guide).
 
 | Document | English | Svenska |
 |---|---|---|

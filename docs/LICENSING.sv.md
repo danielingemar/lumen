@@ -28,20 +28,11 @@ git add internal/license/keys/main.pub && git commit -m "Add the licence verific
 
 Bara `.pub`-filen checkas in. `*.key`, `*.license`, `/keys/` och `issued.jsonl` står i `.gitignore` så att de inte kan checkas in av misstag. **Håll den privata nyckeln offline** (ett krypterat USB-minne eller en hårdvarunyckel räcker till att börja med), spara en andra krypterad kopia på ett annat ställe, och lägg den aldrig på en server som kunder når eller i ett CI-system. Den som har den kan utfärda licenser.
 
-### Bygga Enterprise-utgåvan
+### Ett bygge för alla
 
-Enterprise-koden kompileras in bara med byggtaggen `enterprise`, och de publika nycklarna kompileras in från `internal/license/keys/`.
+Det finns inget separat Enterprise-bygge. Varje bygge innehåller Enterprise-koden (`ee/`), och licensen avgör vid körning vad som är påslaget: lägg in en licens under **Settings** (eller peka `LUMEN_LICENSE_FILE` på den) så fungerar Enterprise-funktionerna inom en minut, utan ombyggnad, annan image eller omstart. När licensen har gått ut och nådetiden är slut stängs de av igen; Community-funktionerna och all data påverkas inte.
 
-```bash
-# Docker: sätt det en gång i deploy/.env och bygg som vanligt
-echo "LUMEN_BUILD_TAGS=enterprise" >> deploy/.env
-sudo docker compose -f deploy/docker-compose.yml up -d --build
-
-# eller utan Docker
-go build -tags enterprise -o lumen ./cmd/lumen
-```
-
-Ett bygge utan din publika nyckel litar inte på någon licens, så det är ett Community-bygge oavsett vilken fil det får.
+Det enda bygget måste innehålla är din **publika nyckel**, som kompileras in från `internal/license/keys/` (se ovan). Ett bygge utan den litar inte på någon licens, vilken fil det än får, och säger det när någon läggs in.
 
 ### Utfärda en licens
 
@@ -89,7 +80,7 @@ När Enterprise-funktioner är av **raderas ingenting**: kanaler och inställnin
 |---|---|
 | the signature does not match | Filen ändrades efter att den gjordes (även ett enda tecken), eller gjordes för något annat |
 | signed with the key "x", which this build does not trust | En annan utgivares licens, eller ett bygge utan din publika nyckel |
-| this build of Lumen trusts no licence keys | Ett Community-bygge av programmet: använd bygget du fick tillsammans med licensen |
+| this build of Lumen trusts no licence keys | Utgivarens publika nyckel finns inte i bygget: lägg den i `internal/license/keys/` och bygg om |
 | that is not a Lumen licence file | Inte `.license`-filen (försök klistra in hela filen, med klammerparenteser) |
 | the licence in force is read from the file … | `LUMEN_LICENSE_FILE` är satt: byt den filen i stället |
 

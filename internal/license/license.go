@@ -127,7 +127,7 @@ func Parse(data []byte, keys Keys) (License, error) {
 	pub, ok := keys[f.KeyID]
 	if !ok {
 		if len(keys) == 0 {
-			return License{}, bad("this build of Lumen trusts no licence keys, so it cannot verify licences; use the build you received with your licence")
+			return License{}, bad("this build of Lumen trusts no licence keys, so it cannot verify licences; the publisher's public key is missing from internal/license/keys/ (see docs/LICENSING.md)")
 		}
 		return License{}, bad("the licence is signed with the key %q, which this build of Lumen does not trust", f.KeyID)
 	}

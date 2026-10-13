@@ -28,20 +28,11 @@ git add internal/license/keys/main.pub && git commit -m "Add the licence verific
 
 Only the `.pub` file is committed. `*.key`, `*.license`, `/keys/` and `issued.jsonl` are in `.gitignore` so that they cannot be committed by mistake. **Keep the private key offline** (an encrypted USB stick or a hardware token is enough to start with), keep a second encrypted copy somewhere else, and never put it on a server that customers can reach or in a CI system. Whoever has it can issue licences.
 
-### Building the Enterprise edition
+### One build for everyone
 
-The Enterprise code is compiled in only with the build tag `enterprise`, and the public keys are compiled in from `internal/license/keys/`.
+There is no separate Enterprise build. Every build contains the Enterprise code (`ee/`), and what is switched on is decided at run time by the licence: add a licence under **Settings** (or point `LUMEN_LICENSE_FILE` at it) and the Enterprise features work within a minute, with no rebuild, no other image and no restart. When the licence ends and the grace period has passed, they stop again; Community features and all data are untouched.
 
-```bash
-# Docker: set it once in deploy/.env, then build as usual
-echo "LUMEN_BUILD_TAGS=enterprise" >> deploy/.env
-sudo docker compose -f deploy/docker-compose.yml up -d --build
-
-# or without Docker
-go build -tags enterprise -o lumen ./cmd/lumen
-```
-
-A build without your public key trusts no licence, so it is a Community build whatever file it is given.
+The one thing the build must contain is your **public key**, compiled in from `internal/license/keys/` (see above). A build without it trusts no licence, whatever file it is given, and says so when one is added.
 
 ### Issuing a licence
 
@@ -89,7 +80,7 @@ When Enterprise features are off, **nothing is deleted**: channels and settings 
 |---|---|
 | the signature does not match | The file was changed after it was made (even one character), or it was made for something else |
 | signed with the key "x", which this build does not trust | Another publisher's licence, or a build without your public key |
-| this build of Lumen trusts no licence keys | A Community build of the program: use the build you received with the licence |
+| this build of Lumen trusts no licence keys | The publisher's public key is not in the build: add it to `internal/license/keys/` and build again |
 | that is not a Lumen licence file | Not the `.license` file (try pasting the whole file, braces included) |
 | the licence in force is read from the file … | `LUMEN_LICENSE_FILE` is set: replace that file instead |
 
