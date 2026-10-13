@@ -5,6 +5,9 @@ versions follow [Semantic Versioning](https://semver.org/) once a first release 
 
 ## [Unreleased]
 
+### Changed
+- **Machines and instances are added in separate places.** *Add a machine* now only installs agents (Linux, Windows, Docker host, downloads) and no longer asks for Nextcloud addresses, tokens or passwords; the long per-instance commands are gone. Nextcloud instances are added under **Instances → Add instance**: choose the machine whose agent runs the checks (one agent can check several instances), then Lumen lists that machine's Docker containers (Nextcloud ones first), fills in the container name and the agent's address in the occ commands of the guide, and takes the name from the container. A new option, `--checker` in the Linux installer or “only check Nextcloud instances” for the Docker agent, makes an agent that is not a machine, for a Nextcloud where no agent can run. Instances set up with `--nextcloud` flags keep working.
+
 ### Fixed
 - **The agent's update helper said only "the downloaded agent does not run on this machine".** It tried the new binary in /tmp, which is mounted noexec on hardened systems; it now tries it next to the installed binary and shows the real error. The helper is installed by the install script, so a machine that already has the old one needs `install/agent.sh --update` once.
 - **Instances and hosts shown as down while they were running.** Three causes in the agent: (1) one failed or slow check made an instance down at once, it now takes three in a row (about 45 seconds); (2) the checks of all instances ran in the same loop as the host's own metrics, so a slow Nextcloud (a request may take 20 seconds, and there are several per check) made the host's heartbeat late and the machine down; every instance is now checked on its own; (3) a collection that was cut off when settings were saved was reported as an outage, it is now dropped.

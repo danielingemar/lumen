@@ -31,6 +31,7 @@ type Item struct {
 	Name     string `json:"name"`
 	Host     string `json:"host,omitempty"`
 	State    string `json:"state,omitempty"`
+	Image    string `json:"image,omitempty"` // containers: the image, so a Nextcloud container can be recognised
 	Up       bool   `json:"up"`
 	LastSeen int64  `json:"last_seen"`
 	Stale    bool   `json:"stale,omitempty"` // not reported recently: the state is the last one known
@@ -359,7 +360,7 @@ func Items(now time.Time, rows []model.Latest, host string) (services, container
 		case "system_service_up":
 			services = append(services, Item{Kind: "service", Name: r.Attrs["service"], Host: host, State: r.Attrs["state"], Up: r.Value >= 1, LastSeen: r.T, Stale: stale})
 		case "container_up":
-			containers = append(containers, Item{Kind: "container", Name: r.Attrs["container"], Host: host, State: r.Attrs["state"], Up: r.Value >= 1, LastSeen: r.T, Stale: stale})
+			containers = append(containers, Item{Kind: "container", Name: r.Attrs["container"], Host: host, State: r.Attrs["state"], Image: r.Attrs["image"], Up: r.Value >= 1, LastSeen: r.T, Stale: stale})
 		}
 	}
 	order := func(x []Item) {

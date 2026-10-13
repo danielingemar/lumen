@@ -144,7 +144,7 @@ In the UI open **Add a machine**, create an agent key (for example `web-server-1
 | **Nextcloud** | add the instance on the **Instances** page | see [Nextcloud monitoring](#nextcloud-monitoring) |
 | **Download files** | links with SHA-256 | raw binaries for manual installs |
 
-**Hosts and instances are separate.** A *host* is a machine whose agent reports on it. An agent that only checks Nextcloud instances (host metrics off, for example the “Or as a Docker container” command under *Add a machine*) is a *checker*: it is not a machine, so it is not listed or counted under **Hosts** (and not against a tenant's host limit). It is listed on the **Instances** page, next to the instances it checks, where it can be updated and removed. Agents from before this are shown as hosts until they are updated.
+**Hosts and instances are separate.** A *host* is a machine whose agent reports on it. An agent that only checks Nextcloud instances (tick “only check Nextcloud instances” under *Add a machine*, or `--checker` in the Linux installer) is a *checker*: it is not a machine, so it is not listed or counted under **Hosts** (and not against a tenant's host limit). It is listed on the **Instances** page, next to the instances it checks, where it can be updated and removed. Agents from before this are shown as hosts until they are updated.
 
 **Updating agents.** An agent that is not the same build as the server is marked *update* on the Hosts page. Click it, or *Update N agents*, to update it (a root-owned helper installs what the server offers after checking its checksums and rolls back if the new version does not stay up; a container agent replaces itself in place). Agents from before this feature, and Windows agents, need the install command once: click the label to see it. See [UPGRADING.md](UPGRADING.md).
 
@@ -184,7 +184,7 @@ docker exec -u www-data <nextcloud-container> php occ config:app:set serverinfo 
 # without Docker:  sudo -u www-data php occ config:app:set serverinfo token --value '...'
 ```
 
-Then add the instance under **Instances**. The Nextcloud hostname must be in that instance's `trusted_domains`. An admin user plus app password works instead of a token. Instances set up earlier with `--nextcloud` flags still work and appear as "from agent flags" with a *Manage here* button.
+Then add the instance under **Instances → Add instance**: choose the machine whose agent runs the checks (one agent can check several instances; the list of its Docker containers fills in the container name in the occ commands) and enter the URL and the token or login. *Add a machine* only installs agents; Nextcloud settings are never part of its commands. The Nextcloud hostname must be in that instance's `trusted_domains`. An admin user plus app password works instead of a token. Instances set up earlier with `--nextcloud` flags still work and appear as "from agent flags" with a *Manage here* button.
 
 **Removing instances that are gone.** *Remove* on an instance you added here takes it out of the list at once, and what its agent still reports for a minute or so does not bring it back as an instance nobody manages. An instance that was only ever set up with agent flags (or is the leftover of an old setup) has no Remove while its agent still reports it, because it would only come back; take the `--nextcloud` flag out of the agent's settings, or stop that agent. Two minutes after the agent has stopped reporting it, the row says *stopped reporting* and gets a **Remove** button. If an agent reports it again later, it is listed again.
 

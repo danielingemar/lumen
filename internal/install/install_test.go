@@ -49,6 +49,18 @@ func TestScriptsRenderURL(t *testing.T) {
 	}
 }
 
+// --checker makes an agent that is not a machine: host metrics off and the role written to its config.
+func TestAgentScriptChecker(t *testing.T) {
+	w := httptest.NewRecorder()
+	Script("agent.sh", "text/plain", "https://lumen.example.com")(w, httptest.NewRequest("GET", "/", nil))
+	body := w.Body.String()
+	for _, want := range []string{"--checker) HOSTM=false; ROLE=checker", `\"role\": \"$ROLE\"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("agent.sh lacks %q", want)
+		}
+	}
+}
+
 func TestDownloadWhitelist(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "lumen-agent-linux-amd64"), []byte("BIN"), 0o644)

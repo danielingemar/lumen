@@ -9,6 +9,8 @@
 #   --docker          report Docker containers (up/down): adds the agent to the "docker" group, which is root-equivalent
 #   --docker-logs     also ship Docker container logs
 #   --no-host-metrics do not collect CPU/memory/disk of this machine
+#   --checker         this agent is not a machine: it only checks Nextcloud instances (implies --no-host-metrics);
+#                     the instances are added on the Instances page
 #   --url URL         override the Lumen URL (default: __LUMEN_URL__)
 #   Nextcloud monitoring (polls status.php + the serverinfo API of one instance):
 #   --nextcloud URL --nextcloud-token TOKEN [--nextcloud-name NAME] [--nextcloud-log /path/nextcloud.log]
@@ -27,6 +29,7 @@ UPDATE=0
 NO_SERVICE="${LUMEN_NO_SERVICE:-0}"   # for containers/tests: skip user + systemd
 KEY="${LUMEN_KEY:-}"; LOGS=""; DOCKER=0; DOCKERGRP=0; UNINSTALL=0
 HOSTM=true
+ROLE=""
 NC_URL=""; NC_TOKEN=""; NC_USER=""; NC_PASS=""; NC_NAME="nextcloud"; NC_LOG=""
 
 die() { echo "error: $*" >&2; exit 1; }
@@ -39,6 +42,7 @@ $2"; shift 2;;
     --docker-logs) DOCKER=1; shift;;
     --docker) DOCKERGRP=1; shift;;
     --no-host-metrics) HOSTM=false; shift;;
+    --checker) HOSTM=false; ROLE=checker; shift;;
     --nextcloud) [ $# -ge 2 ] || die "--nextcloud needs a URL"; NC_URL="$2"; shift 2;;
     --nextcloud-token) [ $# -ge 2 ] || die "--nextcloud-token needs a value"; NC_TOKEN="$2"; shift 2;;
     --nextcloud-user) [ $# -ge 2 ] || die "--nextcloud-user needs a value"; NC_USER="$2"; shift 2;;
@@ -241,7 +245,8 @@ cat > "$CONF_DIR/config.json" <<CFG
   "url": "$LUMEN_URL",
   "api_key": "$KEY",
   "interval_seconds": 15,
-  "host_metrics": $HOSTM,
+  "host_metrics": $HOSTM,${ROLE:+
+  \"role\": \"$ROLE\",}
   "self_metrics": true,
   "logs": [${LOGS_JSON}],
   "nextcloud": [${NC_JSON}]
