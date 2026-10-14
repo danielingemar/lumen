@@ -1,0 +1,33 @@
+name: Bug report
+description: Something does not work as described
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead?
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Commit hash or release, and the agent version if relevant (Hosts page).
+    validations: { required: true }
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where does it happen?
+      options: [Server, Agent, Web UI, Install scripts, Backup / archive, Other]
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: "`docker compose -f deploy/docker-compose.yml logs --tail=100 lumen` or `journalctl -u lumen-agent`. Remove API keys, tokens and passwords first."
+      render: text
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Docker version, Elasticsearch or JSON-file store, browser for UI problems.

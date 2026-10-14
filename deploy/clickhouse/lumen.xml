@@ -1,0 +1,15 @@
+<!-- Lumen: ClickHouse's own diagnostic logs, switched off.
+     By default ClickHouse writes a very detailed log of itself to tables in the "system" database (text_log, trace_log,
+     metric_log ...). They are for debugging ClickHouse, not for Lumen, and on a busy day they grow to tens of gigabytes
+     (a few weeks gave 18 GB of text_log and 10 GB of trace_log, against 33 MB of real telemetry). query_log and part_log,
+     which are small, are kept. Mounted into the container by deploy/docker-compose.yml. -->
+<clickhouse>
+    <text_log remove="1"/>
+    <trace_log remove="1"/>
+    <metric_log remove="1"/>
+    <asynchronous_metric_log remove="1"/>
+    <processors_profile_log remove="1"/>
+    <opentelemetry_span_log remove="1"/>
+    <query_thread_log remove="1"/>
+    <query_views_log remove="1"/>
+</clickhouse>
