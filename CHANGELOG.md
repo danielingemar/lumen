@@ -6,6 +6,7 @@ versions follow [Semantic Versioning](https://semver.org/) once a first release 
 ## [Unreleased]
 
 ### Fixed
+- The **updating…** label next to an agent now goes away by itself when the agent reports the new version. While an update is under way the page looks again at the refresh interval (every 10 s when refresh is off).
 - A red alert count in the menu and the status tiles on the start page now clear by themselves. They follow the refresh interval (every 30 s when refresh is off) instead of staying red until the page is reloaded.
 - The **Copy** buttons (for example in Add a machine) now work when Lumen is opened over plain http. Before, the browser blocked the clipboard there and the button asked you to copy by hand.
 

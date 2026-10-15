@@ -110,7 +110,11 @@ function updateChip(h,after){
   if(!agentOld(h.version))return null;
   const w=can('hosts',true),secs=h.update_requested?Date.now()/1000-h.update_requested:Infinity,asked=secs<7200,mins=Math.floor(secs/60);
   const plain='This agent ('+h.version+') is not the version of this server ('+S.me.version+').';
-  if(asked&&mins<10)return el('span',{class:'pill info',title:'The update was asked for '+(mins<1?'a moment':mins+' min')+' ago. The agent picks it up within a minute, installs it and restarts.'},'updating…');
+  if(asked&&mins<10){
+    // While an update is under way, look again at the refresh interval (every 10 s when refresh is off), so 'updating…'
+    // goes away by itself when the agent reports the new version. The page redraws; this ends when the chip is gone.
+    S.timers.push(setTimeout(()=>{if(after)after()},Math.max(3,S.refresh||10)*1000));
+    return el('span',{class:'pill info',title:'The update was asked for '+(mins<1?'a moment':mins+' min')+' ago. The agent picks it up within a minute, installs it and restarts.'},'updating…')}
   if(asked)return el('span',{class:'pill err',style:w?'cursor:pointer':'',title:'Asked '+mins+' minutes ago, and the agent still has '+h.version+'. On the machine, look at: journalctl -u lumen-agent-update (an agent installed with the script), or docker logs (a container). '+(w?'Click to try again.':''),onclick:w?ev=>{ev.stopPropagation();updateFailedDialog(h,after,mins)}:null},'update failed?');
   return el('span',{class:'pill err',style:w?'cursor:pointer':'',title:plain+(w?(h.self_update?' Click to update it now.':' Click to see how to update it.'):' Ask someone who can change hosts to update it.'),onclick:w?ev=>{ev.stopPropagation();doUpdate(h,after)}:null},'update')}
 // the by-hand commands, the same for an agent that cannot update itself and for one whose update did not go through
