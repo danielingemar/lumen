@@ -1,0 +1,22 @@
+# Settings for gitleaks (https://github.com/gitleaks/gitleaks). Run:
+#   gitleaks detect --source . --log-opts="--all"
+# Everything that is allowed here was checked by hand and is not a secret.
+title = "Lumen"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Reviewed findings that are not secrets"
+# Test files use made-up passwords such as "alice" for users that only exist while the test runs.
+paths = ['''(^|/)[^/]+_test\.go$''']
+# The Elasticsearch health check in docker-compose.yml reads its password from the environment ($$ELASTIC_PASSWORD).
+regexes = ['''elastic:\$\$''']
+# Older commits (before the history was cleaned up) of the same files and of an example command in the interface,
+# which uses the variable $TOKEN, not a real value.
+commits = [
+  "279bb33fcbd1332324899c2020c73993ddb8eb2c",
+  "349ad24f1ea360984859c3c9d86ed559e253e541",
+  "a40c4a8a71d1c92a6ec3d15ddc15103220108efa",
+  "f7d2cc52e5c54b801a004b9e86b5fd01ac8b56e6",
+]
