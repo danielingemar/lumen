@@ -132,7 +132,7 @@ func TestOperatorConsoleNeedsTheLicenceAndThePermission(t *testing.T) {
 	if code(ops, "GET", e.ts.URL+"/api/v1/operator/tenants", "") != 403 {
 		t.Fatal("an Enterprise licence does not open the Operator console")
 	}
-	e.licence(t, license.Operator)
+	e.licence(t, license.Operator, license.Enterprise)
 	r, b = do(ops, "GET", e.ts.URL+"/api/v1/operator/tenants", "")
 	var list struct{ Data []struct{ ID, Status string } }
 	json.Unmarshal(b, &list)
@@ -176,7 +176,7 @@ func TestOperatorConsoleNeedsTheLicenceAndThePermission(t *testing.T) {
 
 func TestCreateSuspendResumeAndTheLimitsOfSuspension(t *testing.T) {
 	e := tenServer(t)
-	e.licence(t, license.Operator)
+	e.licence(t, license.Operator, license.Enterprise)
 	ops := e.as(t, "ops")
 	// create: the tenant, its first administrator, and a password that is shown once
 	r, b := do(ops, "POST", e.ts.URL+"/api/v1/operator/tenants", `{"id":"initech","name":"Initech AB","contact":"it@initech.example","plan":"pro","admin_user":"bob"}`)
@@ -256,7 +256,7 @@ func TestCreateSuspendResumeAndTheLimitsOfSuspension(t *testing.T) {
 		t.Fatal("when the Operator licence ends, suspensions are not enforced (customers are never cut off by the operator's licence)")
 	}
 	// the audit log has it all
-	e.licence(t, license.Operator)
+	e.licence(t, license.Operator, license.Enterprise)
 	_, b = do(ops, "GET", e.ts.URL+"/api/v1/operator/audit?tenant=initech", "")
 	for _, want := range []string{"tenant.create", "tenant.suspend", "tenant.update", "tenant.resume", "unpaid invoice"} {
 		if !strings.Contains(string(b), want) {
@@ -267,7 +267,7 @@ func TestCreateSuspendResumeAndTheLimitsOfSuspension(t *testing.T) {
 
 func TestLimits(t *testing.T) {
 	e := tenServer(t)
-	e.licence(t, license.Operator)
+	e.licence(t, license.Operator, license.Enterprise)
 	ops, boss := e.as(t, "ops"), e.as(t, "acme-admin")
 	setQuota := func(tenant, q string) {
 		if c := code(ops, "PUT", e.ts.URL+"/api/v1/operator/tenants/"+tenant, `{"name":"`+tenant+`","quotas":`+q+`}`); c != 200 {
@@ -377,7 +377,7 @@ func TestLimits(t *testing.T) {
 
 func TestMeteringAndUsage(t *testing.T) {
 	e := tenServer(t)
-	e.licence(t, license.Operator)
+	e.licence(t, license.Operator, license.Enterprise)
 	ops, boss, gx := e.as(t, "ops"), e.as(t, "acme-admin"), e.as(t, "globex-admin")
 	e.ingest("acme", "/v1/logs", logsBody(10))
 	e.ingest("acme", "/v1/logs", logsBody(5))
@@ -427,7 +427,7 @@ func TestMeteringAndUsage(t *testing.T) {
 
 func TestSupportAccessNeedsConsentAndIsOnRecord(t *testing.T) {
 	e := tenServer(t)
-	e.licence(t, license.Operator)
+	e.licence(t, license.Operator, license.Enterprise)
 	ops := e.as(t, "ops")
 	do(ops, "POST", e.ts.URL+"/api/v1/operator/tenants", `{"id":"initech","name":"Initech","admin_user":"bob","admin_password":"`+pw+`"}`)
 	bob := e.as(t, "bob")
@@ -523,7 +523,7 @@ func TestSupportAccessNeedsConsentAndIsOnRecord(t *testing.T) {
 
 func TestOffboardingThroughTheConsole(t *testing.T) {
 	e := tenServer(t)
-	e.licence(t, license.Operator)
+	e.licence(t, license.Operator, license.Enterprise)
 	ops := e.as(t, "ops")
 	do(ops, "POST", e.ts.URL+"/api/v1/operator/tenants", `{"id":"gone","name":"Gone AB","admin_user":"gary","admin_password":"`+pw+`","contact":"gary@gone.example"}`)
 	gary := e.as(t, "gary")
@@ -601,7 +601,7 @@ func infoBody(host, role string) string {
 
 func TestAnAgentThatOnlyChecksInstancesIsNotACountedHost(t *testing.T) {
 	e := tenServer(t)
-	e.licence(t, license.Operator)
+	e.licence(t, license.Operator, license.Enterprise)
 	ops := e.as(t, "ops")
 	if c := code(ops, "PUT", e.ts.URL+"/api/v1/operator/tenants/acme", `{"name":"acme","quotas":{"hosts":1,"hard":true}}`); c != 200 {
 		t.Fatal(c)

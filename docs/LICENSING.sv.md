@@ -8,7 +8,7 @@ Så fungerar Enterprise- och Operator-licenser, för den **utgivare** som utfär
 
 - En licens är en liten fil som är signerad med utgivarens **privata** nyckel. Programmet innehåller den matchande **publika** nyckeln och kan därför kontrollera signaturen utan något nätverk.
 - Filen anger vem den gäller, vilka utgåvor den omfattar, när den går ut och, om man vill, mjuka gränser för hostar och tenants.
-- Utan licens är Lumen **Community-utgåvan**. Med en giltig licens fungerar Enterprise-funktionerna (i dag: notiser till Jira, ServiceNow, PagerDuty och Opsgenie).
+- Utan licens är Lumen **Community-utgåvan**. Med en giltig licens fungerar Enterprise-funktionerna: grupper med egna behörigheter, inloggning via en identitetsleverantör (OIDC), fakturering samt notiser till Jira, ServiceNow, PagerDuty och Opsgenie. Obegränsat antal användare i de inbyggda grupperna Admin och User är Community.
 - 30 dagar före slutet visas en gul påminnelse för administratörer. Efter slutdatumet gäller **30 dagars frist** då allt fortsätter att fungera, med en röd påminnelse. Därefter slutar Enterprise-funktionerna. Community-funktionerna, all data och alla inställningar finns kvar som de är, och en förnyad licens slår på allt igen direkt.
 
 ## För utgivaren

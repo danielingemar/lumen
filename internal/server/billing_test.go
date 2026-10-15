@@ -61,6 +61,7 @@ func TestBillingPricesAndInvoiceBasis(t *testing.T) {
 	rec := &billing.Recorder{DB: f, Src: usageSrc{by: map[string][]billing.Sample{"acme": s}, traffic: map[string][]billing.TrafficSample{"acme": tr}}, Tenants: func() []string { return []string{"acme"} }, Now: func() time.Time { return now }}
 	al := audit.New(f)
 	srv := New(&fakeStore{}, a, slog.New(slog.NewTextHandler(io.Discard, nil))).WithAuth(a).WithDashboards(dashboards.New(f)).WithRegistry(reg).WithAudit(al).
+		WithLicense(enterpriseLicense(t, f)).
 		WithBilling(&Billing{Svc: billing.New(f), DB: f, Rec: rec, Now: func() time.Time { return now }})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()

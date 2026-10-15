@@ -199,3 +199,13 @@ func operatorOnlyHere(tenant string, p map[string]string) error {
 	}
 	return nil
 }
+
+// IsBuiltinGroup tells whether id is one of the groups that always exist (Admin and User).
+func IsBuiltinGroup(id string) bool {
+	for _, g := range builtins() {
+		if g.ID == id {
+			return true
+		}
+	}
+	return false
+}

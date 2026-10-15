@@ -29,11 +29,14 @@ Lumen is developed in the open, and some of it will be sold. Anyone who builds o
 | Agents, host performance, services and containers, Hosts and Instances, Nextcloud monitoring, up/down status | Yes (exists) | Yes | Yes |
 | Deeper Nextcloud checks: background jobs (cron), available updates, TLS certificate, WebDAV login check; alert templates for them | Yes (exists) | Yes | Yes |
 | Local backups and archive, retention | Yes (exists) | Yes | Yes |
-| Users, groups, area permissions, API keys | Yes (exists) | Yes | Yes |
+| Any number of users in the built-in Admin and User groups; API keys | Yes (exists) | Yes | Yes |
+| Groups with their own permissions per area (none, read or write) | | Yes (exists) | |
 | Tenant isolation | Yes (exists) | Yes | Yes |
 | Site name and logo | Instance-wide (exists) | Instance-wide | Per tenant (planned) |
 | Alert rules on metrics, status, logs and traces; email, webhook, Slack and Teams; acknowledge; basic silences; starter rules | Yes (exists, except trace rules) | Yes | Yes |
-| OIDC sign-in with one provider | Yes (planned) | Yes | Yes |
+| OIDC single sign-on through an identity provider | | Yes (exists) | |
+| Billing for Nextcloud instances: prices, usage per customer, invoice basis | | Yes (exists) | |
+| Per-person assignment and tracking of alerts (who has taken it, who was handed it) | | Yes (planned) | |
 | Audit log: who changed what, viewable by administrators | Yes (planned) | Yes | Yes |
 | SAML, SCIM, LDAP group mapping; enforced MFA; API-key and session policies; PII redaction at ingest | | Yes (planned) | |
 | Tamper-evident audit log with long retention and SIEM export | | Yes (planned) | |
@@ -61,7 +64,7 @@ We ask these questions in order and stop at the first answer:
 
 ## 5. What will never need a licence
 
-Agents; the API and data export; tenant isolation and every authorisation check; encryption of stored secrets; basic users, groups and permissions; alert rules with email, webhook, Slack and Teams notifications; local backup and archive; security fixes; documentation.
+Agents; the API and data export; tenant isolation and every authorisation check; encryption of stored secrets; any number of users with the built-in Admin and User roles, and local sign-in with a password; alert rules with email, webhook, Slack and Teams notifications; local backup and archive; security fixes; documentation.
 
 ## 6. Licence mechanics
 
@@ -90,4 +93,4 @@ Changes are proposed in a public issue or pull request and announced in the chan
 - [ ] Trademark policy for the name and logo
 - [ ] Final edition names
 - [ ] Contact address for licensing questions
-- [ ] Decide whether OIDC with one provider belongs in Community (this charter assumes it does)
+- [x] Decided: OIDC, groups with their own permissions, per-person alert tracking and billing are Enterprise; any number of users with the built-in Admin and User roles stays Community

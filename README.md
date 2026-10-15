@@ -5,7 +5,7 @@
 **OpenTelemetry-native observability in one binary.**<br>
 Traces, logs and metrics, dashboards you build yourself, host / service / Docker / Nextcloud monitoring, users and groups, and automatic backups of old data.
 
-[![CI](https://github.com/inmagma/lumen/actions/workflows/ci.yml/badge.svg)](https://github.com/inmagma/lumen/actions/workflows/ci.yml)
+[![CI](https://github.com/danielingemar/lumen/actions/workflows/ci.yml/badge.svg)](https://github.com/danielingemar/lumen/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 ![Go](https://img.shields.io/badge/go-1.22%2B-00ADD8.svg)
 ![Dependencies](https://img.shields.io/badge/dependencies-stdlib%20only-brightgreen.svg)
@@ -43,7 +43,7 @@ Traces, logs and metrics, dashboards you build yourself, host / service / Docker
 | **Your company name and logo** | Add them under **Settings**. They show beneath Lumen in the menu and on the login page. Lumen itself is always shown at the top. |
 | **Everything about a host** | Open a host to see CPU (also by state: user, system, iowait, steal), load, memory (used, cached, buffers, free), swap, usage of every local disk, **disk I/O** (throughput, IOPS, busy time per device), **network** traffic and errors, processes and uptime, as charts over the chosen time range. |
 | **Services on your machines** | systemd units and Docker containers are reported automatically (`system_service_up`, `container_up`). |
-| **Users and groups** | *Admin* (everything), *User* (read-only) and *custom* groups with none / read / write per area. Enforced by the server. |
+| **Users and groups** | Any number of users in *Admin* (everything) or *User* (read-only). With an Enterprise licence also *custom* groups with none / read / write per area. Enforced by the server. |
 | **Retention and archive** | 30 days of live data. Every day is backed up before it expires and can be loaded back and browsed in the UI at any time. |
 | **Traces, logs, metrics** | OTLP/HTTP JSON ingest, trace waterfall, log search, metrics explorer with a **Labels** box. |
 | **One-command agents** | Linux (systemd), Windows, Docker. Host metrics, Prometheus scraping, log tailing, Nextcloud checks, self-metrics. |
@@ -90,7 +90,7 @@ Telemetry lives in **ClickHouse**. Small, frequently changing records (users, gr
 ## Quick start
 
 ```bash
-git clone https://github.com/inmagma/lumen.git
+git clone https://github.com/danielingemar/lumen.git
 cd lumen
 ```
 
@@ -295,7 +295,7 @@ Tamper-evident storage with long retention and SIEM export is an Enterprise feat
 
 ## Single sign-on (OpenID Connect)
 
-Under **Settings, Single sign-on** you set up **one** OpenID Connect provider (Keycloak, Authentik, Microsoft Entra ID, Google, …), and the login page then offers “Sign in with …”.
+*Enterprise.* Under **Settings, Single sign-on** you set up **one** OpenID Connect provider (Keycloak, Authentik, Microsoft Entra ID, Google, …), and the login page then offers “Sign in with …”.
 
 1. **Set `LUMEN_PUBLIC_URL`** to the address people use to reach Lumen (it is also used for the agent install scripts) and start Lumen again.
 2. **At the provider**, make an application (client) for Lumen and register the **redirect address** that the card shows: `https://your-lumen/auth/oidc/callback`.
@@ -364,7 +364,7 @@ A **host group** is a name you put on hosts, so that you can look at, and alert 
 
 ## Billing for Nextcloud instances
 
-Under **Billing** you set what you charge and get, for any period you choose, what each customer owes: the basis for an invoice. Lumen is not an invoicing program: you copy the figures into yours, or export them.
+*Enterprise.* Under **Billing** you set what you charge and get, for any period you choose, what each customer owes: the basis for an invoice. Lumen is not an invoicing program: you copy the figures into yours, or export them.
 
 - **Three prices, all chosen by you:** a price **per user and month**, a price **per gigabyte of stored data and month**, and a fixed **price per instance and month** (what an instance costs you whatever its size: server, monitoring, updates). The fee is charged for every instance that reported in the period, follows "charge only the days reported", and is part of what VAT is charged on. Each customer can have its own fee (Customers, Own prices); empty means the default, and 0 means none. A customer in another currency has no fee unless it gets one of its own. Prices are decimals (`49.50`, `0.125`); a comma is accepted.
 - **Currency:** SEK, EUR, USD, GBP, NOK, DKK, CHF, ISK, PLN, CZK, CAD, AUD, NZD, JPY, CNY and INR. A customer can have a currency of its own (then both prices in that currency are set for it). There is no conversion: every invoice is in one currency and the totals are added up per currency.
@@ -406,7 +406,9 @@ Managed under **Users & groups**:
 
 - **Admin**: everything, including users, groups, keys and backups.
 - **User**: read-only access to data, dashboards, hosts and instances.
-- **Custom**: an admin picks *none / read / write* for each area: dashboards, traces, logs, metrics, hosts & instances, agent keys, users & groups, backups & archive, settings. Traces, logs and metrics are read-only by nature.
+- **Custom** (Enterprise): an admin picks *none / read / write* for each area: dashboards, traces, logs, metrics, hosts & instances, agent keys, users & groups, backups & archive, settings. Traces, logs and metrics are read-only by nature.
+
+Custom groups, single sign-on and billing need an Enterprise licence. Without one, any number of people can still be given Admin or User. If a licence ends, groups that already exist keep their permissions (nobody gets more or less access), but new groups cannot be made or given to people until a licence is back; users can always be moved to Admin or User, and groups deleted.
 
 The server enforces permissions on every request; the UI just hides what you cannot use. API keys (agents, scripts) can read data and manage dashboards, never users or keys. Safeguards: you cannot delete yourself, change your own group, or remove the last user who can manage users. A group change applies immediately; resetting a password ends that user's sessions. New passwords are generated and shown once.
 

@@ -29,11 +29,14 @@ Lumen utvecklas öppet, och en del av det kommer att säljas. Den som bygger på
 | Agenter, hostprestanda, tjänster och containrar, Hosts och Instances, Nextcloud-övervakning, upp/ner-status | Ja (finns) | Ja | Ja |
 | Djupare Nextcloud-kontroller: bakgrundsjobb (cron), tillgängliga uppdateringar, TLS-certifikat, WebDAV-inloggning; larmmallar för dem | Ja (finns) | Ja | Ja |
 | Lokal backup och arkiv, lagringstid | Ja (finns) | Ja | Ja |
-| Användare, grupper, områdesbehörigheter, API-nycklar | Ja (finns) | Ja | Ja |
+| Obegränsat antal användare i de inbyggda grupperna Admin och User; API-nycklar | Ja (finns) | Ja | Ja |
+| Grupper med egna behörigheter per område (ingen, läs eller skriv) | | Ja (finns) | |
 | Isolering mellan tenants | Ja (finns) | Ja | Ja |
 | Sidnamn och logga | För hela installationen (finns) | För hela installationen | Per tenant (planerad) |
 | Larmregler på mätvärden, status, loggar och traces; e-post, webhook, Slack och Teams; kvittera; enkla tystningar; startregler | Ja (finns, utom trace-regler) | Ja | Ja |
-| OIDC-inloggning med en leverantör | Ja (planerad) | Ja | Ja |
+| OIDC-inloggning via en identitetsleverantör | | Ja (finns) | |
+| Fakturering för Nextcloud-instanser: priser, användning per kund, fakturaunderlag | | Ja (finns) | |
+| Spårning av larm per person (vem har tagit det, vem fick det tilldelat) | | Ja (planerad) | |
 | Granskningslogg: vem ändrade vad, synlig för administratörer | Ja (planerad) | Ja | Ja |
 | SAML, SCIM, LDAP-gruppmappning; påtvingad MFA; policyer för API-nycklar och sessioner; maskning av personuppgifter vid insamling | | Ja (planerad) | |
 | Manipuleringsskyddad granskningslogg med lång lagringstid och SIEM-export | | Ja (planerad) | |
@@ -61,7 +64,7 @@ Vi ställer de här frågorna i ordning och stannar vid första svaret:
 
 ## 5. Det som aldrig kräver licens
 
-Agenter; API:t och dataexport; isolering mellan tenants och varje behörighetskontroll; kryptering av lagrade hemligheter; grundläggande användare, grupper och behörigheter; larmregler med notiser via e-post, webhook, Slack och Teams; lokal backup och arkiv; säkerhetsrättningar; dokumentation.
+Agenter; API:t och dataexport; isolering mellan tenants och varje behörighetskontroll; kryptering av lagrade hemligheter; obegränsat antal användare med de inbyggda rollerna Admin och User, och lokal inloggning med lösenord; larmregler med notiser via e-post, webhook, Slack och Teams; lokal backup och arkiv; säkerhetsrättningar; dokumentation.
 
 ## 6. Hur licensen fungerar
 
@@ -90,4 +93,4 @@ Agenter; API:t och dataexport; isolering mellan tenants och varje behörighetsko
 - [ ] Varumärkespolicy för namn och logga
 - [ ] Slutgiltiga utgåvonamn
 - [ ] Kontaktadress för licensfrågor
-- [ ] Avgöra om OIDC med en leverantör hör hemma i Community (stadgan förutsätter att det gör det)
+- [x] Beslutat: OIDC, grupper med egna behörigheter, larmspårning per person och fakturering är Enterprise; obegränsat antal användare med de inbyggda rollerna Admin och User är Community

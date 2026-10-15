@@ -23,7 +23,7 @@ func rbacServer(t *testing.T) (*httptest.Server, *auth.Auth) {
 	st.CreateUserIn("reader", "acme", "readers-long-password", "user")
 	st.CreateUser("other", "globex", "others-long-password")
 	a := auth.New(st, nil, false)
-	ts := httptest.NewServer(New(&fakeStore{}, a, slog.New(slog.NewTextHandler(io.Discard, nil))).WithAuth(a).WithDashboards(dashboards.New(f)).Handler())
+	ts := httptest.NewServer(New(&fakeStore{}, a, slog.New(slog.NewTextHandler(io.Discard, nil))).WithAuth(a).WithDashboards(dashboards.New(f)).WithLicense(enterpriseLicense(t, f)).Handler())
 	t.Cleanup(ts.Close)
 	return ts, a
 }

@@ -148,6 +148,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, id edition.Identity)
 	if id.Acting {
 		me["acting"] = map[string]any{"tenant": id.Tenant, "operator": id.Operator, "until": id.ActingUntil.UTC().Format(time.RFC3339), "write": id.ActingWrite}
 	}
+	me["features"] = s.featureFlags()
 	if s.lic != nil && s.isOwner(id) && id.Can(perm.Settings, false) {
 		me["license"] = s.lic.Info()
 	}

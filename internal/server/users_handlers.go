@@ -77,6 +77,9 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request, id edition.I
 	if in.Group == "" {
 		in.Group = "user"
 	}
+	if !builtinGroup(in.Group) && !s.requireEnterprise(w, msgGroups) {
+		return
+	}
 	generated := ""
 	if in.Password == "" {
 		generated = auth.RandomToken(9)
@@ -109,6 +112,9 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, id edition.I
 	if in.Group != "" && in.Group != auth.EffectiveGroup(u) {
 		if self {
 			writeErr(w, http.StatusBadRequest, "you cannot change your own group; ask another administrator")
+			return
+		}
+		if !builtinGroup(in.Group) && !s.requireEnterprise(w, msgGroups) {
 			return
 		}
 		g, ok := s.a.Store.GetGroup(id.Tenant, in.Group)
@@ -195,6 +201,9 @@ type groupIn struct {
 }
 
 func (s *Server) createGroup(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	if !s.requireEnterprise(w, msgGroups) {
+		return
+	}
 	if !s.quotaOK(w, id, "groups") {
 		return
 	}
@@ -212,6 +221,9 @@ func (s *Server) createGroup(w http.ResponseWriter, r *http.Request, id edition.
 }
 
 func (s *Server) updateGroup(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	if !s.requireEnterprise(w, msgGroups) {
+		return
+	}
 	var in groupIn
 	if !readJSON(w, r, &in) {
 		return

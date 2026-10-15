@@ -8,7 +8,7 @@ How Enterprise and Operator licences work, for the **publisher** who issues them
 
 - A licence is a small file signed with the publisher's **private** key. The program contains the matching **public** key, so it can check the signature without any network.
 - The file says who it is for, which editions it covers, when it ends and, if wanted, soft limits for hosts and tenants.
-- Without a licence Lumen is the **Community edition**. With a valid one the Enterprise features (today: Jira, ServiceNow, PagerDuty and Opsgenie notifications) work.
+- Without a licence Lumen is the **Community edition**. With a valid one the Enterprise features work: groups with their own permissions, single sign-on (OIDC), billing, and Jira, ServiceNow, PagerDuty and Opsgenie notifications. Any number of users in the built-in Admin and User groups is Community.
 - 30 days before the end an amber reminder appears for administrators. After the end date there is a **30-day grace period** in which everything keeps working, with a red reminder. After that the Enterprise features stop. Community features, all data and all settings stay as they are, and a renewed licence switches everything back on at once.
 
 ## For the publisher

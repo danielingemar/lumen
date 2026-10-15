@@ -33,9 +33,9 @@ func (s *Server) billingRoutes(mux *http.ServeMux) {
 	if s.billing == nil {
 		return
 	}
-	mux.Handle("GET /api/v1/billing", s.need(perm.Billing, false, s.getBilling))
-	mux.Handle("PUT /api/v1/billing", s.need(perm.Billing, true, s.putBilling))
-	mux.Handle("GET /api/v1/billing/report", s.need(perm.Billing, false, s.getBillingReport))
+	mux.Handle("GET /api/v1/billing", s.need(perm.Billing, false, s.billingOnly(s.getBilling)))
+	mux.Handle("PUT /api/v1/billing", s.need(perm.Billing, true, s.billingOnly(s.putBilling)))
+	mux.Handle("GET /api/v1/billing/report", s.need(perm.Billing, false, s.billingOnly(s.getBillingReport)))
 }
 
 type billingInstance struct {

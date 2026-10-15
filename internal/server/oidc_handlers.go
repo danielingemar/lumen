@@ -33,7 +33,7 @@ func (s *Server) oidcRoutes(mux *http.ServeMux) {
 // authProviders tells the login page which buttons to show. Public: it is needed before anybody has signed in.
 func (s *Server) authProviders(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{}
-	if c, ok := s.oidc.Load(r.Context()); ok && c.Enabled && c.Issuer != "" {
+	if c, ok := s.oidc.Load(r.Context()); ok && c.Enabled && c.Issuer != "" && s.licensed() {
 		out["oidc"] = map[string]string{"label": c.Label}
 	}
 	writeJSON(w, out)
@@ -48,6 +48,10 @@ func (s *Server) oidcFail(w http.ResponseWriter, r *http.Request, tenant, who, w
 }
 
 func (s *Server) oidcLogin(w http.ResponseWriter, r *http.Request) {
+	if !s.licensed() {
+		http.Redirect(w, r, "/?oidc_error="+url.QueryEscape("single sign-on needs an Enterprise licence; sign in with your user name and password"), http.StatusFound)
+		return
+	}
 	c, ok := s.oidc.Load(r.Context())
 	if !ok || !c.Enabled {
 		http.Redirect(w, r, "/?oidc_error="+url.QueryEscape("single sign-on is not set up"), http.StatusFound)
@@ -67,6 +71,10 @@ func (s *Server) oidcLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
+	if !s.licensed() {
+		http.Redirect(w, r, "/?oidc_error="+url.QueryEscape("single sign-on needs an Enterprise licence; sign in with your user name and password"), http.StatusFound)
+		return
+	}
 	c, ok := s.oidc.Load(r.Context())
 	if !ok || !c.Enabled {
 		http.Redirect(w, r, "/?oidc_error="+url.QueryEscape("single sign-on is not set up"), http.StatusFound)
@@ -252,6 +260,9 @@ func (s *Server) putOIDC(w http.ResponseWriter, r *http.Request, id edition.Iden
 	if !readJSON(w, r, &in) {
 		return
 	}
+	if in.Enabled && !s.requireEnterprise(w, msgSSO) { // switching it off is always allowed
+		return
+	}
 	prev, _ := s.oidc.Load(r.Context())
 	c := oidc.Config{Enabled: in.Enabled, Issuer: strings.TrimRight(strings.TrimSpace(in.Issuer), "/"), ClientID: strings.TrimSpace(in.ClientID), Label: strings.TrimSpace(in.Label),
 		AutoCreate: in.AutoCreate, DefaultGroup: strings.TrimSpace(in.DefaultGroup), LinkByEmail: in.LinkByEmail, Tenant: id.Tenant, UpdatedBy: id.User, Secret: prev.Secret}
@@ -316,6 +327,9 @@ func (s *Server) putOIDC(w http.ResponseWriter, r *http.Request, id edition.Iden
 // testOIDC asks the provider about itself, without saving anything.
 func (s *Server) testOIDC(w http.ResponseWriter, r *http.Request, id edition.Identity) {
 	if !s.ownerOnly(w, id) {
+		return
+	}
+	if !s.requireEnterprise(w, msgSSO) {
 		return
 	}
 	var in oidcIn

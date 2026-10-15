@@ -88,7 +88,7 @@ func newOIDCEnv(t *testing.T) *oidcEnv {
 	box, _ := secretbox.New("k")
 	al := audit.New(f)
 	svc := &oidc.Service{DB: f, Box: box, PublicURL: "http://lumen.test", Secret: st.Secret}
-	srv := New(&fakeStore{}, a, slog.New(slog.NewTextHandler(io.Discard, nil))).WithAuth(a).WithDashboards(dashboards.New(f)).WithAudit(al).WithOIDC(svc).WithOwnerTenant("acme")
+	srv := New(&fakeStore{}, a, slog.New(slog.NewTextHandler(io.Discard, nil))).WithAuth(a).WithDashboards(dashboards.New(f)).WithAudit(al).WithOIDC(svc).WithLicense(enterpriseLicense(t, f)).WithOwnerTenant("acme")
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	e := &oidcEnv{ts: ts, p: newFakeProvider(t), st: st, log: al, svc: svc, admin: client(), other: client(), read: client()}

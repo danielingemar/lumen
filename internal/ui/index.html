@@ -558,6 +558,7 @@ function healthProblems(r){return (r.problems||[]).map(p=>el('div',{class:p.leve
 // ---- single sign-on with an OpenID Connect provider ----
 async function oidcCard(view){
   if(!(S.me&&S.me.health&&can('settings',true)))return;
+  if(!feat('sso')){view.append(lockCard('Single sign-on','Signing in through your identity provider (OIDC) is part of the Enterprise edition. People sign in with their user name and password until a licence is in force.','max-width:760px;margin-top:14px'));return}
   let cur;try{cur=await api('/api/v1/settings/oidc')}catch{return}
   const card=el('div',{class:'card',style:'max-width:760px;margin-top:14px'});view.append(card);
   const draw=c=>{const g=c.config,f={
@@ -1123,22 +1124,28 @@ async function instancePage(raw){
   if(S.refresh)S.timers.push(setInterval(()=>{if(logBox.isConnected)draw()},S.refresh*1000));
 }
 
+// ---- Enterprise features: shown locked, with the reason, when no licence covers them ----
+const feat=k=>!!(S.me&&S.me.features&&S.me.features[k]);
+const refreshFeatures=()=>api('/api/v1/me',{},{quiet:true}).then(m=>{if(S.me&&m)S.me.features=m.features}).catch(()=>{});
+const lockCard=(title,text,style)=>el('div',{class:'card lock',style:style||'max-width:760px'},el('h2',{},title,' ',el('span',{class:'pill'},'Enterprise')),el('p',{},text),
+  el('p',{class:'help'},'Nothing is lost: what is already saved stays, and the feature opens again as soon as an Enterprise licence is in force. An administrator of the installation adds it under Settings.'));
 // ---- users and groups ----
 function groupForm(g,areas,done){
-  const ro=!!g.builtin,edit=!!g.id,perms=Object.assign({},g.perms||{});
+  const ro=!!g.builtin||!feat('groups'),edit=!!g.id,perms=Object.assign({},g.perms||{});
   const name=el('input',{value:g.name||'',disabled:ro,size:26}),desc=el('input',{value:g.description||'',disabled:ro,size:40,placeholder:'optional'});
   const grid=el('div',{class:'matrix'},el('div',{}),['None','Read','Write'].map(x=>el('div',{class:'h'},x)),areas.map(a=>[
     el('div',{class:'a'},el('b',{},a.label),el('small',{},a.help)),
     ['none','read','write'].map(l=>el('div',{class:'c'},el('input',{type:'radio',name:'p_'+a.id,checked:(perms[a.id]||'none')===l,disabled:ro||(l==='write'&&!a.writable),title:l==='write'&&!a.writable?'Read-only by nature':l,onchange:()=>{perms[a.id]=l}})))]));
   const acts=ro?[['Close',()=>{},'ghost']]:[['Cancel',()=>{},'ghost'],['Save',async()=>{const b={name:name.value,description:desc.value,perms};await api(edit?'/api/v1/groups/'+g.id:'/api/v1/groups',{},{method:edit?'PUT':'POST',body:b});done()}]];
-  dialog(ro?g.name+' (built in)':edit?'Edit group':'New group',el('div',{},el('div',{class:'form',style:'margin-bottom:14px'},el('label',{},'Name'),name,el('label',{},'Description'),desc),grid,
-    ro?el('p',{class:'help'},'Built-in groups cannot be changed. Create a custom group to choose permissions yourself.'):el('p',{class:'help'},'Read lets someone look, Write also lets them change. Traces, logs and metrics can only be read.')),acts)}
+  dialog(ro?g.name+(g.builtin?' (built in)':''):edit?'Edit group':'New group',el('div',{},el('div',{class:'form',style:'margin-bottom:14px'},el('label',{},'Name'),name,el('label',{},'Description'),desc),grid,
+    ro?el('p',{class:'help'},g.builtin?'Built-in groups cannot be changed. With an Enterprise licence you can create a custom group and choose permissions yourself.':'This group keeps its permissions, but it can only be changed while an Enterprise licence is in force.'):el('p',{class:'help'},'Read lets someone look, Write also lets them change. Traces, logs and metrics can only be read.')),acts)}
 async function usersPage(){
   setTitle('Users & groups');const view=$('#view'),w=can('users',true);
   const [u,g]=await Promise.all([api('/api/v1/users'),api('/api/v1/groups')]);
   const users=u.data||[],groups=g.data||[],areas=g.areas||[],again=()=>usersPage();
   const shown=(title,pw)=>dialog(title,el('div',{},el('p',{},'Give this password to the user. It is shown only now and can be changed by the user under Account.'),el('pre',{class:'code'},pw)),[['Close',()=>{}]]);
-  const addUser=()=>{const n=el('input',{placeholder:'username',size:22,autocomplete:'off'}),p=el('input',{type:'password',placeholder:'leave empty to generate one',size:26,autocomplete:'new-password'}),gs=el('select',{},groups.map(x=>el('option',{value:x.id,selected:x.id==='user'?'':null},x.name+' – '+x.summary)));
+  const lg=feat('groups'),addable=x=>lg||x.builtin;
+  const addUser=()=>{const n=el('input',{placeholder:'username',size:22,autocomplete:'off'}),p=el('input',{type:'password',placeholder:'leave empty to generate one',size:26,autocomplete:'new-password'}),gs=el('select',{},groups.filter(addable).map(x=>el('option',{value:x.id,selected:x.id==='user'?'':null},x.name+' – '+x.summary)));
     dialog('Add user',el('div',{class:'form'},el('label',{},'Username'),n,el('label',{},'Group'),gs,el('label',{},'Password'),p),[['Cancel',()=>{},'ghost'],['Create',async close=>{const r=await api('/api/v1/users',{},{method:'POST',body:{name:n.value,password:p.value,group:gs.value}});close();if(r.password)shown('User '+r.user.name+' created',r.password);again();return false}]])};
   const setGroup=async(x,gid)=>{try{await api('/api/v1/users/'+encodeURIComponent(x.name),{},{method:'PUT',body:{group:gid}})}catch(e){alert(e.message)}again()};
   const reset=async x=>{if(!confirm('Generate a new password for '+x.name+'? Their current login stops working.'))return;try{const r=await api('/api/v1/users/'+encodeURIComponent(x.name),{},{method:'PUT',body:{password:'reset'}});shown('New password for '+x.name,r.password)}catch(e){alert(e.message)}};
@@ -1147,13 +1154,14 @@ async function usersPage(){
   view.replaceChildren(
     el('div',{class:'bar'},el('h2',{style:'margin:0'},'Users'),el('span',{class:'sp'}),w?el('button',{class:'btn',onclick:addUser},'+ Add user'):null),
     el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['User','Group','Can do','Created',''].map(x=>el('th',{},x))),users.map(x=>el('tr',{},el('td',{},x.name,x.name===S.me.user?el('span',{class:'pill'},'you'):null),
-      el('td',{},w&&x.name!==S.me.user?el('select',{onchange:e=>setGroup(x,e.target.value)},groups.map(gr=>el('option',{value:gr.id,selected:gr.id===x.group?'':null},gr.name))):x.group_name),
+      el('td',{},w&&x.name!==S.me.user?el('select',{onchange:e=>setGroup(x,e.target.value)},groups.filter(gr=>addable(gr)||gr.id===x.group).map(gr=>el('option',{value:gr.id,selected:gr.id===x.group?'':null},gr.name))):x.group_name),
       el('td',{class:'mut'},x.summary),el('td',{class:'mut'},x.created),
       el('td',{style:'white-space:nowrap'},w&&x.name!==S.me.user?[el('button',{class:'btn ghost sm',onclick:()=>reset(x)},'Reset password'),' ',el('button',{class:'btn danger sm',onclick:()=>delU(x)},'Delete')]:null))))),
-    el('div',{class:'bar',style:'margin-top:26px'},el('h2',{style:'margin:0'},'Groups'),el('span',{class:'sp'}),w?el('button',{class:'btn',onclick:()=>groupForm({},areas,again)},'+ New group'):null),
-    el('p',{class:'help',style:'margin:-6px 0 10px'},'Admin can do everything. User can look at data, dashboards, hosts and instances but change nothing. Create a custom group to choose, area by area, what people may read or change.'),
+    el('div',{class:'bar',style:'margin-top:26px'},el('h2',{style:'margin:0'},'Groups'),el('span',{class:'sp'}),w&&lg?el('button',{class:'btn',onclick:()=>groupForm({},areas,again)},'+ New group'):null),
+    lg?null:lockCard('Groups with their own permissions','Admin and User are always available, for any number of people. Choosing area by area what a group may read or change is part of the Enterprise edition.','margin-bottom:12px'),
+    el('p',{class:'help',style:'margin:-6px 0 10px'},'Admin can do everything. User can look at data, dashboards, hosts and instances but change nothing. '+(feat('groups')?'Create a custom group to choose, area by area, what people may read or change.':'')),
     el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['Group','Can do','Members',''].map(x=>el('th',{},x))),groups.map(x=>el('tr',{},el('td',{},el('b',{},x.name),x.builtin?el('span',{class:'pill'},'built in'):null,x.description?el('div',{class:'mut'},x.description):null),el('td',{class:'mut'},x.summary),el('td',{},String(x.members)),
-      el('td',{style:'white-space:nowrap'},el('button',{class:'btn ghost sm',onclick:()=>groupForm(x,areas,again)},x.builtin||!w?'View':'Edit'),' ',w&&!x.builtin?el('button',{class:'btn danger sm',onclick:()=>delG(x)},'Delete'):null))))));
+      el('td',{style:'white-space:nowrap'},el('button',{class:'btn ghost sm',onclick:()=>groupForm(x,areas,again)},x.builtin||!w||!lg?'View':'Edit'),' ',w&&!x.builtin?el('button',{class:'btn danger sm',onclick:()=>delG(x)},'Delete'):null))))));
 }
 
 // ---- backups and archive ----
@@ -1189,6 +1197,7 @@ const monthRange=(t,back)=>{const d=new Date(t+'T00:00:00Z');d.setUTCDate(1);d.s
 const defaultBillRange=today=>{const d=+String(today||'').slice(8,10);return monthRange(today,d&&d<=10?1:0)};
 async function billingPage(tab){
   tab=tab||'';setTitle('Billing');const view=$('#view');
+  if(!feat('billing')){view.replaceChildren(lockCard('Billing','Prices per customer, the month\'s usage and the basis for invoices are part of the Enterprise edition.'));return}
   const bar=el('div',{class:'bar',style:'gap:6px'},[['','Report'],['prices','Prices & customers']].map(([t,l])=>el('a',{class:'btn '+(t===tab?'':'ghost'),href:'#/billing'+(t?'/'+t:'')},l)));
   const body=el('div');view.replaceChildren(bar,body);
   const info=await api('/api/v1/billing');
@@ -1628,7 +1637,7 @@ async function licenseCard(view,w){
   let r;try{r=await api('/api/v1/settings/license')}catch(e){if(/belongs to the installation/.test(e.message))view.append(el('div',{class:'card',style:'max-width:620px;margin-top:14px'},el('h2',{style:'margin-top:0'},'Licence'),el('p',{class:'help'},e.message)));return}
   const card=el('div',{class:'card',style:'max-width:620px;margin-top:14px'}),msg=el('div',{style:'min-height:20px;margin-top:8px'});view.append(card);
   const draw=r=>{const l=r.license,badge=l.trial&&['valid','expiring','expired'].includes(l.state)?{valid:['TRIAL','up'],expiring:['TRIAL ENDS IN '+l.days_left+' DAYS','pending'],expired:['TRIAL ENDED','down']}[l.state]:{none:['COMMUNITY','info'],valid:['ENTERPRISE','up'],expiring:['ENDS IN '+l.days_left+' DAYS','pending'],grace:['ENDED, STILL WORKS','pending'],expired:['ENDED','down'],invalid:['CANNOT BE USED','down']}[l.state]||['','info'];
-    S.me.license=l;drawLicenseBanner();
+    S.me.license=l;drawLicenseBanner();refreshFeatures();
     const ta=el('textarea',{style:'min-height:90px;font-family:monospace;font-size:12px',placeholder:'or paste the contents of the .license file here'}),file=el('input',{type:'file',accept:'.license,.json,application/json,text/plain'});
     file.onchange=async()=>{const f=file.files[0];if(!f)return;if(f.size>16384){msg.className='err';msg.textContent='That file is too large to be a licence.';return}ta.value=await f.text()};
     const install=async()=>{msg.className='mut';msg.textContent='';try{const x=await api('/api/v1/settings/license',{},{method:'PUT',body:{license:ta.value}});msg.className='ok';msg.textContent='Licence installed.';draw(x)}catch(er){msg.className='err';msg.textContent=er.message}};
