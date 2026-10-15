@@ -14,7 +14,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-off
 .btn:hover{filter:brightness(1.08)}.btn.ghost{background:transparent;color:var(--fg);border-color:var(--line)}.btn.ghost:hover{background:var(--acc2)}.btn.danger{background:transparent;color:var(--err);border-color:var(--err)}.btn.sm{padding:3px 9px;font-size:12px}
 #app{display:flex;min-height:100vh}
 #side{width:216px;background:var(--side);color:var(--sidefg);display:flex;flex-direction:column;padding:16px 10px;position:sticky;top:0;height:100vh;flex:none}
-#side .logo{font-weight:700;font-size:19px;color:#fff;padding:2px 10px 18px;letter-spacing:.3px}#side .logo .en{color:var(--acc)}#side .logo .bn{color:#fff}#side .logo img{max-height:34px;max-width:170px;vertical-align:middle;margin-right:8px;background:rgba(255,255,255,.95);padding:4px 8px;border-radius:8px}.login .brand img{max-height:56px;max-width:240px;display:block;margin-bottom:8px}.logoprev{background:#fff;border:1px dashed var(--line);border-radius:8px;padding:12px;min-height:64px;display:flex;align-items:center}.logoprev img{max-height:64px;max-width:240px}
+#side .logo{font-weight:700;font-size:19px;color:#fff;padding:2px 10px 18px;letter-spacing:.3px}#side .logo .en{color:var(--acc)}#side .logo .bn{color:#fff}.brand{display:inline-flex;flex-direction:column;align-items:flex-start;gap:8px}.brand .co{display:flex;align-items:center;gap:8px}.brand .cn{font-size:13px;font-weight:600;opacity:.85;overflow-wrap:anywhere}.login .brand .cn{font-size:15px}#side .logo img{max-height:34px;max-width:170px;vertical-align:middle;margin-right:8px;background:rgba(255,255,255,.95);padding:4px 8px;border-radius:8px}.login .brand img{max-height:56px;max-width:240px;display:block;margin-bottom:8px}.logoprev{background:#fff;border:1px dashed var(--line);border-radius:8px;padding:12px;min-height:64px;display:flex;align-items:center}.logoprev img{max-height:64px;max-width:240px}
 #side nav a{display:flex;gap:10px;align-items:center;color:var(--sidefg);padding:8px 10px;border-radius:8px;margin-bottom:2px;text-decoration:none}
 #side nav a:hover{background:rgba(255,255,255,.07)}#side nav a.on{background:rgba(255,255,255,.12);color:#fff}
 #side nav svg{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
@@ -455,25 +455,15 @@ const NAV=[['#/','Home','home',()=>true],['#/dashboards','Dashboards','dash',()=
  ['#/hosts','Hosts','host',()=>can('hosts')],['#/instances','Instances','cloud',()=>can('hosts')],['#/alerts','Alerts','bell',()=>can('alerts')],['#/billing','Billing','billing',()=>can('billing')],['#/tenants','Tenants','building',()=>can('operator')],['#/machines','Add a machine','machine',()=>can('keys')||can('hosts',true)],
  ['#/users','Users & groups','users',()=>can('users')],['#/backups','Backups & archive','archive',()=>can('backups')],['#/audit','Audit log','audit',()=>can('settings')],['#/settings','Settings','cog',()=>can('settings')],['#/account','Account','user',()=>true]];
 const iconEl=k=>{const s=svg('svg',{viewBox:'0 0 24 24'});s.innerHTML=ICON[k];return s};
-function setTitle(t){const h=$('#top h1');if(h)h.textContent=t;document.title=t+' · '+((S.brand&&S.brand.name)||'Lumen')}
+function setTitle(t){const h=$('#top h1');if(h)h.textContent=t;document.title=t+' · '+((S.brand&&S.brand.name)?S.brand.name+' · ':'')+'Lumen'}
 // site name and logo (public: the login page needs them before anyone is signed in)
 async function loadBrand(){try{const r=await fetch('/api/v1/branding',{cache:'no-store'});if(r.ok)S.brand=await r.json()}catch{}applyFavicon()}
-// The tab icon: the uploaded logo, fitted into a square (logos are rarely square), or the built-in Lumen icon.
-const DEFAULT_ICON=(document.querySelector('link[rel=icon]')||{}).href||'';
-async function applyFavicon(){
-  let link=document.querySelector('link[rel=icon]');if(!link){link=document.createElement('link');link.rel='icon';document.head.append(link)}
-  const b=S.brand||{};
-  if(!b.has_logo){link.type='image/svg+xml';link.href=DEFAULT_ICON;return}
-  const url='/branding/logo?v='+encodeURIComponent(b.version||'');
-  try{
-    const img=new Image();await new Promise((ok,no)=>{img.onload=ok;img.onerror=no;setTimeout(no,4000);img.src=url}); // never wait for a slow logo
-    const c=document.createElement('canvas');c.width=c.height=64;const g=c.getContext('2d');
-    g.fillStyle='#fff';g.beginPath();g.roundRect?g.roundRect(0,0,64,64,12):g.rect(0,0,64,64);g.fill();
-    const w=img.naturalWidth||64,h=img.naturalHeight||64,k=Math.min(56/w,56/h);g.drawImage(img,(64-w*k)/2,(64-h*k)/2,w*k,h*k);
-    link.type='image/png';link.href=c.toDataURL('image/png')
-  }catch{link.removeAttribute('type');link.href=url}}
-const brandEl=big=>{const b=S.brand||{};return el('span',{class:'brand'},b.has_logo?el('img',{src:'/branding/logo?v='+encodeURIComponent(b.version||''),alt:b.name||'Lumen'}):null,
-  (b.has_logo&&!big)?null:(b.name?el('span',{class:'bn'},b.name):(b.has_logo?null:el('span',{},'Lum',el('span',{class:'en'},'en')))))};
+// The tab icon is always Lumen's own; the company logo is shown in the page, never in the tab.
+function applyFavicon(){}
+// Lumen is always on top. The company name and logo (Settings) are shown beneath it.
+const brandEl=big=>{const b=S.brand||{};
+  const co=(b.has_logo||b.name)?el('span',{class:'co'},b.has_logo?el('img',{src:'/branding/logo?v='+encodeURIComponent(b.version||''),alt:b.name||'Company logo'}):null,b.name?el('span',{class:'cn'},b.name):null):null;
+  return el('span',{class:'brand'},el('span',{class:'lm'},'Lum',el('span',{class:'en'},'en')),co)};
 // real names and the names an administrator gave the hosts (best effort: needs read access to hosts)
 async function hostAliases(){try{const r=await api('/api/v1/hosts',{},{quiet:true});S.hn={};for(const h of r.data||[])if(h.display_name)S.hn[h.name]=h.display_name}catch{}}
 // what has come in, for the dropdowns; follows the range only for archive and custom ranges, otherwise the last week
@@ -788,7 +778,15 @@ function ncGuide(o){o=o||{};
     el('li',{},'Cron: the background job time comes from the admin login. Make sure Nextcloud uses cron (Administration settings → Basic settings → Background jobs → Cron) so the value is meaningful.'),
     el('li',{},'Certificate days left are shown for https:// URLs only. Use the public https address of the instance.')),
   el('p',{class:'help'},'Allow a minute or two after saving: the agent asks for apps and updates every 10 minutes. After a refused login the agent waits 5 minutes or more before it tries again; saving a new token or password makes it try at once.'))}
-function cmdBox(title,text,note){const pre=el('pre',{class:'code'},text),b=el('button',{class:'btn ghost sm',onclick:async()=>{try{await navigator.clipboard.writeText(text);b.textContent='Copied ✓'}catch{b.textContent='Select the text and copy it manually'}}},'Copy');
+// Copy to the clipboard. navigator.clipboard only exists on https or localhost; Lumen is often reached over plain http
+// on a private address, so fall back to a hidden textarea and execCommand, which works there too.
+async function copyText(text,pre){
+  try{if(window.isSecureContext&&navigator.clipboard){await navigator.clipboard.writeText(text);return true}}catch{}
+  const t=document.createElement('textarea');t.value=text;t.setAttribute('readonly','');t.style.cssText='position:fixed;top:0;left:0;opacity:0';document.body.append(t);t.select();t.setSelectionRange(0,text.length);
+  let ok=false;try{ok=document.execCommand('copy')}catch{}t.remove();
+  if(!ok&&pre){const r=document.createRange();r.selectNodeContents(pre);const g=getSelection();g.removeAllRanges();g.addRange(r)}
+  return ok}
+function cmdBox(title,text,note){const pre=el('pre',{class:'code'},text),b=el('button',{class:'btn ghost sm',onclick:async()=>{const ok=await copyText(text,pre);b.textContent=ok?'Copied ✓':'Text selected, press Ctrl+C';setTimeout(()=>{b.textContent='Copy'},2500)}},'Copy');
   return el('div',{},el('h2',{style:'margin:18px 0 4px'},title),note?el('p',{class:'mut',style:'margin:0 0 4px'},note):null,pre,b)}
 async function machinesPage(){
   setTitle('Add a machine');const view=$('#view'),o=location.origin;let kind=window._kind||'linux';if(kind==='nextcloud')kind=window._kind='linux';
@@ -1643,11 +1641,11 @@ async function settingsPage(){
   const MAXKB=512,types={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml'};
   let pending=null,removing=false;
   const msg=el('div',{style:'min-height:20px;margin-top:10px'});
-  const nameIn=el('input',{value:S.brand.name||'',placeholder:'Lumen',maxlength:40,size:30,disabled:!w});
+  const nameIn=el('input',{value:S.brand.name||'',placeholder:'Your company',maxlength:40,size:30,disabled:!w});
   const prev=el('div',{class:'logoprev'});
   const rmBtn=el('button',{class:'btn ghost',onclick:()=>{removing=!!S.brand.has_logo;pending=null;file.value='';drawPrev()}},'Remove logo');
   const drawPrev=()=>{const src=pending||(!removing&&S.brand.has_logo?'/branding/logo?v='+encodeURIComponent(S.brand.version||''):'');
-    prev.replaceChildren(src?el('img',{src,alt:'Logo preview'}):el('span',{class:'mut'},'No logo. The name is shown as text.'));
+    prev.replaceChildren(src?el('img',{src,alt:'Logo preview'}):el('span',{class:'mut'},'No logo. Only the company name is shown.'));
     rmBtn.style.display=(pending||(S.brand.has_logo&&!removing))?'':'none'};
   const file=el('input',{type:'file',accept:'image/png,image/jpeg,image/gif,image/webp,image/svg+xml,.svg',disabled:!w,onchange:e=>{
     const f=e.target.files&&e.target.files[0];msg.textContent='';if(!f)return;
@@ -1658,10 +1656,10 @@ async function settingsPage(){
     const r=await api('/api/v1/settings/branding',{},{method:'PUT',body:{name:nameIn.value.trim(),logo:pending||'',remove_logo:removing&&!pending}});
     S.brand=r;pending=null;removing=false;file.value='';drawPrev();applyFavicon();
     const lg=$('#side .logo');if(lg)lg.replaceChildren(brandEl(false));setTitle('Settings');
-    msg.className='ok';msg.textContent='Saved. Everyone sees the new name and logo, including on the login page.'}catch(e){msg.className='err';msg.textContent=e.message}};
+    msg.className='ok';msg.textContent='Saved. Everyone sees the company name and logo, including on the login page.'}catch(e){msg.className='err';msg.textContent=e.message}};
   view.replaceChildren(el('div',{class:'card',style:'max-width:620px'},el('h2',{style:'margin-top:0'},'Branding'),
-    el('div',{class:'form'},el('label',{},'Site name'),nameIn,el('label',{},'Logo'),el('div',{},prev,el('div',{style:'margin-top:8px'},file),
-      el('p',{class:'help'},'PNG, JPEG, GIF, WebP or SVG, at most '+MAXKB+' KB. With a logo, the menu shows the logo instead of the name (on a white background, so dark logos work too). The name is used in the browser tab, and under the logo on the login page.'))),
+    el('div',{class:'form'},el('label',{},'Company name'),nameIn,el('label',{},'Logo'),el('div',{},prev,el('div',{style:'margin-top:8px'},file),
+      el('p',{class:'help'},'PNG, JPEG, GIF, WebP or SVG, at most '+MAXKB+' KB. Lumen is always shown at the top. Your company name and logo appear beneath it in the menu and on the login page (on a white background, so dark logos work too). The browser tab keeps the Lumen icon.'))),
     w?el('div',{class:'bar',style:'margin:14px 0 0'},el('button',{class:'btn',onclick:save},'Save'),
       rmBtn):el('p',{class:'help'},'You have read-only access.'),msg,
     el('p',{class:'help'},'The name and logo are the same for everyone who uses this server, and are visible before signing in. In a multi-tenant installation only give the Settings permission to the operator.')));

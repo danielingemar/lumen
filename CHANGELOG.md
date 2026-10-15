@@ -5,10 +5,14 @@ versions follow [Semantic Versioning](https://semver.org/) once a first release 
 
 ## [Unreleased]
 
+### Fixed
+- The **Copy** buttons (for example in Add a machine) now work when Lumen is opened over plain http. Before, the browser blocked the clipboard there and the button asked you to copy by hand.
+
 ### Added
 - **Trial licences.** `lumen-license trial --key keys/main.key --customer "ACME AB"` issues every feature (Enterprise and Operator) for 30 days. A trial has no grace period, so it stops on its end date, and the reminder starts a week before. The licence card and the banner call it a trial; `inspect` shows it.
 
 ### Changed
+- **Lumen is always on top.** The site name setting is now a **company name**, and the optional logo is shown beneath Lumen in the menu and on the login page instead of replacing it. The tab icon is always Lumen's.
 - **One build for everyone: a licence switches Enterprise on by itself.** The Enterprise code (`ee/`) is now part of every build, so adding a licence under Settings (or in `LUMEN_LICENSE_FILE`) is all a customer does: the Enterprise channels (Jira, ServiceNow, PagerDuty, Opsgenie) work within a minute, and stop again after the grace period when it ends. The build tag `enterprise`, `make build-ee`, `LUMEN_BUILD_TAGS` and the Docker build argument are gone (an old `LUMEN_BUILD_TAGS` in `deploy/.env` is ignored). The build must still contain the publisher's public key in `internal/license/keys/`.
 - **Machines and instances are added in separate places.** *Add a machine* now only installs agents (Linux, Windows, Docker host, downloads) and no longer asks for Nextcloud addresses, tokens or passwords; the long per-instance commands are gone. Nextcloud instances are added under **Instances → Add instance**: choose the machine whose agent runs the checks (one agent can check several instances), then Lumen lists that machine's Docker containers (Nextcloud ones first), fills in the container name and the agent's address in the occ commands of the guide, and takes the name from the container. A new option, `--checker` in the Linux installer or “only check Nextcloud instances” for the Docker agent, makes an agent that is not a machine, for a Nextcloud where no agent can run. Instances set up with `--nextcloud` flags keep working.
 

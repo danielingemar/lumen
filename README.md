@@ -40,7 +40,7 @@ Traces, logs and metrics, dashboards you build yourself, host / service / Docker
 | **Alerts that reach people** | Rules on metrics, up/down status and log counts; notifications by **email, webhook, Slack, Teams**, and in Enterprise **Jira, ServiceNow, PagerDuty, Opsgenie**. Grouping, retries, acknowledge, silences, a replay of the last 24 hours before you save a rule. |
 | **Hosts & Instances pages** | See every machine and Nextcloud instance. Rename hosts, remove old ones, add log paths, choose watched services, fix a mistyped Nextcloud URL, **all in the browser**: agents pick up the change within a minute. |
 | **Dropdowns of everything that comes in** | Traces, Logs and Metrics list every service, operation, log source, host and metric Lumen has received, so you pick instead of typing. |
-| **Your own logo** | Upload a logo and site name under **Settings**; they show in the menu, in the browser tab (as the tab icon) and on the login page. |
+| **Your company name and logo** | Add them under **Settings**. They show beneath Lumen in the menu and on the login page. Lumen itself is always shown at the top. |
 | **Everything about a host** | Open a host to see CPU (also by state: user, system, iowait, steal), load, memory (used, cached, buffers, free), swap, usage of every local disk, **disk I/O** (throughput, IOPS, busy time per device), **network** traffic and errors, processes and uptime, as charts over the chosen time range. |
 | **Services on your machines** | systemd units and Docker containers are reported automatically (`system_service_up`, `container_up`). |
 | **Users and groups** | *Admin* (everything), *User* (read-only) and *custom* groups with none / read / write per area. Enforced by the server. |
@@ -60,7 +60,7 @@ Traces, logs and metrics, dashboards you build yourself, host / service / Docker
 | <img src="docs/screenshots/licence.png" alt="The licence card under Settings"> **Licence** under Settings. | <img src="docs/screenshots/licence-ended.png" alt="The banner when a licence has ended"> When a licence has ended: a banner, and Enterprise channels marked. |
 | <img src="docs/screenshots/alerts.png" alt="A firing alert"> **Alerts**: what is firing, with Acknowledge and Silence. | <img src="docs/screenshots/alerts-rule.png" alt="The rule editor"> **Rule editor**, with a replay of the last 24 hours. |
 | <img src="docs/screenshots/logs.png" alt="Logs with source and host dropdowns"> **Logs**: pick a log source and a host from what has come in. | <img src="docs/screenshots/traces.png" alt="Traces with service, operation and host dropdowns"> **Traces**: service, operation and host dropdowns. |
-| <img src="docs/screenshots/settings.png" alt="Settings with logo upload"> **Settings**: your own logo and site name. | <img src="docs/screenshots/dashboard-hosts.png" alt="Hosts dashboard"> **Hosts dashboard** starter template. |
+| <img src="docs/screenshots/settings.png" alt="Settings with logo upload"> **Settings**: your company name and logo. | <img src="docs/screenshots/dashboard-hosts.png" alt="Hosts dashboard"> **Hosts dashboard** starter template. |
 | <img src="docs/screenshots/dashboard-nextcloud-dark.png" alt="Nextcloud dashboard, dark theme"> Light and dark theme. | |
 
 *Screenshots show example data.*
