@@ -14,7 +14,8 @@ echo "Host"
 . /etc/os-release 2>/dev/null
 case "${ID:-}" in
   almalinux|rocky|rhel|centos) ok "OS: ${PRETTY_NAME:-$ID}";;
-  *) warn "OS: ${PRETTY_NAME:-unknown} (written for Rocky/Alma/RHEL 9; the install script is dnf-based)";;
+  ubuntu|debian) ok "OS: ${PRETTY_NAME:-$ID}";;
+  *) warn "OS: ${PRETTY_NAME:-unknown} (the install script supports Rocky/Alma/RHEL 9 and Ubuntu/Debian; other systems need Docker with the compose plugin installed by hand)";;
 esac
 CPUS=$(nproc 2>/dev/null || echo 1)
 [ "$CPUS" -ge 2 ] && ok "CPU cores: $CPUS" || fail "CPU cores: $CPUS (need >= 2)"
@@ -40,7 +41,7 @@ echo "Time"
 if have timedatectl && [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" = "yes" ]; then
   ok "Clock is NTP-synchronised"
 else
-  warn "Clock not confirmed NTP-synchronised: telemetry timestamps and trace ordering depend on it (dnf install chrony; systemctl enable --now chronyd)"
+  warn "Clock not confirmed NTP-synchronised: telemetry timestamps and trace ordering depend on it (RHEL family: dnf install chrony; systemctl enable --now chronyd. Ubuntu/Debian: apt install chrony; systemctl enable --now chrony)"
 fi
 
 echo "Container runtime"
@@ -50,8 +51,8 @@ if have docker; then
     ok "docker daemon reachable"
     docker info 2>/dev/null | grep -qi 'rootless' && warn "Docker is rootless: works, but ports < 1024 and some networking need extra setup" || ok "docker mode: rootful"
   else fail "docker daemon not reachable (systemctl start docker; is your user in the docker group?)"; fi
-  docker compose version >/dev/null 2>&1 && ok "docker compose v2 plugin present" || fail "docker compose v2 plugin missing (dnf install docker-compose-plugin)"
-else { have podman && warn "podman found: docker-ce install needs --allow-podman-removal (see install script)"; fail "docker not installed (run deploy/install-rhel-family.sh)"; }; fi
+  docker compose version >/dev/null 2>&1 && ok "docker compose v2 plugin present" || fail "docker compose v2 plugin missing (RHEL family: dnf install docker-compose-plugin. Ubuntu/Debian: apt install docker-compose-plugin, or docker-compose-v2 from Ubuntu's own repository)"
+else { have podman && warn "podman found: docker-ce install needs --allow-podman-removal (see install script)"; fail "docker not installed (run deploy/install-rhel-family.sh or deploy/install-debian-family.sh)"; }; fi
 
 echo "Network"
 if have ss; then
@@ -64,7 +65,10 @@ else warn "ss not found, skipped port checks"; fi
 if have firewall-cmd && systemctl is-active --quiet firewalld 2>/dev/null; then
   firewall-cmd --query-port="$PORT/tcp" >/dev/null 2>&1 && ok "firewalld: $PORT/tcp open" \
     || warn "firewalld: $PORT/tcp not opened. Docker-published ports are normally reachable regardless of firewalld, so do not rely on it to restrict access: set LUMEN_BIND=127.0.0.1 and use a TLS proxy"
-else ok "firewalld not active"; fi
+elif have ufw && ufw status 2>/dev/null | grep -q "Status: active"; then
+  ufw status 2>/dev/null | grep -q "$PORT/tcp" && ok "ufw: $PORT/tcp open" \
+    || warn "ufw: $PORT/tcp not opened (sudo ufw allow $PORT/tcp). Docker-published ports bypass ufw, so do not rely on it to restrict access: set LUMEN_BIND=127.0.0.1 and use a TLS proxy"
+else ok "no active firewalld or ufw"; fi
 if have getenforce; then
   case "$(getenforce)" in Enforcing) warn "SELinux enforcing: fine, but bind-mounts need :z/:Z (the shipped compose uses named volumes, so it is unaffected)";; *) ok "SELinux: $(getenforce)";; esac
 fi

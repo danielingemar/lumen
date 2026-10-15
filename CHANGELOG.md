@@ -11,6 +11,7 @@ versions follow [Semantic Versioning](https://semver.org/) once a first release 
 - The **Copy** buttons (for example in Add a machine) now work when Lumen is opened over plain http. Before, the browser blocked the clipboard there and the button asked you to copy by hand.
 
 ### Added
+- **Ubuntu and Debian.** `install.sh` now installs Docker and chrony on Ubuntu and Debian too (`deploy/install-debian-family.sh`, from Docker's apt repository, with Ubuntu's own packages as a fallback for a brand-new release). The preflight understands `ufw`.
 - **Trial licences.** `lumen-license trial --key keys/main.key --customer "ACME AB"` issues every feature (Enterprise and Operator) for 30 days. A trial has no grace period, so it stops on its end date, and the reminder starts a week before. The licence card and the banner call it a trial; `inspect` shows it.
 
 ### Changed

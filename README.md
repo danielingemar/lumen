@@ -109,7 +109,7 @@ If a VM cannot connect, use an IP it can reach (bridged: your LAN IP; NAT/host-o
 
 ## Install on a server
 
-Rocky Linux / AlmaLinux / RHEL 9, or any host with Docker. 2+ vCPU, 6 GB RAM minimum (8 GB+ recommended), 20 GB+ local SSD.
+Rocky Linux / AlmaLinux / RHEL 9, Ubuntu or Debian, or any host with Docker. 2+ vCPU, 6 GB RAM minimum (8 GB+ recommended), 20 GB+ local SSD.
 
 ```bash
 sudo sysctl -w vm.max_map_count=262144
@@ -117,7 +117,7 @@ echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-lumen.conf
 sudo ./install.sh --public-url https://lumen.example.com --tenant main
 ```
 
-Installs Docker if missing, generates secrets into `deploy/.env`, runs a preflight check, starts everything, waits until healthy and prints the address and the admin login. Add `--allow-podman-removal` if podman is installed. Manual steps: `deploy/install-rhel-family.sh`, `deploy/gen-env.sh`, `deploy/preflight.sh`, `make up`.
+Installs Docker if missing, generates secrets into `deploy/.env`, runs a preflight check, starts everything, waits until healthy and prints the address and the admin login. Add `--allow-podman-removal` if podman is installed. Manual steps: `deploy/install-rhel-family.sh` or `deploy/install-debian-family.sh`, `deploy/gen-env.sh`, `deploy/preflight.sh`, `make up`.
 
 **Keep `deploy/.env` safe.** It holds `LUMEN_SECRET_KEY`, which encrypts stored Nextcloud credentials; without it they cannot be read again.
 
@@ -557,7 +557,7 @@ internal/docstore     Elasticsearch client + JSON-file fallback (estest = fake E
 internal/dashboards   dashboards per tenant
 internal/edition      open-core hooks (auth, authorization)
 ee/                   enterprise features (commercial license, in every build, switched on by a licence): Jira, ServiceNow, PagerDuty, Opsgenie
-deploy/               compose file, preflight, secrets generator, RHEL-family Docker installer
+deploy/               compose file, preflight, secrets generator, Docker installers (RHEL family, Ubuntu/Debian)
 install.sh dev.sh     server installer / local test setup
 ```
 

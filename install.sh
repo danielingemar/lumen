@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lumen one-step server installer (Rocky Linux / AlmaLinux / RHEL 9; also works on any host that already has Docker).
+# Lumen one-step server installer (Rocky Linux / AlmaLinux / RHEL 9 and Ubuntu / Debian; also works on any host that already has Docker).
 #
 #   sudo ./install.sh [--public-url https://lumen.example.com] [--tenant main] [--with-agent] [--allow-podman-removal] [--force]
 #
@@ -30,7 +30,8 @@ if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>
   . /etc/os-release
   case "$ID" in
     rocky|almalinux|rhel|centos) bash deploy/install-rhel-family.sh "${DOCKER_FLAGS[@]}";;
-    *) die "Docker with the compose plugin is required; automatic install only supports Rocky/Alma/RHEL";;
+    ubuntu|debian) bash deploy/install-debian-family.sh "${DOCKER_FLAGS[@]}";;
+    *) die "Docker with the compose plugin is required; automatic install supports Rocky/Alma/RHEL and Ubuntu/Debian";;
   esac
 else echo "Docker already installed."; fi
 
