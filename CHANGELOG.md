@@ -6,6 +6,7 @@ versions follow [Semantic Versioning](https://semver.org/) once a first release 
 ## [Unreleased]
 
 ### Fixed
+- A red alert count in the menu and the status tiles on the start page now clear by themselves. They follow the refresh interval (every 30 s when refresh is off) instead of staying red until the page is reloaded.
 - The **Copy** buttons (for example in Add a machine) now work when Lumen is opened over plain http. Before, the browser blocked the clipboard there and the button asked you to copy by hand.
 
 ### Added

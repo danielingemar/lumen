@@ -518,14 +518,14 @@ function shell(){
       can('backups')?sel('arc',[['0','Live data'],['1','Archive']],S.archive?'1':'0',v=>setArchive(v==='1')):null,
       sel('rng',[...Object.keys(RANGES).map(k=>[k,'Last '+k]),['custom','Custom…']],S.range,v=>{S.range=v;if(v==='custom'&&!S.custom){const t=Date.now();S.custom={from:t-864e5,to:t}}store.set('lumen.range',v);syncTop();route(true)}),
       el('span',{id:'cust',style:'display:none;gap:6px;align-items:center'},el('input',{id:'cfrom',type:'datetime-local',onchange:applyCustom}),'→',el('input',{id:'cto',type:'datetime-local',onchange:applyCustom})),
-      sel('rfr',[[0,'Refresh: off'],[10,'10 s'],[30,'30 s'],[60,'1 min']],S.refresh,v=>{S.refresh=+v;store.set('lumen.refresh',v);route(true)}),
+      sel('rfr',[[0,'Refresh: off'],[10,'10 s'],[30,'30 s'],[60,'1 min']],S.refresh,v=>{S.refresh=+v;store.set('lumen.refresh',v);startBadgeTimer();route(true)}),
       el('button',{class:'btn ghost',onclick:()=>route(true)},'↻')),
       el('div',{id:'arcbar',style:'display:none'},el('b',{},'Archive'),' – showing data restored from backups, not live data. Only days you have loaded contain anything. ',el('a',{href:'#/backups'},'Choose days'),el('span',{class:'sp'}),el('button',{class:'btn ghost sm',onclick:()=>setArchive(false)},'Back to live data')),
       el('div',{id:'abanner'}),el('div',{id:'lbanner'}),el('div',{id:'view'}))));
   syncTop();
   drawActingBanner();
   drawLicenseBanner();
-  refreshAlertBadge();
+  refreshAlertBadge();startBadgeTimer();
 }
 
 // ---- router ----
@@ -638,9 +638,10 @@ async function homePage(){
   hostsL.forEach(h=>items.push({kind:'host',name:h.display_name||h.name,sub:h.display_name?h.name:'',link:'#/h/'+encodeURIComponent(h.name),ms:(h.last_seen||0)*1000,grey:h.status!=='up',rm:w&&h.status!=='up'?()=>removeHost(h.name,h.display_name||h.name,homePage):null}));
   instL.forEach(i=>items.push({kind:'instance',name:i.name,link:'#/n/'+encodeURIComponent(i.key),ms:(i.last_seen||0)*1000,grey:i.status!=='up',rm:w&&i.status!=='up'?(i.managed?()=>removeManaged(i,homePage):goneNow(i)?()=>removeGone(i,homePage):null):null}));
   svcs.filter(x=>!(hostsL.length&&x.svc==='host')&&!instNames.has(x.svc)).forEach(x=>{const ms=tsMs(x.last_seen),grey=(Date.now()-ms)/1e3>=900;items.push({kind:'service',name:x.svc,signals:x.signals||[],ms,grey,rm:can('hosts',true)&&grey?()=>dismissService(x.svc,homePage):null})});
+  const tiles=[];
   const statusRow=()=>{if(!(can('hosts')||can('metrics')))return null;
     return el('div',{},el('h2',{},'Status right now'),el('div',{class:'grid'},['alerts_firing','nc_up','nc_down','host_up','host_down','svc_down','container_down'].filter(k=>k!=='alerts_firing'||can('alerts')).map(k=>{const body=el('div',{class:'body',style:'min-height:70px'});
-      loadPanel({type:'stat',h:1,q:{src:'status',status:k}},body,win());return el('div',{class:'panel',style:'--w:2'},el('header',{},el('span',{class:'t'},STATUS_KINDS[k][0])),body)})))};
+      const pd={type:'stat',h:1,q:{src:'status',status:k}};tiles.push([pd,body]);loadPanel(pd,body,win());return el('div',{class:'panel',style:'--w:2'},el('header',{},el('span',{class:'t'},STATUS_KINDS[k][0])),body)})))};
   const hh=await homeHealth();
   view.replaceChildren(
     hh,statusRow(),
@@ -653,6 +654,7 @@ async function homePage(){
         el('td',{},it.kind!=='service'?el('span',{class:'pill info'},it.kind):(it.signals||[]).map(x=>el('span',{class:'pill'},x))),el('td',{class:'mut'},ago(new Date(it.ms).toISOString())),
         el('td',{style:'text-align:right'},it.rm?el('button',{class:'btn danger sm',title:'Take it off this list',onclick:ev=>{ev.stopPropagation();it.rm()}},'Remove'):null))}))):
     el('div',{class:'card empty'},'Nothing has reported yet. ',el('a',{href:'#/machines'},'Add a machine'),' to start collecting data.'));
+  if(S.refresh)S.timers.push(setInterval(()=>{tiles.forEach(([pd,b])=>{if(b.isConnected)loadPanel(pd,b,win())})},S.refresh*1000));
 }
 
 async function dashboardsPage(){
@@ -1482,6 +1484,9 @@ async function alertsHistory(box){
   box.replaceChildren(h.length?el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['Time','Event','Alert','','Labels','Value','By'].map(x=>el('th',{},x))),h.map(e=>el('tr',{},el('td',{class:'mut'},new Date(e.time).toLocaleString()),el('td',{},typeBadge(e.type)),el('td',{},e.rule_name),el('td',{},sevBadge(e.severity)),el('td',{},chips(e.labels)),el('td',{class:'mono'},e.type==='firing'||e.type==='resolved'?String(+(+e.value).toPrecision(4)):''),el('td',{class:'mut'},e.by||''))))):el('div',{class:'card empty'},'Nothing has happened yet.'),
     dv.length?el('div',{},el('h2',{},'Recent deliveries'),el('p',{class:'help',style:'margin:-4px 0 8px'},'Every attempt to send a message. A failed one is tried again a few times, then given up.'),el('div',{class:'card',style:'padding:0'},el('table',{},el('tr',{},['Time','Channel','Message','Result'].map(x=>el('th',{},x))),dv.slice(0,50).map(d=>el('tr',{},el('td',{class:'mut'},new Date(d.time).toLocaleString()),el('td',{},d.channel),el('td',{class:'mut'},d.status+' · '+d.alerts+' alert'+(d.alerts===1?'':'s')+(d.attempt>1?' · attempt '+d.attempt:'')),el('td',{},d.ok?el('span',{class:'ok'},'sent'):el('span',{class:'err'},(d.gave_up?'gave up: ':'failed: ')+d.error))))))):null)}
 // the red number on the menu item
+// The alert count in the menu follows the refresh setting on every page (every 30 s when refresh is off), so a red
+// badge disappears by itself once the alert has resolved.
+function startBadgeTimer(){clearInterval(S.badgeTimer);S.badgeTimer=setInterval(()=>{if(S.me&&!document.hidden)refreshAlertBadge()},(S.refresh||30)*1000)}
 async function refreshAlertBadge(){
   if(!can('alerts')||!S.me)return;
   try{const r=await api('/api/v1/alerts',{},{quiet:true}),n=(r.counts&&r.counts.firing)||0,a=$('#side nav a[data-h="#/alerts"]');if(a){let b=a.querySelector('.nb');if(n>0){if(!b){b=el('span',{class:'nb'});a.append(b)}b.textContent=String(n)}else if(b)b.remove()}}catch{}}
