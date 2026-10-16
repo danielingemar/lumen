@@ -448,6 +448,7 @@ async function panelEditor(existing,onSave){
 // ---- app shell, login and pages ----
 const ICON={home:'<path d="M3 11l9-8 9 8M5 10v10h14V10"/>',dash:'<rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>',
  trace:'<path d="M4 6h10M8 12h12M6 18h8"/>',logs:'<path d="M4 6h16M4 12h16M4 18h10"/>',metric:'<path d="M3 17l5-6 4 3 8-9"/><path d="M3 21h18"/>',machine:'<rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01"/>',user:'<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>',
+ db:'<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
  host:'<rect x="3" y="4" width="18" height="12" rx="1"/><path d="M8 20h8M12 16v4"/>',cloud:'<path d="M7 18a4 4 0 010-8 5 5 0 019.6-1A4.5 4.5 0 0117 18z"/>',
  users:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.3-5 6.5-5s5.7 1.5 6.5 5"/><path d="M16 4.5a3.5 3.5 0 010 7M18 15c2 .5 3.2 2 3.5 5"/>',archive:'<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11h14V8M10 12h4"/>',
  building:'<path d="M4 21V5l8-2v18M12 21V9l8 2v10M8 9h.01M8 13h.01M8 17h.01M16 14h.01M16 18h.01"/>',
@@ -456,7 +457,7 @@ const ICON={home:'<path d="M3 11l9-8 9 8M5 10v10h14V10"/>',dash:'<rect x="3" y="
  audit:'<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',cog:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'};
 // each entry: href, label, icon, who may see it (hidden pages are also refused by the server)
 const NAV=[['#/','Home','home',()=>true],['#/dashboards','Dashboards','dash',()=>can('dashboards')],['#/traces','Traces','trace',()=>can('traces')],['#/logs','Logs','logs',()=>can('logs')],['#/metrics','Metrics','metric',()=>can('metrics')],
- ['#/hosts','Hosts','host',()=>can('hosts')],['#/instances','Instances','cloud',()=>can('hosts')],['#/alerts','Alerts','bell',()=>can('alerts')],['#/billing','Billing','billing',()=>can('billing')],['#/tenants','Tenants','building',()=>can('operator')],['#/machines','Add a machine','machine',()=>can('keys')||can('hosts',true)],
+ ['#/hosts','Hosts','host',()=>can('hosts')],['#/instances','Instances','cloud',()=>can('hosts')],['#/redis','Redis','db',()=>can('hosts')],['#/alerts','Alerts','bell',()=>can('alerts')],['#/billing','Billing','billing',()=>can('billing')],['#/tenants','Tenants','building',()=>can('operator')],['#/machines','Add a machine','machine',()=>can('keys')||can('hosts',true)],
  ['#/users','Users & groups','users',()=>can('users')],['#/backups','Backups & archive','archive',()=>can('backups')],['#/audit','Audit log','audit',()=>can('settings')],['#/settings','Settings','cog',()=>can('settings')],['#/account','Account','user',()=>true]];
 const iconEl=k=>{const s=svg('svg',{viewBox:'0 0 24 24'});s.innerHTML=ICON[k];return s};
 function setTitle(t){const h=$('#top h1');if(h)h.textContent=t;document.title=t+' · '+((S.brand&&S.brand.name)?S.brand.name+' · ':'')+'Lumen'}
@@ -534,7 +535,7 @@ function shell(){
 
 // ---- router ----
 const ROUTES=[[/^#\/$/,homePage],[/^#\/dashboards$/,dashboardsPage,'dashboards'],[/^#\/d\/([\w-]+)$/,dashboardPage,'dashboards'],[/^#\/traces$/,tracesPage,'traces'],[/^#\/t\/([\w-]+)$/,tracePage,'traces'],[/^#\/logs$/,logsPage,'logs'],[/^#\/metrics$/,metricsPage,'metrics'],
- [/^#\/hosts$/,hostsPage,'hosts'],[/^#\/h\/([^\/?]+)$/,hostPage,'hosts'],[/^#\/instances$/,instancesPage,'hosts'],[/^#\/alerts(?:\/(rules|channels|silences|history))?$/,alertsPage,'alerts'],[/^#\/tenants(?:\/(usage|audit))?$/,tenantsPage,'operator'],[/^#\/tenant\/([^\/?]+)$/,tenantPage,'operator'],[/^#\/n\/([^\/?]+)$/,instancePage,'hosts'],[/^#\/users$/,usersPage,'users'],[/^#\/backups$/,backupsPage,'backups'],[/^#\/settings$/,settingsPage,'settings'],[/^#\/audit$/,auditPage,'settings'],[/^#\/billing(?:\/(prices))?$/,billingPage,'billing'],[/^#\/machines$/,machinesPage],[/^#\/account$/,accountPage]];
+ [/^#\/hosts$/,hostsPage,'hosts'],[/^#\/h\/([^\/?]+)$/,hostPage,'hosts'],[/^#\/instances$/,instancesPage,'hosts'],[/^#\/redis$/,redisPage,'hosts'],[/^#\/alerts(?:\/(rules|channels|silences|history))?$/,alertsPage,'alerts'],[/^#\/tenants(?:\/(usage|audit))?$/,tenantsPage,'operator'],[/^#\/tenant\/([^\/?]+)$/,tenantPage,'operator'],[/^#\/n\/([^\/?]+)$/,instancePage,'hosts'],[/^#\/users$/,usersPage,'users'],[/^#\/backups$/,backupsPage,'backups'],[/^#\/settings$/,settingsPage,'settings'],[/^#\/audit$/,auditPage,'settings'],[/^#\/billing(?:\/(prices))?$/,billingPage,'billing'],[/^#\/machines$/,machinesPage],[/^#\/account$/,accountPage]];
 async function route(){
   if(S.me&&Date.now()-(S.alertAt||0)>30000){S.alertAt=Date.now();refreshAlertBadge()} // the menu's alert count, at most every 30 s
   if(!S.me)return;clearTimers();S.onRangeChange=null;
@@ -819,7 +820,7 @@ async function machinesPage(){
       const d=()=>{const l=wl.value.trim();res.replaceChildren(cmdBox('PowerShell (run as Administrator)',`& ([scriptblock]::Create((irm ${o}/install/agent.ps1))) -Key ${psq(K())}${l?' -LogPath '+psq(l):''}`,'Open PowerShell with “Run as administrator” and paste this line.'),el('p',{class:'mut'},'Remove later by adding -Uninstall. Windows services are not collected yet; log files and Nextcloud instances can be managed on the Hosts and Instances pages.'))};
       wl.oninput=d;box.append(el('label',{},'Log files (optional) ',wl),res);d()}
     else if(kind==='docker'){const dl=el('input',{type:'checkbox',checked:true}),dk=el('input',{type:'checkbox',onchange:()=>d()}),se=el('input',{type:'checkbox',onchange:()=>d()}),ck=el('input',{type:'checkbox',onchange:()=>d()}),res=el('div',{});
-      const d=()=>{const lg=dl.checked;res.replaceChildren(cmdBox('Docker',`docker run -d --name lumen-agent --restart unless-stopped --hostname "${ck.checked?'check-':''}$(hostname)"${dk.checked?' \\\n  -v /var/run/docker.sock:/var/run/docker.sock':''}${dk.checked&&se.checked?' \\\n  --security-opt label=disable':''} \\\n  -e LUMEN_AGENT_URL=${shq(o)} -e LUMEN_AGENT_API_KEY=${shq(K())}${ck.checked?' -e LUMEN_AGENT_HOST_METRICS=false -e LUMEN_AGENT_ROLE=checker':''}${lg?' \\\n  -e LUMEN_AGENT_DOCKER_LOGS=1 -v /var/lib/docker/containers:/var/lib/docker/containers:ro':''} \\\n  alpine:3.20 sh -c ${shq('wget -qO- '+o+'/install/agent-docker.sh | sh')}`,'Downloads and verifies the agent when the container starts. Nothing to build.'),el('p',{class:'help'},'This container agent reports the host metrics and logs. Tick the Docker socket option above to also report containers and their network traffic (billing). For systemd services, use the Linux install (with --docker).'),el('p',{class:'mut'},'Remove with: docker rm -f lumen-agent. CPU, memory and load are host-wide values.'),el('div',{class:'msg info'},'Nextcloud on this machine? Install the agent first, then add the instance on the ',el('a',{href:'#/instances'},'Instances'),' page and choose this machine there. One agent can check several instances.'))};
+      const d=()=>{const lg=dl.checked;res.replaceChildren(cmdBox('Docker',`docker run -d --name lumen-agent --restart unless-stopped --hostname "${ck.checked?'check-':''}$(hostname)"${dk.checked?' \\\n  -v /var/run/docker.sock:/var/run/docker.sock --network host':''}${dk.checked&&se.checked?' \\\n  --security-opt label=disable':''} \\\n  -e LUMEN_AGENT_URL=${shq(o)} -e LUMEN_AGENT_API_KEY=${shq(K())}${ck.checked?' -e LUMEN_AGENT_HOST_METRICS=false -e LUMEN_AGENT_ROLE=checker':''}${lg?' \\\n  -e LUMEN_AGENT_DOCKER_LOGS=1 -v /var/lib/docker/containers:/var/lib/docker/containers:ro':''} \\\n  alpine:3.20 sh -c ${shq('wget -qO- '+o+'/install/agent-docker.sh | sh')}`,'Downloads and verifies the agent when the container starts. Nothing to build.'),el('p',{class:'help'},'This container agent reports the host metrics and logs. Tick the Docker socket option above to also report containers and their network traffic (billing). For systemd services, use the Linux install (with --docker).'),el('p',{class:'mut'},'Remove with: docker rm -f lumen-agent. CPU, memory and load are host-wide values.'),el('div',{class:'msg info'},'Nextcloud on this machine? Install the agent first, then add the instance on the ',el('a',{href:'#/instances'},'Instances'),' page and choose this machine there. One agent can check several instances.'))};
       dl.onchange=d;box.append(el('label',{},dl,' also ship Docker container logs  '),el('label',{title:'For checking a Nextcloud that runs where no agent can be installed'},ck,' only check Nextcloud instances (not a machine)'),el('label',{title:'Without the Docker socket a container cannot see the other containers on the machine'},dk,' report this machine\'s Docker containers (network traffic for billing): mounts the Docker socket'),el('label',{title:'SELinux blocks containers from using docker.sock'},se,' SELinux (AlmaLinux, RHEL): add --security-opt label=disable'),res);d()}
     else{box.append(el('p',{class:'mut'},'Loading…'));
       fetch('/download/SHA256SUMS').then(r=>r.ok?r.text():Promise.reject()).then(t=>{const rs=t.trim().split('\n').map(l=>l.trim().split(/\s+/)).filter(x=>x.length===2);
@@ -1037,6 +1038,46 @@ async function instancesPage(){
     list.some(i=>!i.managed)?el('p',{class:'help'},'Rows marked “from agent flags” were set up with --nextcloud on the machine. “Manage here” creates the same instance in this list; then remove the old flags from the agent config on that machine so it is not checked twice.'):null,
     checkerSection(r.checkers||[],list,w));
 }
+
+
+// ---- Redis: found by the agents in Docker; a password is added here only for those that have one ----
+function redisForm(x,hosts,done){
+  const edit=!!x.record_id,hl=hosts.slice();if(x.host&&!hl.includes(x.host))hl.push(x.host);
+  const f={name:el('input',{value:x.name||'',placeholder:'e.g. sessions',size:24}),
+    host:el('select',{},el('option',{value:''},'— choose a machine —'),hl.map(h=>el('option',{value:h},h))),
+    cont:el('input',{value:x.container||'',placeholder:'Docker container name (if it runs in Docker)',size:34,autocomplete:'off'}),
+    addr:el('input',{value:x.addr&&!x.container?x.addr:'',placeholder:'host:port, only if not in Docker or not found',size:34,autocomplete:'off'}),
+    user:el('input',{value:x.username||'',placeholder:'(none: only a password)',size:16,autocomplete:'off'}),
+    pw:el('input',{type:'password',autocomplete:'new-password',placeholder:edit&&x.has_password?'(unchanged)':'password',size:24})};
+  f.host.value=x.host||'';
+  const cp=el('input',{type:'checkbox'}),row=(l,...c)=>[el('label',{},l),el('div',{style:'display:flex;gap:8px;flex-wrap:wrap;align-items:center'},c)];
+  const body=el('div',{},el('div',{class:'form'},row('Checked by',f.host),row('Container',f.cont),row('or address',f.addr),row('Name',f.name),row('User',f.user),row('Password',f.pw,edit&&x.has_password?el('label',{style:'color:var(--fg)'},cp,' remove'):null)),
+    el('p',{class:'help'},'A Redis without a password needs nothing here: the agent finds it and checks it. Add a password only for a Redis that has one (“requirepass”, or a Redis 6+ user: fill in User too). The password is stored encrypted and is sent only to the agent on the chosen machine. Several Redis can share a machine: give each its own container. Use an https:// address for Lumen.'));
+  dialog(edit?'Edit Redis':(x.container?'Password for '+x.name:'Add Redis'),body,[['Cancel',()=>{},'ghost'],['Save',async()=>{
+    const b={name:f.name.value.trim(),host:f.host.value.trim(),container:f.cont.value.trim(),addr:f.addr.value.trim(),username:f.user.value.trim(),password:f.pw.value,clear_password:cp.checked};
+    await api(edit?'/api/v1/redis/'+x.record_id:'/api/v1/redis',{},{method:edit?'PUT':'POST',body:b});done()}]])}
+async function redisPage(){
+  setTitle('Redis');const view=$('#view'),w=can('hosts',true);
+  const r=await api('/api/v1/redis'),list=r.data||[],hosts=r.hosts||[];
+  const badge=x=>el('span',{class:'badge '+(x.state==='up'?'up':x.state==='pending'?'pending':'down')},x.state==='up'?'UP':x.state==='auth'?'PASSWORD':x.state==='pending'?'STARTING':'DOWN');
+  const mem=x=>x.memory_used==null?'–':fmtBytes(x.memory_used)+(x.memory_max?' / '+fmtBytes(x.memory_max):'');
+  const num=v=>v==null?'–':fmtNum(v);
+  const hit=x=>x.hits==null||x.misses==null||x.hits+x.misses===0?'–':Math.round(100*x.hits/(x.hits+x.misses))+' %';
+  const del=async x=>{if(!confirm('Remove the settings for '+x.name+'? Lumen forgets its password. The Redis itself is not touched, and is still found if it runs in Docker.'))return;try{await api('/api/v1/redis/'+x.record_id,{},{method:'DELETE'});redisPage()}catch(e){alert(e.message)}};
+  const act=x=>{if(!w)return null;const b=[];
+    if(x.record_id)b.push(el('button',{class:'btn ghost sm',onclick:()=>redisForm({...x,record_id:x.record_id},hosts,redisPage)},'Edit'),' ',el('button',{class:'btn danger sm',onclick:()=>del(x)},'Remove'));
+    else b.push(el('button',{class:'btn '+(x.state==='auth'?'':'ghost')+' sm',onclick:()=>redisForm({name:x.name,host:x.host,container:x.container,addr:x.addr},hosts,redisPage)},x.state==='auth'?'Set password':'Settings'));
+    return b};
+  const needs=list.filter(x=>x.state==='auth');
+  view.replaceChildren(
+    el('div',{class:'bar'},el('span',{class:'mut'},'Redis servers (also Valkey and KeyDB). The agents find the ones that run in Docker by themselves, with or without a password.'),el('span',{class:'sp'}),w?el('button',{class:'btn',onclick:()=>redisForm({},hosts,redisPage)},'+ Add Redis'):null),
+    needs.length?el('div',{class:'msg info'},needs.length+(needs.length===1?' Redis wants':' Redis want')+' a password that Lumen does not have (or has wrong). Use “Set password” on the row.'):null,
+    list.length?el('div',{class:'card',style:'padding:0;overflow-x:auto'},el('table',{},el('tr',{},['Status','Name','Machine','Version','Memory','Clients','Keys','Hit rate','Evicted','Last report','Problem',''].map(h=>el('th',{},h))),list.map(x=>el('tr',{},
+      el('td',{},badge(x)),el('td',{},x.name,x.container&&x.container!==x.name?el('span',{class:'pill'},x.container):null,x.role==='slave'||x.role==='replica'?el('span',{class:'pill'},'replica'):null),el('td',{},hostLabel(x.host)),
+      el('td',{class:'mut'},x.version||'–'),el('td',{class:'mono'},mem(x)),el('td',{class:'mono'},num(x.clients)),el('td',{class:'mono'},num(x.keys)),el('td',{class:'mono'},hit(x)),el('td',{class:'mono'},num(x.evicted)),
+      el('td',{class:'mut'},x.last_seen?ago2(x.last_seen):'never'),el('td',{class:x.state==='up'?'mut':'err'},x.state==='up'?'':(x.reason||'')),el('td',{style:'white-space:nowrap'},act(x)))))):
+    el('div',{class:'card empty'},'No Redis found yet. An agent on a machine where Redis runs in Docker finds it within a minute (the agent needs access to Docker: install it with Docker access). A Redis that does not run in Docker is added with “Add Redis” and its address.'),
+    el('p',{class:'help'},'Alerts: add the starter rules “Redis down” and “Redis memory almost full” under Alerts. Memory is shown as a share only when the Redis has a maxmemory set. Add “redis_*” metrics to dashboards under Metrics.'))}
 
 // ---- one Nextcloud instance: status, versions, usage, performance and its log ----
 // Take an instance that nobody registered here, and that has stopped answering, out of the list. It comes back only if

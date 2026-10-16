@@ -11,6 +11,7 @@ versions follow [Semantic Versioning](https://semver.org/) once a first release 
 - The **Copy** buttons (for example in Add a machine) now work when Lumen is opened over plain http. Before, the browser blocked the clipboard there and the button asked you to copy by hand.
 
 ### Added
+- **Redis monitoring.** The agent finds Redis, Valkey and KeyDB in Docker by itself and checks every one it finds, with or without a password, several per machine. A Redis that wants a password is shown as PASSWORD; **Set password** on the Redis page stores it encrypted and delivers it only to the agent on that machine (Redis 6+ ACL users work too). Redis that is not in Docker is added by address. New Redis page, metrics (`redis_*`) and starter alert rules "Redis down" and "Redis memory almost full". The Docker agent command now uses `--network host` when Docker access is ticked, so it can reach the containers.
 - **Ubuntu and Debian.** `install.sh` now installs Docker and chrony on Ubuntu and Debian too (`deploy/install-debian-family.sh`, from Docker's apt repository, with Ubuntu's own packages as a fallback for a brand-new release). The preflight understands `ufw`.
 - **Trial licences.** `lumen-license trial --key keys/main.key --customer "ACME AB"` issues every feature (Enterprise and Operator) for 30 days. A trial has no grace period, so it stops on its end date, and the reminder starts a week before. The licence card and the banner call it a trial; `inspect` shows it.
 

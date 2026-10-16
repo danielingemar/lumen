@@ -12,3 +12,8 @@ lumen-agent.json
 *.key
 *.license
 issued.jsonl
+
+# update packages and archives never belong in the repository
+*.tar.gz
+*.tgz
+*.zip

@@ -43,12 +43,14 @@ type Config struct {
 	Scrape          []ScrapeTarget    `json:"scrape"`
 	Logs            []LogSource       `json:"logs"`
 	Nextcloud       []NextcloudTarget `json:"nextcloud"`
-	Systemd         *bool             `json:"systemd"`        // report systemd services (default true)
-	Containers      *bool             `json:"containers"`     // report Docker containers (default true)
-	WatchServices   []string          `json:"watch_services"` // services that must be running
-	NoRemote        bool              `json:"no_remote"`      // ignore the server's configuration
-	RoleSetting     string            `json:"role"`           // "host" or "checker"; empty = decided from what the agent does
-	Hostname        string            `json:"hostname"`       // the name this agent reports under; empty = the machine's own
+	Systemd         *bool             `json:"systemd"`                  // report systemd services (default true)
+	Redis           []RedisTarget     `json:"redis,omitempty"`          // passwords and addresses for Redis (from the Lumen UI); Redis in Docker is found by itself
+	RedisPassword   string            `json:"redis_password,omitempty"` // one password to try on every Redis that has none of its own
+	Containers      *bool             `json:"containers"`               // report Docker containers (default true)
+	WatchServices   []string          `json:"watch_services"`           // services that must be running
+	NoRemote        bool              `json:"no_remote"`                // ignore the server's configuration
+	RoleSetting     string            `json:"role"`                     // "host" or "checker"; empty = decided from what the agent does
+	Hostname        string            `json:"hostname"`                 // the name this agent reports under; empty = the machine's own
 	// AllowedLogDirs limits which log paths the SERVER may tell this agent to read (paths in the local config file are
 	// always trusted). Default: /var/log, Docker's data dirs, /var/www, /srv, /mnt, /opt. Use ["*"] to allow everything.
 	AllowedLogDirs   []string `json:"allowed_log_dirs"`
@@ -108,6 +110,9 @@ func LoadConfig(path string, getenv func(string) string) (Config, error) {
 	if v := getenv("LUMEN_AGENT_CONTAINERS"); v != "" {
 		b := truthy(v)
 		c.Containers = &b
+	}
+	if v := getenv("LUMEN_AGENT_REDIS_PASSWORD"); v != "" {
+		c.RedisPassword = v
 	}
 	if v := getenv("LUMEN_AGENT_INTERVAL"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {

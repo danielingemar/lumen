@@ -190,6 +190,18 @@ Then add the instance under **Instances → Add instance**: choose the machine w
 
 > The serverinfo field names follow the app's documented response and are tested against a sample of that shape, not a live server. Compare the numbers with one real instance first; missing fields are skipped.
 
+## Redis monitoring
+
+Lumen checks Redis (also Valkey and KeyDB) that runs in Docker, with or without a password, any number per machine and across machines.
+
+- **Found by itself.** The agent looks at the running containers on its machine (it needs the Docker socket, so install it with Docker access; the Docker agent command in the UI adds `--network host` for this). A container whose image is `redis`, `valkey`, `keydb`, `dragonfly` or `redict` is checked; exporters and web UIs (`redis_exporter`, `redisinsight`, `redis-commander`, sentinel) are skipped. Put the label `lumen.redis=false` on a container to leave it out, or `lumen.redis.port=<port>` if it listens on another port than 6379.
+- **No password:** nothing to do. It shows up under **Redis** in the menu.
+- **With a password:** it shows up as **PASSWORD**. Press **Set password** on the row (a Redis 6+ ACL user is a second field). The password is stored encrypted on the server and sent only to the agent on that machine, never back to the browser. One Redis can have a password and the next none; each gets its own.
+- **Not in Docker, or not found:** **+ Add Redis** with the machine that should connect and `host:port`.
+- **Many agents or one shared password:** `LUMEN_AGENT_REDIS_PASSWORD` on an agent is tried on every Redis that has no password of its own.
+- **What is reported:** `redis_up`, `redis_auth_required`, memory used, `maxmemory` and `redis_memory_utilization` (only when a limit is set), clients, keys, uptime, hits and misses, evicted keys, commands, rejected connections, replicas, role and whether the last background save succeeded. The Redis page shows the main ones; all of them can be used on dashboards and in alert rules. Starter rules: **Redis down** and **Redis memory almost full**.
+- The agent only sends `AUTH` and `INFO`. It never reads or changes data.
+
 ## What the agent reports about a host
 
 Reported every collection interval (15 s by default); rates are calculated by the agent from the difference between two samples. Linux agents report everything below; Windows agents report CPU, memory and disk usage.

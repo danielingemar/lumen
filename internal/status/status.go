@@ -13,6 +13,7 @@ import (
 
 // Metric names the status view needs.
 var Names = []string{"lumen_agent_info", "lumen_agent_log_paths_rejected", "nextcloud_up", "nextcloud_info", "nextcloud_users", "system_service_up", "container_up",
+	"redis_up", "redis_auth_required", "redis_info", "redis_memory_used_bytes", "redis_memory_max_bytes", "redis_clients", "redis_evicted_keys_total", "redis_keyspace_hits_total", "redis_keyspace_misses_total", "redis_uptime_seconds", "redis_keys", "redis_master", "redis_save_ok",
 	"nextcloud_cron_age_seconds", "nextcloud_update_available", "nextcloud_webdav_ok", "nextcloud_tls_cert_expiry_seconds", "nextcloud_tls_cert_valid"}
 
 const (
@@ -97,6 +98,7 @@ type Summary struct {
 	HostList   []Host     `json:"host_list"`
 	Checkers   []Host     `json:"checkers"` // agents that only check instances: they are not machines, and are listed with the instances
 	Instances  []Instance `json:"instances"`
+	Redis      []Redis    `json:"redis"`
 	Down       []Item     `json:"down"` // services and containers that are down, for the "what is broken" list
 }
 

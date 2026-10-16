@@ -196,6 +196,14 @@ func start(ctx context.Context, wg *sync.WaitGroup, cfg agent.Config, snd *agent
 					}
 					add(pts)
 				}
+				if cfg.ContainersOn() || len(cfg.Redis) > 0 {
+					pts, err := agent.CollectRedis(ctx, "", cfg.Redis, cfg.RedisPassword, now)
+					warn("redis", err)
+					for i := range pts {
+						pts[i].Service = cfg.HostService
+					}
+					add(pts)
+				}
 				if cfg.ContainersOn() && time.Since(lastNet) >= 5*time.Minute { // the counters are for invoicing: a few minutes is plenty
 					lastNet = time.Now()
 					pts, err := agent.CollectContainerNetwork(ctx, "", now)

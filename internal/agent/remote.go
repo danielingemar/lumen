@@ -30,6 +30,7 @@ type RemoteConfig struct {
 	Containers    bool             `json:"containers"`
 	WatchServices []string         `json:"watch_services"`
 	Instances     []RemoteInstance `json:"instances"`
+	Redis         []RedisTarget    `json:"redis"`
 	UpdateTo      string           `json:"update_to,omitempty"` // set when someone asked in the UI for this agent to be updated
 }
 
@@ -110,5 +111,7 @@ func (c Config) Merge(r RemoteConfig) Config {
 	sys, ctr := r.Systemd, r.Containers
 	out.Systemd, out.Containers = &sys, &ctr
 	out.WatchServices = r.WatchServices
+	out.Redis = append([]RedisTarget(nil), c.Redis...)
+	out.Redis = append(out.Redis, r.Redis...)
 	return out
 }

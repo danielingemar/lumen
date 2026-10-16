@@ -24,6 +24,7 @@ const (
 	collHosts          = "hosts"
 	collServicesHidden = "services_hidden" // rows the user took off the Home list; they come back if they report again
 	collInst           = "instances"
+	collRedis          = "redis"          // Redis servers that have a password or an address set here
 	collUpd            = "agent_updates"  // updates that someone asked for in the UI, per host
 	collGone           = "instances_gone" // instances that were removed, so that their last metrics do not bring them back
 )
@@ -129,6 +130,7 @@ type AgentConfig struct {
 	Containers    bool            `json:"containers"`
 	WatchServices []string        `json:"watch_services"`
 	Instances     []AgentInstance `json:"instances"`
+	Redis         []AgentRedis    `json:"redis"`
 	UpdateTo      string          `json:"update_to,omitempty"` // set by the server when an update was asked for; not part of the revision
 }
 
@@ -385,7 +387,7 @@ func (s *Service) DeleteInstance(tenant, id string) error {
 // agent only restarts its collectors when something actually changed.
 func (s *Service) AgentConfig(tenant, host string) (AgentConfig, error) {
 	h := s.GetHost(tenant, host)
-	cfg := AgentConfig{LogPaths: h.LogPaths, DockerLogs: h.DockerLogs, Systemd: h.Systemd, Containers: h.Containers, WatchServices: h.WatchServices, Instances: []AgentInstance{}}
+	cfg := AgentConfig{LogPaths: h.LogPaths, DockerLogs: h.DockerLogs, Systemd: h.Systemd, Containers: h.Containers, WatchServices: h.WatchServices, Instances: []AgentInstance{}, Redis: []AgentRedis{}}
 	for _, i := range s.ListInstances(tenant) {
 		if i.Host != host {
 			continue
@@ -396,6 +398,16 @@ func (s *Service) AgentConfig(tenant, host string) (AgentConfig, error) {
 			tok, pw = "", ""
 		}
 		cfg.Instances = append(cfg.Instances, AgentInstance{ID: i.ID, Name: i.Name, URL: i.URL, Token: tok, Username: i.Username, Password: pw, LogPath: i.LogPath})
+	}
+	for _, r := range s.ListRedis(tenant) {
+		if r.Host != host {
+			continue
+		}
+		pw, err := s.box.Open(r.PasswordEnc)
+		if err != nil {
+			pw = ""
+		}
+		cfg.Redis = append(cfg.Redis, AgentRedis{Name: r.Name, Container: r.Container, Addr: r.Addr, Username: r.Username, Password: pw})
 	}
 	b, _ := json.Marshal(cfg)
 	sum := sha256.Sum256(b)

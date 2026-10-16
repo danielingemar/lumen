@@ -48,6 +48,7 @@ func (s *Server) snapshot(ctx context.Context, tenant string) (snapshot, error) 
 		return snapshot{}, err
 	}
 	sn := snapshot{at: now, rows: rows, sum: status.ComputeWith(now, rows, s.reg.ListHosts(tenant), s.reg.ListInstances(tenant), s.reg.GoneInstances(tenant))}
+	sn.sum.Redis = status.RedisList(now, rows, s.reg.ListRedis(tenant))
 	s.snaps.mu.Lock()
 	if s.snaps.m == nil {
 		s.snaps.m = map[string]snapshot{}
@@ -81,6 +82,10 @@ func (s *Server) regRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/instances", s.need(perm.Hosts, true, s.createInstance))
 	mux.Handle("PUT /api/v1/instances/{id}", s.need(perm.Hosts, true, s.updateInstance))
 	mux.Handle("DELETE /api/v1/instances/{id}", s.need(perm.Hosts, true, s.deleteInstance))
+	mux.Handle("GET /api/v1/redis", s.need(perm.Hosts, false, s.listRedis))
+	mux.Handle("POST /api/v1/redis", s.need(perm.Hosts, true, s.createRedis))
+	mux.Handle("PUT /api/v1/redis/{id}", s.need(perm.Hosts, true, s.updateRedis))
+	mux.Handle("DELETE /api/v1/redis/{id}", s.need(perm.Hosts, true, s.deleteRedis))
 	mux.Handle("POST /api/v1/instance-keys/{key}/remove", s.need(perm.Hosts, true, s.removeUnmanaged))
 	// agents (API keys only, never a browser session: the response contains instance credentials)
 	mux.Handle("GET /api/v1/agent/config", s.authed("ingest", s.agentConfig))
@@ -451,4 +456,81 @@ func allAgents(sum status.Summary) []status.Host {
 	out := make([]status.Host, 0, len(sum.HostList)+len(sum.Checkers))
 	out = append(out, sum.HostList...)
 	return append(out, sum.Checkers...)
+}
+
+// ---- Redis: passwords and addresses (the agent finds Redis in Docker by itself) ----
+
+type redisIn struct {
+	Name          string `json:"name"`
+	Host          string `json:"host"`
+	Container     string `json:"container"`
+	Addr          string `json:"addr"`
+	Username      string `json:"username"`
+	Password      string `json:"password"`
+	ClearPassword bool   `json:"clear_password"`
+}
+
+func (in redisIn) reg() registry.RedisIn {
+	return registry.RedisIn{Name: in.Name, Host: in.Host, Container: in.Container, Addr: in.Addr, Username: in.Username, Password: in.Password, ClearPassword: in.ClearPassword}
+}
+
+func (s *Server) listRedis(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	sn, err := s.snapshot(r.Context(), id.Tenant)
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, "cannot check the status right now: "+err.Error())
+		return
+	}
+	list := sn.sum.Redis
+	if list == nil {
+		list = []status.Redis{}
+	}
+	hosts := []string{}
+	for _, h := range allAgents(sn.sum) {
+		hosts = append(hosts, h.Name)
+	}
+	writeJSON(w, map[string]any{"data": list, "hosts": hosts})
+}
+
+func (s *Server) createRedis(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	if len(s.reg.ListRedis(id.Tenant)) >= 500 {
+		writeErr(w, http.StatusBadRequest, "too many Redis servers are set up here (max 500)")
+		return
+	}
+	var in redisIn
+	if !readJSON(w, r, &in) {
+		return
+	}
+	rec, err := s.reg.CreateRedis(id.Tenant, in.reg())
+	if err != nil {
+		s.regErr(w, err)
+		return
+	}
+	s.forget(id.Tenant)
+	s.auditOp(id, id.Tenant, "redis.add", rec.ID, rec.Name)
+	writeJSON(w, rec.Out())
+}
+
+func (s *Server) updateRedis(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	var in redisIn
+	if !readJSON(w, r, &in) {
+		return
+	}
+	rec, err := s.reg.UpdateRedis(id.Tenant, r.PathValue("id"), in.reg())
+	if err != nil {
+		s.regErr(w, err)
+		return
+	}
+	s.forget(id.Tenant)
+	s.auditOp(id, id.Tenant, "redis.change", rec.ID, rec.Name)
+	writeJSON(w, rec.Out())
+}
+
+func (s *Server) deleteRedis(w http.ResponseWriter, r *http.Request, id edition.Identity) {
+	if err := s.reg.DeleteRedis(id.Tenant, r.PathValue("id")); err != nil {
+		s.regErr(w, err)
+		return
+	}
+	s.forget(id.Tenant)
+	s.auditOp(id, id.Tenant, "redis.remove", r.PathValue("id"), "")
+	writeJSON(w, map[string]bool{"ok": true})
 }
